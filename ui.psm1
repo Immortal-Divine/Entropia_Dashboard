@@ -26,24 +26,6 @@
         This module relies heavily on the global $global:DashboardConfig object for state and configuration.
 #>
 
-#region Global Variables
-    #region Step: Define script-level window state tracking variable
-        # $script:WindowState: Tracks state related to window movement and interaction.
-        #   - IsMoving: Boolean indicating if the mouse button is down for a potential move.
-        #   - LastMousePos: Stores the last recorded mouse position during a move.
-        #   - IsDragging: Boolean indicating if a drag operation is currently active.
-        #   - LastClickTime: Timestamp of the last mouse click (used for double-click detection, though not explicitly used here).
-        #   - ClickThreshold: Time threshold in milliseconds to differentiate clicks (not explicitly used here).
-        $script:WindowState = @{
-            IsMoving       = $false
-            LastMousePos   = $null
-            IsDragging     = $false
-            LastClickTime  = [DateTime]::MinValue
-            ClickThreshold = 200 # milliseconds
-        }
-    #endregion Step: Define script-level window state tracking variable
-#endregion Global Variables
-
 #region Helper Functions
     #region Function: Sync-UIToConfig
         function Sync-UIToConfig
@@ -224,6 +206,7 @@
 #endregion Helper Functions
 
 #region Core UI Functions
+
     #region Function: Initialize-UI
         function Initialize-UI
         {
@@ -252,16 +235,11 @@
                         visible         = $false # Start hidden, shown later
                         width           = 470
                         height          = 440
-                        top             = 0
-                        left            = 0
                         bg              = @(30, 30, 30)                                 # Dark background
-                        fg              = @(255, 255, 255)                              # White text
                         id              = 'MainForm'
                         text            = 'Entropia Dashboard'
-                        startPosition   = 'Manual' # Position controlled manually or by saved state
+                        startPosition   = 'CenterScreen' # Position controlled manually or by saved state
                         formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None  # Borderless window
-                        opacity         = 1
-                        topMost         = $false
                     }
                     $mainForm = Set-UIElement @mainFormProps
                 #endregion Step: Create Main Application Form
@@ -273,10 +251,7 @@
                         visible         = $false # Start hidden
                         width           = 470
                         height          = 440
-                        top             = 0
-                        left            = 0
                         bg              = @(30, 30, 30)
-                        fg              = @(255, 255, 255)
                         id              = 'SettingsForm'
                         text            = 'Settings'
                         startPosition   = 'Manual'
@@ -308,15 +283,10 @@
                     # $topBarProps: Hashtable defining properties for the panel used as a custom title/drag bar.
                     $topBarProps = @{
                         type    = 'Panel'
-                        visible = $true
                         width   = 470
                         height  = 30
-                        top     = 0
-                        left    = 0
-                        bg      = @(30, 30, 30, 30) # Semi-transparent background
-                        fg      = @(255, 255, 255)
+                        bg      = @(20, 20, 20) # Dark background
                         id      = 'TopBar'
-                        text    = ''
                     }
                     $topBar = Set-UIElement @topBarProps
                 #endregion Step: Create Top Bar Panel
@@ -325,16 +295,14 @@
                     # $titleLabelProps: Hashtable defining properties for the application title label on the top bar.
                     $titleLabelProps = @{
                         type    = 'Label'
-                        visible = $true
                         width   = 140
-                        height  = 18
+                        height  = 12
                         top     = 5
                         left    = 10
-                        bg      = @(30, 30, 30, 0) # Transparent background
-                        fg      = @(255, 255, 255)
+                        fg      = @(240, 240, 240)
                         id      = 'TitleLabel'
                         text    = 'Entropia Dashboard'
-                        font    = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+                        font    = New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)
                     }
                     $titleLabelForm = Set-UIElement @titleLabelProps
                 #endregion Step: Create Title Label
@@ -343,16 +311,14 @@
                     # $copyrightLabelProps: Hashtable defining properties for the application copyright label on the top bar.
                     $copyrightLabelProps = @{
                         type    = 'Label'
-                        visible = $true
                         width   = 140
-                        height  = 15
-                        top     = 20
+                        height  = 10
+                        top     = 16
                         left    = 10
-                        bg      = @(30, 30, 30, 0) # Transparent background
-                        fg      = @(255, 255, 255)
+                        fg      = @(230, 230, 230)
                         id      = 'CopyrightLabel'
                         text    = [char]0x00A9 + ' Immortal / Divine 2025 - v1.0'
-                        font    = New-Object System.Drawing.Font('Segoe UI', 7, [System.Drawing.FontStyle]::Regular)
+                        font    = New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)
                     }
                     $copyrightLabelForm = Set-UIElement @copyrightLabelProps
                 #endregion Step: Create Copyright Label
@@ -361,13 +327,11 @@
                     # $minFormProps: Hashtable defining properties for the minimize window button.
                     $minFormProps = @{
                         type    = 'Button'
-                        visible = $true
                         width   = 30
                         height  = 30
-                        top     = 0
                         left    = 410
-                        bg      = @(50, 50, 50)
-                        fg      = @(255, 255, 255)
+                        bg      = @(40, 40, 40)
+                        fg      = @(240, 240, 240)
                         id      = 'MinForm'
                         text    = '_'
                         fs      = 'Flat' # Flat appearance
@@ -380,13 +344,11 @@
                     # $closeFormProps: Hashtable defining properties for the close window button.
                     $closeFormProps = @{
                         type    = 'Button'
-                        visible = $true
                         width   = 30
                         height  = 30
-                        top     = 0
                         left    = 440
-                        bg      = @(200, 50, 50) # Red background for close button
-                        fg      = @(255, 255, 255)
+                        bg      = @(210, 45, 45) # Red color for mouse over (in 1.1)
+                        fg      = @(240, 240, 240)
                         id      = 'CloseForm'
                         text    = [char]0x166D # 'X' symbol
                         fs      = 'Flat'
@@ -397,55 +359,52 @@
             #endregion Step: Create Main UI Elements
 
             #region Step: Create Main Form Action Buttons
-                #region Step: Create Login Button
-                    # $launchProps: Hashtable defining properties for the Login button.
+                #region Step: Create Launch Button
+                    # $launchProps: Hashtable defining properties for the Launch button.
                     $launchProps = @{
                         type    = 'Button'
-                        visible = $true
                         width   = 125
                         height  = 30
                         top     = 40
                         left    = 15
-                        bg      = @(63, 81, 181) # Indigo color
-                        fg      = @(255, 255, 255)
+                        bg      = @(35, 175, 75) # Green color for active status
+                        fg      = @(240, 240, 240)
                         id      = 'Launch'
                         text    = 'Launch'
                         fs      = 'Flat'
                         font    = New-Object System.Drawing.Font('Segoe UI', 9)
                     }
                     $btnLaunch = Set-UIElement @launchProps
-                #endregion Step: Create Login Button
+                #endregion Step: Create Launch Button
 
-                #region Step: Create Ftool Button
-                    # $loginProps: Hashtable defining properties for the Ftool button.
+                #region Step: Create Login Button
+                    # $loginProps: Hashtable defining properties for the Login button.
                     $loginProps = @{
                         type    = 'Button'
-                        visible = $true
                         width   = 125
                         height  = 30
                         top     = 40
                         left    = 150
-                        bg      = @(100, 100, 100) # Gray color
-                        fg      = @(255, 255, 255)
+                        bg      = @(35, 175, 75) # Green color for active status
+                        fg      = @(240, 240, 240)
                         id      = 'Login'
                         text    = 'Login'
                         fs      = 'Flat'
                         font    = New-Object System.Drawing.Font('Segoe UI', 9)
                     }
                     $btnLogin = Set-UIElement @loginProps
-                #endregion Step: Create Ftool Button
+                #endregion Step: Create Login Button
 
                 #region Step: Create Settings Button
                     # $settingsProps: Hashtable defining properties for the Settings button.
                     $settingsProps = @{
                         type    = 'Button'
-                        visible = $true
                         width   = 80
                         height  = 30
                         top     = 40
                         left    = 285
-                        bg      = @(255, 165, 0) # Orange color
-                        fg      = @(255, 255, 255)
+                        bg      = @(255, 165, 0) # Orange color for invalid settings (in 1.1)
+                        fg      = @(240, 240, 240)
                         id      = 'Settings'
                         text    = 'Settings'
                         fs      = 'Flat'
@@ -458,13 +417,12 @@
                     # $exitProps: Hashtable defining properties for the button to terminate selected processes.
                     $exitProps = @{
                         type    = 'Button'
-                        visible = $true
                         width   = 80
                         height  = 30
                         top     = 40
                         left    = 375
-                        bg      = @(211, 47, 47) # Red color
-                        fg      = @(255, 255, 255)
+                        bg      = @(210, 45, 45) # Red color for mouse over (in 1.1)
+                        fg      = @(240, 240, 240)
                         id      = 'Terminate'
                         text    = 'Terminate'
                         fs      = 'Flat'
@@ -473,24 +431,23 @@
                     $btnStop = Set-UIElement @exitProps
                 #endregion Step: Create Terminate Button (Terminate Selected)
 
-                #region Step: Create Launch Button
-                    # $ftoolProps: Hashtable defining properties for the main Launch button.
+                #region Step: Create Ftool Button
+                    # $ftoolProps: Hashtable defining properties for the main Ftool button.
                     $ftoolProps = @{
                         type    = 'Button'
-                        visible = $true
                         width   = 440
                         height  = 30
                         top     = 75
                         left    = 15
-                        bg      = @(34, 177, 76) # Green color
-                        fg      = @(255, 255, 255)
+                        bg      = @(40, 40, 40)
+                        fg      = @(240, 240, 240)
                         id      = 'Ftool'
                         text    = 'Ftool'
                         fs      = 'Flat'
                         font    = New-Object System.Drawing.Font('Segoe UI', 9)
                     }
                     $btnFtool = Set-UIElement @ftoolProps
-                #endregion Step: Create Launch Button
+                #endregion Step: Create Ftool Button
             #endregion Step: Create Main Form Action Buttons
 
             #region Step: Create Settings Form Controls
@@ -498,13 +455,12 @@
                     # $saveProps: Hashtable defining properties for the Save button on the settings form.
                     $saveProps = @{
                         type    = 'Button'
-                        visible = $true
                         width   = 120
                         height  = 40
                         top     = 340
                         left    = 20
-                        bg      = @(63, 81, 181) # Indigo color
-                        fg      = @(255, 255, 255)
+                        bg      = @(35, 175, 75) # Green color for valid settings (in 1.1)
+                        fg      = @(240, 240, 240)
                         id      = 'Save'
                         text    = 'Save'
                         fs      = 'Flat'
@@ -517,13 +473,12 @@
                     # $cancelProps: Hashtable defining properties for the Cancel button on the settings form.
                     $cancelProps = @{
                         type    = 'Button'
-                        visible = $true
                         width   = 120
                         height  = 40
                         top     = 340
                         left    = 150
-                        bg      = @(211, 47, 47) # Red color
-                        fg      = @(255, 255, 255)
+                        bg      = @(210, 45, 45) # Red color for mouse over (in 1.1)
+                        fg      = @(240, 240, 240)
                         id      = 'Cancel'
                         text    = 'Cancel'
                         fs      = 'Flat'
@@ -536,13 +491,12 @@
                     # $browseLauncherProps: Hashtable defining properties for the Browse button next to the launcher path input.
                     $browseLauncherProps = @{
                         type    = 'Button'
-                        visible = $true
                         width   = 55
                         height  = 25
                         top     = 20
                         left    = 110
-                        bg      = @(63, 81, 181) # Indigo color
-                        fg      = @(255, 255, 255)
+                        bg      = @(40, 40, 40) 
+                        fg      = @(240, 240, 240)
                         id      = 'Browse'
                         text    = 'Browse'
                         fs      = 'Flat'
@@ -555,13 +509,12 @@
                     # $launcherLabelProps: Hashtable defining properties for the label associated with the launcher path input.
                     $launcherLabelProps = @{
                         type    = 'Label'
-                        visible = $true
                         width   = 85
                         height  = 20
                         top     = 25
                         left    = 20
-                        bg      = @(30, 30, 30, 0) # Transparent background
-                        fg      = @(255, 255, 255)
+                        bg      = @(40, 40, 40, 0) # Transparent background
+                        fg      = @(240, 240, 240)
                         id      = 'LabelLauncher'
                         text    = 'Launcher Path:'
                         font    = New-Object System.Drawing.Font('Segoe UI', 9)
@@ -573,13 +526,12 @@
                     # $processNameLabelProps: Hashtable defining properties for the label associated with the process name input.
                     $processNameLabelProps = @{
                         type    = 'Label'
-                        visible = $true
                         width   = 85
                         height  = 20
                         top     = 95
                         left    = 20
-                        bg      = @(30, 30, 30, 0) # Transparent background
-                        fg      = @(255, 255, 255)
+                        bg      = @(40, 40, 40, 0) # Transparent background
+                        fg      = @(240, 240, 240)
                         id      = 'LabelProcess'
                         text    = 'Process Name:'
                         font    = New-Object System.Drawing.Font('Segoe UI', 9)
@@ -591,13 +543,12 @@
                     # $maxClientsLabelProps: Hashtable defining properties for the label associated with the max clients input.
                     $maxClientsLabelProps = @{
                         type    = 'Label'
-                        visible = $true
                         width   = 85
                         height  = 20
                         top     = 165
                         left    = 20
-                        bg      = @(30, 30, 30, 0) # Transparent background
-                        fg      = @(255, 255, 255)
+                        bg      = @(40, 40, 40, 0) # Transparent background
+                        fg      = @(240, 240, 240)
                         id      = 'LabelMax'
                         text    = 'Max Clients:'
                         font    = New-Object System.Drawing.Font('Segoe UI', 9)
@@ -606,56 +557,17 @@
                 #endregion Step: Create Max Clients Label
             #endregion Step: Create Settings Form Controls
 
-            #region Step: Create Main Form Data Display Controls
-                #region Step: Create Main DataGrid (Process List)
-                    # $dataGridMainProps: Hashtable defining properties for the primary DataGridView displaying process info.
-                    $dataGridMainProps = @{
-                        type    = 'DataGridView'
-                        visible = $false
-                        width   = 155
-                        height  = 320
-                        top     = 115
-                        left    = 5
-                        bg      = @(40, 40, 40)
-                        fg      = @(255, 255, 255)
-                        id      = 'DataGridMain'
-                        text    = ''
-                        font    = New-Object System.Drawing.Font('Segoe UI', 9)
-                    }
-                    $DataGridMain = Set-UIElement @dataGridMainProps
-                #endregion Step: Create Main DataGrid (Process List)
-
-                #region Step: Create Secondary DataGrid
-                    # $dataGridFillerProps: Hashtable defining properties for the secondary DataGridView (purpose might be specific).
-                    $dataGridFillerProps = @{
-                        type    = 'DataGridView'
-                        visible = $true
-                        width   = 450
-                        height  = 320
-                        top     = 115
-                        left    = 10
-                        bg      = @(40, 40, 40)
-                        fg      = @(255, 255, 255)
-                        id      = 'DataGridFiller'
-                        text    = ''
-                        font    = New-Object System.Drawing.Font('Segoe UI', 9)
-                    }
-                    $DataGridFiller = Set-UIElement @dataGridFillerProps
-                #endregion Step: Create Secondary DataGrid
-            #endregion Step: Create Main Form Data Display Controls
-
             #region Step: Create Settings Form Input Controls
                 #region Step: Create Launcher Path TextBox
                     # $launcherTextBoxProps: Hashtable defining properties for the TextBox to input the launcher path.
                     $launcherTextBoxProps = @{
                         type    = 'TextBox'
-                        visible = $true
                         width   = 150
                         height  = 30
                         top     = 50
                         left    = 20
                         bg      = @(40, 40, 40)
-                        fg      = @(255, 255, 255)
+                        fg      = @(240, 240, 240)
                         id      = 'InputLauncher'
                         text    = ''
                         font    = New-Object System.Drawing.Font('Segoe UI', 9)
@@ -667,13 +579,12 @@
                     # $processNameTextBoxProps: Hashtable defining properties for the TextBox to input the target process name.
                     $processNameTextBoxProps = @{
                         type    = 'TextBox'
-                        visible = $true
                         width   = 150
                         height  = 30
                         top     = 120
                         left    = 20
                         bg      = @(40, 40, 40)
-                        fg      = @(255, 255, 255)
+                        fg      = @(240, 240, 240)
                         id      = 'InputProcess'
                         text    = ''
                         font    = New-Object System.Drawing.Font('Segoe UI', 9)
@@ -685,22 +596,18 @@
                     # $maxClientsTextBoxProps: Hashtable defining properties for the TextBox to input the maximum number of clients.
                     $maxClientsTextBoxProps = @{
                         type    = 'TextBox'
-                        visible = $true
                         width   = 150
                         height  = 30
                         top     = 190
                         left    = 20
                         bg      = @(40, 40, 40)
-                        fg      = @(255, 255, 255)
+                        fg      = @(240, 240, 240)
                         id      = 'InputMax'
                         text    = ''
                         font    = New-Object System.Drawing.Font('Segoe UI', 9)
                     }
                     $txtMaxClients = Set-UIElement @maxClientsTextBoxProps
                 #endregion Step: Create Max Clients TextBox
-            #endregion Step: Create Settings Form Input Controls
-
-            #region Step: Create Context Menu and Login Position Controls
 
                 #region Step: Define Slot Options for Login Positions
                     # $slotOptions: Array defining the available choices for login position ComboBoxes.
@@ -725,7 +632,7 @@
                                 top     = (25 + (($i - 1) * 30)) # Calculate vertical position
                                 left    = 180
                                 bg      = @(30, 30, 30, 0) # Transparent background
-                                fg      = @(255, 255, 255)
+                                fg      = @(240, 240, 240)
                                 id      = "LabelPos$i"
                                 text    = "Login Position $i`:"
                                 font    = New-Object System.Drawing.Font('Segoe UI', 9)
@@ -743,7 +650,7 @@
                                 top           = (25 + (($i - 1) * 30)) # Calculate vertical position
                                 left          = 290
                                 bg            = @(40, 40, 40)
-                                fg            = @(255, 255, 255)
+                                fg            = @(240, 240, 240)
                                 fs            = 'Flat'
                                 id            = "Login$i"
                                 font          = New-Object System.Drawing.Font('Segoe UI', 9)
@@ -768,6 +675,47 @@
                         #endregion Step: Add Controls to Settings Form and Store ComboBox
                     }
                 #endregion Step: Dynamically Create Login Position Labels and ComboBoxes
+
+            #endregion Step: Create Settings Form Input Controls
+
+            #region Step: Create Main Form DataGrid Display Controls
+                #region Step: Create Main DataGrid (Process List) (in 1.1)
+                    # $dataGridMainProps: Hashtable defining properties for the primary DataGridView displaying process info.
+                    $dataGridMainProps = @{
+                        type    = 'DataGridView'
+                        visible = $false
+                        width   = 155
+                        height  = 320
+                        top     = 115
+                        left    = 5
+                        bg      = @(40, 40, 40)
+                        fg      = @(240, 240, 240)
+                        id      = 'DataGridMain'
+                        text    = ''
+                        font    = New-Object System.Drawing.Font('Segoe UI', 9)
+                    }
+                    $DataGridMain = Set-UIElement @dataGridMainProps
+                #endregion Step: Create Main DataGrid (Process List) (in 1.1)
+
+                #region Step: Create Filler DataGrid
+                    # $dataGridFillerProps: Hashtable defining properties for the secondary DataGridView (purpose might be specific).
+                    $dataGridFillerProps = @{
+                        type    = 'DataGridView'
+                        width   = 450
+                        height  = 320
+                        top     = 115
+                        left    = 10
+                        bg      = @(40, 40, 40)
+                        fg      = @(240, 240, 240)
+                        id      = 'DataGridFiller'
+                        text    = ''
+                        font    = New-Object System.Drawing.Font('Segoe UI', 9)
+                    }
+                    $DataGridFiller = Set-UIElement @dataGridFillerProps
+                #endregion Step: Create Filler DataGrid
+            #endregion Step: Create Main Form DataGrid Display Controls
+
+            #region Step: Create Context Menu and Login Position Controls
 
                 #region Step: Create Context Menu for DataGrids
                     # Create the context menu strip and its items for DataGrid interactions.
@@ -1235,31 +1183,6 @@
                             }
                         #endregion Step: Handle MainForm Resize Event
 
-						KeyDown      = {
-								# create a small array to capture the modifier keys used
-								$modifiers = @()
-								if ($_.Shift)   { $modifiers += "Shift" }
-								if ($_.Alt)     { $modifiers += "Alt" }
-								if ($_.Control) { $modifiers += "Control" }
-								# using that array, build part of the output text
-								$modkeys = ''
-								if ($modifiers.Count) {
-									$modkeys = $_.Modifiers -replace ', ', ' + '
-								}
-												
-								if ('Q','A','F1','Escape','NumLock' -contains $_.KeyCode) {
-							
-									# we create the output string by making use of the '-f' Format operator in POwershell.
-									# you can read more about that here for instance:
-									# https://social.technet.microsoft.com/wiki/contents/articles/7855.powershell-using-the-f-format-operator.aspx
-									Write-Verbose ('{0}{1} pressed - 1' -f $modkeys, $_.KeyCode)
-							
-									# The same could have been done with something like:
-									Write-Verbose ($modkeys + ' ' + $_.KeyCode + ' pressed - 2')
-									# or
-									Write-Verbose "$modkeys $($_.KeyCode) pressed - 3"
-							}
-						}
                     }
 
                     # Settings form events
@@ -1283,6 +1206,7 @@
                             }
                         #endregion Step: Handle SettingsForm Load Event
                     }
+
                     # Minimize button event
                     MinForm                    = @{
                         #region Step: Handle MinForm Click Event
@@ -1422,47 +1346,100 @@
                     }
 
                     # DataGrid events
-                    DataGridFiller                   = @{
-                        #region Step: Handle DataGrid MouseDown Event
-                            # Handle right-click for context menu display on the correct row
-                            MouseDown   = {
-                                param($src, $e)
-                                #region Step: Handle Right-Click for Context Menu
-                                    if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right)
-                                    {
-                                        # Determine which row was clicked.
-                                        $hitTestInfo = $global:DashboardConfig.UI.DataGridFiller.HitTest($e.X, $e.Y)
-                                        if ($hitTestInfo.RowIndex -ge 0)
-                                        {
-                                            # Select the row under the mouse cursor before showing the context menu.
-                                            $global:DashboardConfig.UI.DataGridFiller.Rows[$hitTestInfo.RowIndex].Selected = $true
-                                        }
-                                    }
-                                #endregion Step: Handle Right-Click for Context Menu
-                            }
-                        #endregion Step: Handle DataGrid MouseDown Event
+					DataGridFiller = @{
 
-                        #region Step: Handle DataGrid DoubleClick Event
-                            # Handle double-click to bring the corresponding process window to the front
-                            DoubleClick = {
-                                param($src, $e)
-                                #region Step: Handle Double-Click to Bring Window to Front
-                                    # Determine which row was double-clicked.
-                                    $hitTestInfo = $global:DashboardConfig.UI.DataGridFiller.HitTest($e.X, $e.Y)
-                                    if ($hitTestInfo.RowIndex -ge 0)
-                                    {
-                                        $row = $global:DashboardConfig.UI.DataGridFiller.Rows[$hitTestInfo.RowIndex]
-                                        # Check if the row has associated process info and a valid window handle.
-                                        if ($row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
-                                        {
-                                            # Use native function to bring the window to the foreground.
-                                            [Native]::BringToFront($row.Tag.MainWindowHandle)
-                                        }
-                                    }
-                                #endregion Step: Handle Double-Click to Bring Window to Front
-                            }
-                        #endregion Step: Handle DataGrid DoubleClick Event
-                    }
+						#region Step: Handle DataGrid DoubleClick Event
+							# Handle double-click to bring the corresponding process window to the front
+							DoubleClick = {
+								param($src, $e)
+								try {
+									$grid = $src
+									if (-not $grid) { return }
+									# Determine which row was double-clicked.
+									$hitTestInfo = $grid.HitTest($e.X, $e.Y)
+									if ($hitTestInfo.RowIndex -ge 0) {
+										$row = $grid.Rows[$hitTestInfo.RowIndex]
+										# Check if the row has associated process info and a valid window handle.
+										# Assuming $row.Tag holds a process object or similar with MainWindowHandle
+										if ($row.Tag -and $row.Tag.GetType().GetProperty('MainWindowHandle') -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero) {
+											# Use helper function/native methods if available
+											[Native]::BringToFront($row.Tag.MainWindowHandle)
+											Write-Verbose "  UI: DoubleClick - Bringing window handle $($row.Tag.MainWindowHandle) to front." -ForegroundColor DarkGray
+										} elseif ($row.Tag -and $row.Tag.GetType().GetProperty('MainWindowHandle')) {
+											Write-Verbose "  UI: DoubleClick - Row $($hitTestInfo.RowIndex) has tag, but MainWindowHandle is Zero." -ForegroundColor DarkGray
+										} else {
+											Write-Verbose "  UI: DoubleClick - Row $($hitTestInfo.RowIndex) does not have a valid Tag with MainWindowHandle." -ForegroundColor DarkGray
+										}
+									}
+								} catch {
+									Write-Verbose "  UI: Error in DataGridFiller DoubleClick: $_" -ForegroundColor Red
+								}
+							}
+						#endregion Step: Handle DataGrid DoubleClick Event
+
+						#region Step: Handle DataGrid MouseDown Event
+							# Handle right-click for context menu, left-click for selection, Alt+Left-click for drag initiation
+							MouseDown = {
+								param($src, $e) # $src is the DataGridView control itself
+
+								try {
+									$grid = $src # Use the source control passed to the event
+									if (-not $grid) {
+										Write-Verbose "  UI: MouseDown - Source grid object is null." -ForegroundColor Yellow
+										return
+									}
+
+									$hitTestInfo = $grid.HitTest($e.X, $e.Y)
+
+									# --- Right-Click Handling ---
+									if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
+										if ($hitTestInfo.RowIndex -ge 0) {
+											# Ensure the clicked row is selected before showing the context menu.
+											if (-not ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Control)) {
+												if (-not $grid.Rows[$hitTestInfo.RowIndex].Selected) {
+													$grid.ClearSelection()
+												}
+											}
+											$grid.Rows[$hitTestInfo.RowIndex].Selected = $true
+											Write-Verbose "  UI: Right-clicked row $($hitTestInfo.RowIndex), ensuring selection." -ForegroundColor DarkGray
+										}
+									}
+									# --- Left-Click Handling ---
+									elseif ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+										if ($hitTestInfo.RowIndex -ge 0) { # Clicked on a row
+											$clickedRow = $grid.Rows[$hitTestInfo.RowIndex]
+
+											# --- Normal Left Click for Selection ---
+				
+												# Standard behavior: Clear previous selection if Ctrl is NOT held.
+												if (-not ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Control)) {
+													# Only clear if the clicked row isn't the *only* selected row
+													if ($grid.SelectedRows.Count -ne 1 -or -not $clickedRow.Selected) {
+														$grid.ClearSelection()
+													}
+												}
+												# Toggle selection if Ctrl is pressed, otherwise just select.
+												if (([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Control)) {
+													# If Ctrl is held, toggle selection
+
+												}
+
+
+												Write-Verbose "  UI: Left-clicked row $($hitTestInfo.RowIndex). Selected: $($clickedRow.Selected)" -ForegroundColor DarkGray
+				
+										}
+										elseif ($hitTestInfo.Type -eq [System.Windows.Forms.DataGridViewHitTestType]::None) { # Clicked on empty space
+											$grid.ClearSelection()
+											Write-Verbose "  UI: Clicked on empty DataGrid area, cleared selection." -ForegroundColor DarkGray
+										}
+									}
+								} catch {
+									Write-Verbose "  UI: Error in DataGridFiller MouseDown: $_" -ForegroundColor Red
+								}
+							}
+						#endregion Step: Handle DataGrid MouseDown Event (Initiates Drag)
+
+					}
 
                     # Context menu item events
                     ContextMenuFront           = @{
@@ -1486,8 +1463,8 @@
                             }
                         #endregion Step: Handle ContextMenuFront Click Event
                     }
-
-                    ContextMenuBack            = @{
+					
+					ContextMenuBack            = @{
                         #region Step: Handle ContextMenuBack Click Event
                             Click = {
                                 #region Step: Send Selected Process Windows to Back (Minimize)
@@ -1499,8 +1476,10 @@
                                             # Check for valid process info and window handle.
                                             if ($row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
                                             {
-                                                # Minimize the window (sends it behind others).
+												Write-Verbose 'UI: Minimizing...' -ForegroundColor Cyan
                                                 [Native]::SendToBack($row.Tag.MainWindowHandle)
+												Write-Verbose 'UI: Optimizing...' -ForegroundColor Cyan
+												[Native]::EmptyWorkingSet($row.Tag.Handle)
                                             }
                                         }
                                     }
@@ -1534,9 +1513,8 @@
                                                     [int](($scr.Height - $height) / 2), # Center Y
                                                     $width,
                                                     $height,
-                                                    # Flags: Don't activate, ensure visible.
-                                                    [Native+WindowPositionOptions]::DoNotActivate -bor
-                                                    [Native+WindowPositionOptions]::MakeVisible
+                                                    # Flags: Don't activate
+                                                    [Native+WindowPositionOptions]::DoNotActivate
                                                 )
                                             }
                                         }
@@ -1555,6 +1533,7 @@
                                     {
                                         # Call the function responsible for starting the client launch sequence.
                                         Start-ClientLaunch
+
                                     }
                                     catch
                                     {
@@ -1565,6 +1544,7 @@
                                     }
                                 #endregion Step: Initialize Client Launch Process
                             }
+							
                         #endregion Step: Handle Launch Button Click Event
                     }
 
@@ -1593,6 +1573,7 @@
                                             # Call the login function, passing the log file path.
                                             Write-Verbose '  UI: Starting login process for selected clients...' -ForegroundColor Cyan
                                             LoginSelectedRow -LogFilePath $LogFilePath
+
                                         }
                                         else
                                         {
@@ -1695,6 +1676,7 @@
                                                             {
                                                                 [Native]::ShowWindow($process.MainWindowHandle, [Native]::SW_RESTORE)
                                                             }
+															Start-Sleep -MilliSeconds 100
 
                                                             Write-Verbose "  UI: Attempting graceful shutdown for PID $processId..." -ForegroundColor DarkGray
                                                             $process.CloseMainWindow() | Out-Null
@@ -2005,7 +1987,7 @@
                 [switch] For TextBoxes or DataGridViews, makes the content read-only.
             .PARAMETER scrollBars
                 [switch] For TextBoxes, enables vertical scrollbars (if $multiline is also true).
-            .PARAMETER dropDownStyle
+			.PARAMETER dropDownStyle
                 [string] For ComboBoxes, sets the style (e.g., 'Simple', 'DropDown', 'DropDownList'). Defaults to 'DropDownList'.
             .OUTPUTS
                 [System.Windows.Forms.Control] Returns the created and configured UI element object.
@@ -2061,32 +2043,41 @@
                 if ($type -eq 'DataGridView')
                 {
                     $el.AllowUserToAddRows = $false          # Don't allow users to add new rows directly
-                    $el.ReadOnly = $true                     # Make the grid read-only
+                    $el.ReadOnly = $false                    # Make the grid read-only
+					$el.AllowUserToOrderColumns = $true      # Make the grid columns dragable
+					$el.AllowUserToResizeColumns  = $false 	 # Make the grid columns size fixed
+					$el.AllowUserToResizeRows = $false 		 # Make the grid rows size fixed
                     $el.RowHeadersVisible = $false           # Hide the row header column
                     $el.MultiSelect = $true                  # Allow selecting multiple rows
                     $el.SelectionMode = 'FullRowSelect'      # Select entire rows instead of individual cells
                     $el.AutoSizeColumnsMode = 'Fill'         # Make columns fill the available width
-                    $el.BorderStyle = 'None'                 # Remove the outer border
+                    $el.BorderStyle = 'FixedSingle'          # Adds the outer border
                     $el.EnableHeadersVisualStyles = $false   # Allow custom header styling
                     $el.CellBorderStyle = 'SingleHorizontal' # Horizontal lines between rows
-                    $el.ColumnHeadersBorderStyle = 'None'    # No border around column headers
+                    $el.ColumnHeadersBorderStyle = 'Single'  # No border around column headers
+					$el.EditMode = 'EditProgrammatically'	 # Allows editing values on specific occasions
+					$el.ColumnHeadersHeightSizeMode = 'DisableResizing'
+					$el.RowHeadersWidthSizeMode = 'DisableResizing'
+					$el.DefaultCellStyle.Alignment = 'MiddleCenter'
+					$el.ColumnHeadersDefaultCellStyle.Alignment = 'MiddleCenter'
 
                     # Set colors for better visibility in dark theme
                     $el.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)    # Dark cell background
+					$el.AlternatingRowsDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(37, 37, 37)    # Dark cell background
                     $el.DefaultCellStyle.ForeColor = [System.Drawing.Color]::FromArgb(230, 230, 230) # Light text
                     $el.ColumnHeadersDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 50) # Slightly darker header background
-                    $el.ColumnHeadersDefaultCellStyle.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 255) # White header text
+                    $el.ColumnHeadersDefaultCellStyle.ForeColor = [System.Drawing.Color]::FromArgb(240, 240, 240) # White header text
                     $el.GridColor = [System.Drawing.Color]::FromArgb(70, 70, 70)                     # Color for grid lines
                     $el.BackgroundColor = [System.Drawing.Color]::FromArgb(40, 40, 40)               # Background if grid is empty
                     $el.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::FromArgb(60, 80, 180) # Selection background color (blueish)
-                    $el.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::FromArgb(255, 255, 255) # White selected text
+                    $el.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::FromArgb(240, 240, 240) # White selected text
 
                     # Add default columns expected by the application
                     $el.Columns.AddRange(
-                        (New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'Index'; HeaderText = '#'; FillWeight = 5 }),
-                        (New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'Titel'; HeaderText = 'Titel'; FillWeight = 30 }),
-                        (New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'ID'; HeaderText = 'ID'; FillWeight = 8 }),
-                        (New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'State'; HeaderText = 'State'; FillWeight = 12 })
+                        (New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'Index'; HeaderText = '#'; FillWeight = 8; SortMode = 'NotSortable';}),
+                        (New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'Titel'; HeaderText = 'Titel'; SortMode = 'NotSortable';}),
+                        (New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'ID'; HeaderText = 'ID'; FillWeight = 20; SortMode = 'NotSortable';}),
+                        (New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'State'; HeaderText = 'State'; FillWeight = 40; SortMode = 'NotSortable';})
                     )
                 }
             #endregion Step: Configure DataGridView Specific Properties
@@ -2159,7 +2150,7 @@
 									$e.Graphics.FillRectangle($bgBrush, 0, 0, $src.Width, $src.Height)
 								
 									# Draw text
-									$textBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::White)
+									$textBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(240, 240, 240))
 									$textFormat = [System.Drawing.StringFormat]::new()
 									$textFormat.Alignment = [System.Drawing.StringAlignment]::Center
 									$textFormat.LineAlignment = [System.Drawing.StringAlignment]::Center
@@ -2168,7 +2159,7 @@
 								
 									# Draw border
 									$borderPen = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(60, 60, 60))
-									$e.Graphics.DrawRectangle($borderPen, 0, 0, $src.Width - 1, $src.Height - 1)
+									$e.Graphics.DrawRectangle($borderPen, 0, 0, $src.Width, $src.Height)
 								
 									# Dispose resources
 									$bgBrush.Dispose()
@@ -2197,6 +2188,7 @@
 
                         # Apply dark theme styling to TextBox
                         $el.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+						$el.TextAlign = "Center"
                         $el.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 50) # Slightly lighter than background
                         $el.ForeColor = [System.Drawing.Color]::FromArgb(230, 230, 230)
 
@@ -2232,15 +2224,15 @@
 								{
 									$brushBackground = if ($e.State -band [System.Windows.Forms.DrawItemState]::Selected)
 									{
-										[System.Drawing.Brushes]::DarkSlateGray
+										[System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(40, 40, 40))
 									}
 									else
 									{
 										[System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(40, 40, 40))
 									}
 									
-									$e.Graphics.FillRectangle($brushBackground, $e.Bounds)
-									$e.Graphics.DrawString($src.Items[$e.Index].ToString(), $src.Font, [System.Drawing.Brushes]::White, $e.Bounds.Left, $e.Bounds.Top)
+									$e.Graphics.FillRectangle($brushBackground, $e.bounds.Left, $e.bounds.Top, $e.bounds.Width, $e.bounds.Height)
+									$e.Graphics.DrawString($src.Items[$e.Index].ToString(), $src.Font, [System.Drawing.Brushes]::FromArgb(240, 240, 240), $e.Bounds.Left, $e.Bounds.Top, $e.bounds.Width, $e.bounds.Height)
 								}
 								
 								$e.DrawFocusRectangle()
@@ -2268,11 +2260,12 @@
 							# Copy properties from the original ComboBox
 							$customComboBox.Location = $el.Location
 							$customComboBox.Size = $el.Size
+							$customComboBox.Width = $el.Width - 20
 							$customComboBox.DropDownStyle = $el.DropDownStyle
 							$customComboBox.FlatStyle = $el.FlatStyle
 							$customComboBox.DrawMode = $el.DrawMode
 							$customComboBox.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
-							$customComboBox.ForeColor = [System.Drawing.Color]::White
+							$customComboBox.ForeColor = [System.Drawing.Color]::FromArgb(240, 240, 240)
 							$customComboBox.Font = $el.Font
 							$customComboBox.IntegralHeight = $false
 							$customComboBox.TabIndex = $el.TabIndex
@@ -2299,6 +2292,7 @@
             #endregion Step: Return Created UI Element
         }
     #endregion Function: Set-UIElement
+
 #endregion Core UI Functions
 
 #region Module Exports

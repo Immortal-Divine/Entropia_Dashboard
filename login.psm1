@@ -1,17 +1,18 @@
 <# login.psm1 
-.SYNOPSIS
-Login Automation Module for Entropia Dashboard.
+	.SYNOPSIS
+		Login Automation Module for Entropia Dashboard.
 
-.DESCRIPTION
-This module provides a comprehensive login automation system for the Entropia Dashboard:
-- Processes multiple game clients sequentially based on selection
-- Monitors client processes and window states
-- Provides thread-safe logging of login operations
-- Handles cleanup of resources when operations complete
+	.DESCRIPTION
+		This module provides a comprehensive login automation system for the Entropia Dashboard:
+		- Processes multiple game clients sequentially based on selection
+		- Monitors client processes and window states
+		- Provides thread-safe logging of login operations
+		- Handles cleanup of resources when operations complete
 
-.NOTES
-Author: Immortal / Divine
-Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, datagrid.psm1
+	.NOTES
+		Author: Immortal / Divine
+		Version: 1.0
+		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, datagrid.psm1
 #>
 
 #region Helper Functions
@@ -31,7 +32,7 @@ function Restore-Window
 		if ([Native]::IsWindowMinimized($Process.MainWindowHandle))
 		{
 			Write-Verbose "LOGIN: Restoring minimized window for PID $($Process.Id)" -ForegroundColor DarkGray
-			[Native]::ShowWindow($Process.MainWindowHandle, [Native]::SW_RESTORE)
+			[Native]::BringToFront($Process.MainWindowHandle)
 			Start-Sleep -Milliseconds 100
 		}
 	}
@@ -55,7 +56,7 @@ function Set-WindowForeground
 	$script:ScriptInitiatedMove = $true
 	$result = [Native]::BringToFront($Process.MainWindowHandle)
 	Write-Verbose "LOGIN: Brought window to front: $result" -ForegroundColor Green
-	Start-Sleep -Milliseconds 50
+	Start-Sleep -Milliseconds 100
 	
 	# Reset the script-initiated move flag
 	$script:ScriptInitiatedMove = $false
@@ -119,8 +120,8 @@ function Wait-ForResponsive
 		[System.Diagnostics.Process]$Monitor
 	)
 	
-	$waitInterval = 50
-	$maxAttempts = 40  # 2 seconds max
+	$waitInterval = 100
+	$maxAttempts = 40  # 8 seconds max
 	$isResponsive = $false
 	
 	for ($i = 0; $i -lt $maxAttempts; $i++)
@@ -135,6 +136,7 @@ function Wait-ForResponsive
 		if ($responsiveTask.Result)
 		{
 			$isResponsive = $true
+			Start-Sleep -Milliseconds $waitInterval
 			break
 		}
 		
@@ -159,8 +161,8 @@ function Wait-ForFileAccess
 		[string]$FilePath
 	)
 	
-	$maxAttempts = 20  # 1 second max
-	$waitInterval = 50  # 50ms
+	$maxAttempts = 40  # 4 second max
+	$waitInterval = 100  # 50ms
 	
 	for ($i = 0; $i -lt $maxAttempts; $i++)
 	{
@@ -200,8 +202,8 @@ function Write-LogWithRetry
 		[string]$Value
 	)
 	
-	$maxAttempts = 5
-	$waitInterval = 50
+	$maxAttempts = 10
+	$waitInterval = 100
 	
 	for ($i = 0; $i -lt $maxAttempts; $i++)
 	{
@@ -292,8 +294,9 @@ function Invoke-MouseClick
 		
 		# Perform click
 		[Native]::mouse_event($MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-		Start-Sleep -Milliseconds 20
+		Start-Sleep -Milliseconds 10
 		[Native]::mouse_event($MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+		Start-Sleep -Milliseconds 10
 		
 		# Fallback to SendMessage if needed - using the ACTUAL coordinates
 		if ($hWnd -ne [IntPtr]::Zero)
@@ -304,9 +307,11 @@ function Invoke-MouseClick
 			$windowsMouseDown = 0x0201  # WM_LBUTTONDOWN
 			$windowsMouseUp = 0x0202    # WM_LBUTTONUP
 			
-			[Native]::SendMessage($hWnd, $windowsMouseDown, 1, $lparam)
+			[Native]::SendMessage($hWnd, $windowsMouseDown, 0, $lparam)
 			Start-Sleep -Milliseconds 20
 			[Native]::SendMessage($hWnd, $windowsMouseUp, 0, $lparam)
+			Start-Sleep -Milliseconds 20
+			Write-Verbose "Mouse click was performed." -ForegroundColor DarkGray
 		}
 		
 		# Small delay to ensure any next clicks register
@@ -322,6 +327,7 @@ function Invoke-MouseClick
 		# Reset script-initiated flag after a short delay
 		Start-Sleep -Milliseconds 50
 		$script:ScriptInitiatedMove = $false
+		Start-Sleep -Milliseconds 50
 	}
 }
 
@@ -337,6 +343,7 @@ function Invoke-KeyPress
 	
 	# Get the handle of the foreground window
 	$hWnd = [Native]::GetForegroundWindow()
+	[Native]::BringToFront($Process.MainWindowHandle) | Out-Null
 	
 	# Simulate key press (this is still using ftool.dll)
 	[Ftool]::fnPostMessage($hWnd, 0x0100, $VirtualKeyCode, 0) # WM_KEYDOWN
@@ -409,6 +416,13 @@ function LoginSelectedRow
 		Write-LogWithRetry -FilePath $LogFilePath -Value ''
 	}
 	
+	# Simple property change handler that updates button appearance
+	if ($global:DashboardConfig.State.LoginActive -eq $true) {
+		$global:DashboardConfig.UI.LoginButton.FlatStyle = 'Popup'
+	} else {
+		$global:DashboardConfig.UI.LoginButton.FlatStyle = 'Flat'
+	}
+	
 	Write-Verbose 'LOGIN: Login process started' -ForegroundColor Cyan
 	
 	# Check if rows are selected
@@ -460,7 +474,7 @@ function LoginSelectedRow
 				
 				# Add a timeout mechanism to prevent infinite loops
 				$startTime = Get-Date
-				$timeout = New-TimeSpan -Minutes 2  # 2-minute timeout
+				$timeout = New-TimeSpan -Minutes 2  # 2 minute timeout
 				
 				while ((New-TimeSpan -Start $startTime -End (Get-Date)) -lt $timeout)
 				{
@@ -471,13 +485,17 @@ function LoginSelectedRow
 						
 						if ($line -eq '2 - CERT_SRVR_LIST')
 						{
+							Start-Sleep -Milliseconds 50
 							$foundCERT = $true
 							Write-Output 'CERT_FOUND'
+							Start-Sleep -Milliseconds 50
 						}
 						elseif ($line -eq '6 - LOGIN_PLAYER_LIST')
 						{
+							Start-Sleep -Milliseconds 50
 							$foundLogin = $true
 							Write-Output 'LOGIN_FOUND'
+							Start-Sleep -Milliseconds 50
 						}
 						
 						# Check for cache join pattern
@@ -489,8 +507,10 @@ function LoginSelectedRow
 									$lines[$i + 2] -match '13 - CACHE_ACK_JOIN' -and 
 									$lines[$i + 4] -match '13 - CACHE_ACK_JOIN')
 								{
+									Start-Sleep -Milliseconds 50
 									$foundCacheJoin = $true
 									Write-Output 'CACHE_FOUND'
+									Start-Sleep -Milliseconds 50
 									break
 								}
 							}
@@ -500,6 +520,7 @@ function LoginSelectedRow
 					{
 						# Ignore errors during log reading
 						Write-Output "ERROR: $_"
+						Start-Sleep -Milliseconds 10
 					}
 					
 					Start-Sleep -Milliseconds 100
@@ -607,10 +628,16 @@ function LoginSelectedRow
 					if (Test-UserMouseIntervention)
 					{
 						Write-Verbose 'LOGIN: User intervention detected - stopping' -ForegroundColor Yellow
+						if ($logMonitorJob)
+						{
+							Stop-Job -Job $logMonitorJob -ErrorAction SilentlyContinue
+							Remove-Job -Job $logMonitorJob -Force -ErrorAction SilentlyContinue
+						}
+						$global:DashboardConfig.State.LoginActive = $false
 						return
 					}
 					
-					Start-Sleep -Milliseconds 20
+
 				}
 				
 				if (-not $foundCERT)
@@ -654,10 +681,15 @@ function LoginSelectedRow
 					if (Test-UserMouseIntervention)
 					{
 						Write-Verbose 'LOGIN: User intervention detected - stopping' -ForegroundColor Yellow
+						if ($logMonitorJob)
+						{
+							Stop-Job -Job $logMonitorJob -ErrorAction SilentlyContinue
+							Remove-Job -Job $logMonitorJob -Force -ErrorAction SilentlyContinue
+						}
+						$global:DashboardConfig.State.LoginActive = $false
 						return
 					}
 					
-					Start-Sleep -Milliseconds 20
 				}
 				
 				if (-not $foundLogin)
@@ -730,32 +762,39 @@ function LoginSelectedRow
 					if (Test-UserMouseIntervention)
 					{
 						Write-Verbose 'LOGIN: User intervention detected - stopping' -ForegroundColor Yellow
+						if ($logMonitorJob)
+						{
+							Stop-Job -Job $logMonitorJob -ErrorAction SilentlyContinue
+							Remove-Job -Job $logMonitorJob -Force -ErrorAction SilentlyContinue
+						}
+						$global:DashboardConfig.State.LoginActive = $false
 						return
 					}
 					
-					Start-Sleep -Milliseconds 20
 				}
 				
 				if (-not $foundCacheJoin)
 				{
 					Write-Verbose 'LOGIN: Cache not detected within timeout period' -ForegroundColor Yellow
+					continue
 				}
 				else
 				{
-					
-					
 					# Click again to finalize login
-					
 					$adjustedX = $centerX + 400
 					$adjustedY = $centerY - 100
 					
 					Write-Verbose "LOGIN: Clicking to finalize collector login at X:$adjustedX Y:$adjustedY" -ForegroundColor Cyan
+					Start-Sleep -Milliseconds 500
 					Invoke-MouseClick -X $adjustedX -Y $adjustedY
 
 					Start-Sleep -Milliseconds 500
 					
-					# Minimize window
-					[Native]::ShowWindow($process.MainWindowHandle, [Native]::SW_MINIMIZE)
+					Write-Verbose 'LOGIN: Minimizing...' -ForegroundColor Cyan
+                    [Native]::SendToBack($process.MainWindowHandle)
+					Write-Verbose 'LOGIN: Optimizing...' -ForegroundColor Cyan
+					[Native]::EmptyWorkingSet($process.Handle)
+
 					Write-Verbose "LOGIN: Login complete for PID $($process.Id)" -ForegroundColor Green
 				}
 				
@@ -778,9 +817,16 @@ function LoginSelectedRow
 			{
 				Stop-Job -Job $logMonitorJob -ErrorAction SilentlyContinue
 				Remove-Job -Job $logMonitorJob -Force -ErrorAction SilentlyContinue
-				$global:DashboardConfig.State.LoginActive = $false
 			}
+			$global:DashboardConfig.State.LoginActive = $false
 		}
+	}
+
+	# Simple property change handler that updates button appearance
+	if ($global:DashboardConfig.State.LoginActive -eq $true) {
+		$global:DashboardConfig.UI.LoginButton.FlatStyle = 'Popup'
+	} else {
+		$global:DashboardConfig.UI.LoginButton.FlatStyle = 'Flat'
 	}
 	
 	Write-Verbose 'LOGIN: All selected clients processed' -ForegroundColor Green

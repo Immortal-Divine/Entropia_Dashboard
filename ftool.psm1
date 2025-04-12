@@ -1,19 +1,19 @@
 <# ftool.psm1 
-.SYNOPSIS
-Interface for Ftool.
+	.SYNOPSIS
+		Interface for Ftool.
 
-.DESCRIPTION
-This module creates and manages the complete ftool interface for Entropia Dashboard:
-- Builds the main application window and all dialog forms
-- Creates interactive controls (buttons, panels, grids, text boxes)
-- Handles window positioning
-- Implements settings management
-- Activates Ftool
+	.DESCRIPTION
+		This module creates and manages the complete ftool interface for Entropia Dashboard:
+		- Builds the main application window and all dialog forms
+		- Creates interactive controls (buttons, panels, grids, text boxes)
+		- Handles window positioning
+		- Implements settings management
+		- Activates Ftool
 
-.NOTES
-Author: Immortal / Divine
-Version: 1.1
-Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, ini.psm1, datagrid.psm1, ftool.dll
+	.NOTES
+		Author: Immortal / Divine
+		Version: 1.0
+		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, ini.psm1, datagrid.psm1, ftool.dll
 #>
 
 #region Helper Functions
@@ -1076,24 +1076,24 @@ function CreateFtoolForm
 	$ftoolForm.Controls.Add($panelSettings)
 	
 	# Create F-key selection combo box
-	$comboFKey = Set-UIElement -type 'ComboBox' -visible $true -width 40 -height 20 -top 10 -left 5 -bg @(40, 40, 40) -fg @(255, 255, 255) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -dropDownStyle 'DropDownList'
+	$comboFKey = Set-UIElement -type 'ComboBox' -visible $true -width 65 -height 20 -top 10 -left 10 -bg @(40, 40, 40) -fg @(255, 255, 255) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -dropDownStyle 'DropDownList'
 	$comboFKey.Items.AddRange((1..9 | ForEach-Object { "$_" }))
 	$panelSettings.Controls.Add($comboFKey)
 	
 	# Create interval text box
-	$interval = Set-UIElement -type 'TextBox' -visible $true -width 50 -height 20 -top 10 -left 50 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$interval = Set-UIElement -type 'TextBox' -visible $true -width 55 -height 20 -top 10 -left 65 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$panelSettings.Controls.Add($interval)
 	
 	# Create label for main control
-	$name = Set-UIElement -type 'TextBox' -visible $true -width 50 -height 20 -top 10 -left 110 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
+	$name = Set-UIElement -type 'TextBox' -visible $true -width 40 -height 20 -top 10 -left 130 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
 	$panelSettings.Controls.Add($name)
 	
 	# Create Start button
-	$btnStart = Set-UIElement -type 'Button' -visible $true -width 50 -height 20 -top 40 -left 5 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$btnStart = Set-UIElement -type 'Button' -visible $true -width 45 -height 25 -top 40 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$panelSettings.Controls.Add($btnStart)
 	
 	# Create Stop button
-	$btnStop = Set-UIElement -type 'Button' -visible $true -width 50 -height 20 -top 40 -left 60 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$btnStop = Set-UIElement -type 'Button' -visible $true -width 45 -height 25 -top 40 -left 65 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$btnStop.Enabled = $false
 	$btnStop.Visible = $false
 	$panelSettings.Controls.Add($btnStop)
@@ -1382,30 +1382,30 @@ function CreateExtensionPanel
 	$form.Controls.Add($panelExt)
 	
 	# Create F-key selection combo box for extension
-	$comboFKeyExt = Set-UIElement -type 'ComboBox' -visible $true -width 40 -height 20 -top 10 -left 5 -bg @(40, 40, 40) -fg @(255, 255, 255) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -dropDownStyle 'DropDownList'
+	$comboFKeyExt = Set-UIElement -type 'ComboBox' -visible $true -width 65 -height 20 -top 10 -left 10 -bg @(40, 40, 40) -fg @(255, 255, 255) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -dropDownStyle 'DropDownList'
 	$comboFKeyExt.Items.AddRange((1..9 | ForEach-Object { "$_" }))
 	$panelExt.Controls.Add($comboFKeyExt)
 	
 	# Create interval text box for extension
-	$intervalExt = Set-UIElement -type 'TextBox' -visible $true -width 50 -height 20 -top 10 -left 50 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$intervalExt = Set-UIElement -type 'TextBox' -visible $true -width 55 -height 20 -top 10 -left 65 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$panelExt.Controls.Add($intervalExt)
 	
 	# Create Start button for extension
-	$btnStartExt = Set-UIElement -type 'Button' -visible $true -width 50 -height 20 -top 40 -left 5 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$btnStartExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 25 -top 40 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$panelExt.Controls.Add($btnStartExt)
 	
 	# Create Stop button for extension
-	$btnStopExt = Set-UIElement -type 'Button' -visible $true -width 50 -height 20 -top 40 -left 60 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$btnStopExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 25 -top 40 -left 65 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$btnStopExt.Enabled = $false
 	$btnStopExt.Visible = $false
 	$panelExt.Controls.Add($btnStopExt)
 	
 	# Create extension name
-	$nameExt = Set-UIElement -type 'TextBox' -visible $true -width 50 -height 20 -top 10 -left 110 -bg @(40, 40, 40) -fg @(255, 255, 255) -text "Name" -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
+	$nameExt = Set-UIElement -type 'TextBox' -visible $true -width 40 -height 20 -top 10 -left 130 -bg @(40, 40, 40) -fg @(255, 255, 255) -text "Name" -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
 	$panelExt.Controls.Add($nameExt)
 	
 	# Create Remove button for the extension
-	$btnRemoveExt = Set-UIElement -type 'Button' -visible $true -width 25 -height 25 -top 35 -left 115 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'X' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8))
+	$btnRemoveExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 25 -top 40 -left 130 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'Close' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 7))
 	$panelExt.Controls.Add($btnRemoveExt)
 	
 	# Store extension data in global collection

@@ -1,18 +1,18 @@
 <# launch.psm1 
-.SYNOPSIS
-Client Launcher Module for Entropia Dashboard.
+	.SYNOPSIS
+		Client Launcher Module for Entropia Dashboard.
 
-.DESCRIPTION
-This module provides functionality to launch and manage Entropia Universe game clients:
-- Launches multiple game clients based on configuration
-- Monitors client processes and window states
-- Provides thread-safe logging of launch operations
-- Handles cleanup of resources when operations complete
+	.DESCRIPTION
+		This module provides functionality to launch and manage Entropia Universe game clients:
+		- Launches multiple game clients based on configuration
+		- Monitors client processes and window states
+		- Provides thread-safe logging of launch operations
+		- Handles cleanup of resources when operations complete
 
-.NOTES
-Author: Immortal / Divine
-Version: 1.1
-Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1
+	.NOTES
+		Author: Immortal / Divine
+		Version: 1.0
+		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1
 #>
 
 #region Configuration and Constants
@@ -646,6 +646,13 @@ function Start-ClientLaunch
 		
 		# Store the async result
 		$global:LaunchResources.AsyncResult = $asyncResult
+
+		# Simple property change handler that updates button appearance
+		if ($global:DashboardConfig.State.LaunchActive) {
+			$global:DashboardConfig.UI.Launch.FlatStyle = 'Popup'
+		} else {
+			$global:DashboardConfig.UI.Launch.FlatStyle = 'Flat'
+		}
 		
 		Write-Verbose 'LAUNCH: Launch operation started successfully' -ForegroundColor Green
 	}
@@ -786,6 +793,12 @@ function Stop-ClientLaunch
 		[System.GC]::Collect()
 		
 		Write-Verbose 'LAUNCH: Launch cleanup completed' -ForegroundColor Green
+		# Simple property change handler that updates button appearance
+		if ($global:DashboardConfig.State.LaunchActive -eq $true) {
+			$global:DashboardConfig.UI.Launch.FlatStyle = 'Popup'
+		} else {
+			$global:DashboardConfig.UI.Launch.FlatStyle = 'Flat'
+		}
 	}
 	catch
 	{

@@ -912,11 +912,8 @@
             #endregion Step: Remove Rows for Terminated Processes
 
             #region Step: Handle Case of No Running Target Processes
-                # If no target processes are running, ensure grid is clear (already handled by Remove-TerminatedProcesses) and exit.
                 if ($currentProcesses.Count -eq 0)
                 {
-                    # Optional: Could explicitly clear grid here if Remove-TerminatedProcesses logic changes
-                    # $Grid.Rows.Clear()
                     return
                 }
             #endregion Step: Handle Case of No Running Target Processes
