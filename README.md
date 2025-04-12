@@ -1,3 +1,5 @@
+[Download EXE](https://github.com/Immortal-Divine/Entropia_Dashboard/raw/refs/heads/main/Entropia%20Dashboard.exe)
+
 Features:
 
 - Process list displays the current running clients in the 
