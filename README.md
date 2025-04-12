@@ -3,10 +3,12 @@
 # Entropia Dashboard
 
 > Interface
+
 ![](https://media.discordapp.net/attachments/1359671953413111989/1360593885583380721/image.png?ex=67fbaf4c&is=67fa5dcc&hm=3176a6062d9a16d6f126c03d93415c6ea1726c275a6719d1e40c1dc6aafd3844)
 
 
 > Ftool
+
 ![](https://media.discordapp.net/attachments/1359671953413111989/1360596884816793822/image.png?ex=67fbb218&is=67fa6098&hm=cf06e1b6b89479afce1c999cc19c1cf6ac1455b1d1722c8f9d3523004ac72f8e)
 
 
