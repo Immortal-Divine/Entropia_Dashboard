@@ -2022,6 +2022,6 @@ function AddExtensionEventHandlers
 #region Module Exports
 
 # Export public functions
-Export-ModuleMember -Function FtoolSelectedRow, Stop-FtoolForm
+Export-ModuleMember -Function FtoolSelectedRow, Stop-FtoolForm, Show-KeyCaptureDialog
 
 #endregion
