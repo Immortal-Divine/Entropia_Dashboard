@@ -12,11 +12,207 @@
 
 	.NOTES
 		Author: Immortal / Divine
-		Version: 1.0
+		Version: 1.1
 		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, ini.psm1, datagrid.psm1, ftool.dll
 #>
 
 #region Helper Functions
+
+<#
+.SYNOPSIS
+Gets virtual key code mappings for all supported keys
+#>
+function Get-VirtualKeyMappings
+{
+	return @{
+		# Function Keys
+		'F1' = 0x70; 'F2' = 0x71; 'F3' = 0x72; 'F4' = 0x73; 'F5' = 0x74; 'F6' = 0x75
+		'F7' = 0x76; 'F8' = 0x77; 'F9' = 0x78; 'F10' = 0x79; 'F11' = 0x7A; 'F12' = 0x7B
+		'F13' = 0x7C; 'F14' = 0x7D; 'F15' = 0x7E; 'F16' = 0x7F; 'F17' = 0x80; 'F18' = 0x81
+		'F19' = 0x82; 'F20' = 0x83; 'F21' = 0x84; 'F22' = 0x85; 'F23' = 0x86; 'F24' = 0x87
+
+		# Number Keys (Top Row)
+		'0' = 0x30; '1' = 0x31; '2' = 0x32; '3' = 0x33; '4' = 0x34
+		'5' = 0x35; '6' = 0x36; '7' = 0x37; '8' = 0x38; '9' = 0x39
+
+		# Letter Keys
+		'A' = 0x41; 'B' = 0x42; 'C' = 0x43; 'D' = 0x44; 'E' = 0x45; 'F' = 0x46; 'G' = 0x47; 'H' = 0x48
+		'I' = 0x49; 'J' = 0x4A; 'K' = 0x4B; 'L' = 0x4C; 'M' = 0x4D; 'N' = 0x4E; 'O' = 0x4F; 'P' = 0x50
+		'Q' = 0x51; 'R' = 0x52; 'S' = 0x53; 'T' = 0x54; 'U' = 0x55; 'V' = 0x56; 'W' = 0x57; 'X' = 0x58
+		'Y' = 0x59; 'Z' = 0x5A
+
+		# Main Special Keys
+		'SPACE' = 0x20; 'ENTER' = 0x0D; 'TAB' = 0x09; 'ESCAPE' = 0x1B; 'SHIFT' = 0x10; 'CONTROL' = 0x11; 'ALT' = 0x12
+		'UP_ARROW' = 0x26; 'DOWN_ARROW' = 0x28; 'LEFT_ARROW' = 0x25; 'RIGHT_ARROW' = 0x27; 'HOME' = 0x24; 'END' = 0x23
+		'PAGE_UP' = 0x21; 'PAGE_DOWN' = 0x22; 'INSERT' = 0x2D; 'DELETE' = 0x2E; 'BACKSPACE' = 0x08
+
+		# Lock & Modifier Keys
+		'CAPS_LOCK' = 0x14; 'NUM_LOCK' = 0x90; 'SCROLL_LOCK' = 0x91; 'PRINT_SCREEN' = 0x2C; 'PAUSE_BREAK' = 0x13
+		'LEFT_WINDOWS' = 0x5B; 'RIGHT_WINDOWS' = 0x5C; 'APPLICATION' = 0x5D; 'LEFT_SHIFT' = 0xA0; 'RIGHT_SHIFT' = 0xA1
+		'LEFT_CONTROL' = 0xA2; 'RIGHT_CONTROL' = 0xA3; 'LEFT_ALT' = 0xA4; 'RIGHT_ALT' = 0xA5; 'SLEEP' = 0x5F
+
+		# Numpad Keys
+		'NUMPAD_0' = 0x60; 'NUMPAD_1' = 0x61; 'NUMPAD_2' = 0x62; 'NUMPAD_3' = 0x63; 'NUMPAD_4' = 0x64
+		'NUMPAD_5' = 0x65; 'NUMPAD_6' = 0x66; 'NUMPAD_7' = 0x67; 'NUMPAD_8' = 0x68; 'NUMPAD_9' = 0x69
+		'NUMPAD_MULTIPLY' = 0x6A; 'NUMPAD_ADD' = 0x6B; 'NUMPAD_SEPARATOR' = 0x6C; 'NUMPAD_SUBTRACT' = 0x6D; 'NUMPAD_DECIMAL' = 0x6E; 'NUMPAD_DIVIDE' = 0x6F
+
+		# Punctuation Keys (US Layout)
+		'SEMICOLON' = 0xBA; 'EQUALS' = 0xBB; 'COMMA' = 0xBC; 'MINUS' = 0xBD; 'PERIOD' = 0xBE
+		'FORWARD_SLASH' = 0xBF; 'BACKTICK' = 0xC0; 'LEFT_BRACKET' = 0xDB; 'BACKSLASH' = 0xDC; 'RIGHT_BRACKET' = 0xDD
+		'APOSTROPHE' = 0xDE
+
+		# Media and Browser Keys
+		'BROWSER_BACK' = 0xA6; 'BROWSER_FORWARD' = 0xA7; 'BROWSER_REFRESH' = 0xA8; 'BROWSER_STOP' = 0xA9
+		'BROWSER_SEARCH' = 0xAA; 'BROWSER_FAVORITES' = 0xAB; 'BROWSER_HOME' = 0xAC; 'VOLUME_MUTE' = 0xAD
+		'VOLUME_DOWN' = 0xAE; 'VOLUME_UP' = 0xAF; 'MEDIA_NEXT_TRACK' = 0xB0; 'MEDIA_PREVIOUS_TRACK' = 0xB1
+		'MEDIA_STOP' = 0xB2; 'MEDIA_PLAY_PAUSE' = 0xB3; 'LAUNCH_MAIL' = 0xB4; 'LAUNCH_MEDIA_PLAYER' = 0xB5
+		'LAUNCH_MY_COMPUTER' = 0xB6; 'LAUNCH_CALCULATOR' = 0xB7
+
+		# International & Other Keys
+		'IME_KANA_HANGUL' = 0x15; 'IME_JUNJA' = 0x17; 'IME_FINAL' = 0x18; 'IME_HANJA_KANJI' = 0x19
+		'IME_CONVERT' = 0x1C; 'IME_NONCONVERT' = 0x1D; 'IME_ACCEPT' = 0x1E; 'IME_MODE_CHANGE' = 0x1F; 'IME_PROCESS' = 0xE5
+		'SELECT' = 0x29; 'PRINT' = 0x2A; 'EXECUTE' = 0x2B; 'HELP' = 0x2F; 'CLEAR' = 0x0C
+		'ATTN' = 0xF6; 'CRSEL' = 0xF7; 'EXSEL' = 0xF8; 'ERASE_EOF' = 0xF9; 'PLAY' = 0xFA; 'ZOOM' = 0xFB
+		'PA1' = 0xFD; 'OEM_CLEAR' = 0xFE
+	}
+}
+
+<#
+.SYNOPSIS
+Gets available key options for dropdown
+#>
+function Get-AvailableKeys
+{
+	$keyMappings = Get-VirtualKeyMappings
+	return $keyMappings.Keys | Sort-Object
+}
+
+<#
+.SYNOPSIS
+Creates key capture dialog
+#>
+function Show-KeyCaptureDialog
+{
+	param($currentKey = 'F1')
+	
+	# Create key capture form
+	$captureForm = New-Object System.Windows.Forms.Form
+	$captureForm.Text = "Press a Key"
+	$captureForm.Size = New-Object System.Drawing.Size(300, 150)
+	$captureForm.StartPosition = 'CenterParent'
+	$captureForm.FormBorderStyle = 'FixedDialog'
+	$captureForm.MaximizeBox = $false
+	$captureForm.MinimizeBox = $false
+	$captureForm.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+	$captureForm.ForeColor = [System.Drawing.Color]::White
+	
+	# Create instruction label
+	$label = New-Object System.Windows.Forms.Label
+	$label.Text = "Press any key to capture it.`nCurrent: $currentKey`n`nPress ESC to cancel."
+	$label.Size = New-Object System.Drawing.Size(280, 60)
+	$label.Location = New-Object System.Drawing.Point(10, 10)
+	$label.TextAlign = 'MiddleCenter'
+	$label.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+	$captureForm.Controls.Add($label)
+	
+	# Create result label
+	$resultLabel = New-Object System.Windows.Forms.Label
+	$resultLabel.Text = "Waiting for key press..."
+	$resultLabel.Size = New-Object System.Drawing.Size(280, 25)
+	$resultLabel.Location = New-Object System.Drawing.Point(10, 75)
+	$resultLabel.TextAlign = 'MiddleCenter'
+	$resultLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+	$resultLabel.ForeColor = [System.Drawing.Color]::Yellow
+	$captureForm.Controls.Add($resultLabel)
+	
+	# Variable to store captured key
+	$script:capturedKey = $null
+	
+	# Add KeyDown event handler
+	$captureForm.Add_KeyDown({
+		param($form, $e)
+		
+		# Handle ESC to cancel
+		if ($e.KeyCode -eq 'Escape')
+		{
+			$script:capturedKey = $null
+			$captureForm.DialogResult = 'Cancel'
+			$captureForm.Close()
+			return
+		}
+		
+		# Get key mappings
+		$keyMappings = Get-VirtualKeyMappings
+		$keyName = $null
+		
+		# Find the key name from the virtual key code
+		foreach ($kvp in $keyMappings.GetEnumerator())
+		{
+			if ($kvp.Value -eq $e.KeyValue)
+			{
+				$keyName = $kvp.Key
+				break
+			}
+		}
+		
+		# Handle special cases for keys not in our mapping
+		if (-not $keyName)
+		{
+			$keyName = $e.KeyCode.ToString().ToUpper()
+			# Verify the key name exists in our mappings, if not use a fallback
+			$keyMappingsRecheck = Get-VirtualKeyMappings
+			if (-not $keyMappingsRecheck.Contains($keyName))
+			{
+				Write-Verbose "FTOOL: Key '$keyName' not found in virtual key mappings, using fallback" -ForegroundColor Yellow
+				$keyName = 'F1' # Fallback to F1 if key is not supported
+			}
+		}
+		
+		$script:capturedKey = $keyName
+		$resultLabel.Text = "Captured: $keyName"
+		$resultLabel.ForeColor = [System.Drawing.Color]::Green
+		
+		# Auto-close after short delay
+		$timer = New-Object System.Windows.Forms.Timer
+		$timer.Interval = 100
+		$timer.Add_Tick({
+			param($timerSender, $timerArgs)
+			try
+			{
+				if ($timerSender)
+				{
+					$timerSender.Stop()
+				}
+				if ($captureForm -and -not $captureForm.IsDisposed)
+				{
+					$captureForm.DialogResult = 'OK'
+					$captureForm.Close()
+				}
+			}
+			catch
+			{
+				# Silent error handling for timer cleanup
+			}
+		})
+		$timer.Start()
+	})
+	
+	# Set form to capture all key events
+	$captureForm.KeyPreview = $true
+	$captureForm.TopMost = $true
+	
+	# Show dialog and return result
+	$result = $captureForm.ShowDialog()
+	
+	if ($result -eq 'OK' -and $script:capturedKey)
+	{
+		return $script:capturedKey
+	}
+	else
+	{
+		return $currentKey  # Return current key if cancelled
+	}
+}
 
 <#
 .SYNOPSIS
@@ -46,15 +242,14 @@ function LoadFtoolSettings
 		$intervalName = "inpt1_$profilePrefix"
 		$nameName = "name1_$profilePrefix"
 
-		# Set F-Key from profile or default		
-		if ($global:DashboardConfig.Config['Ftool'].Contains($keyName) -and
-			$formData.ComboFKey.Items.Contains($global:DashboardConfig.Config['Ftool'][$keyName]))
+		# Set Key from profile or default		
+		if ($global:DashboardConfig.Config['Ftool'].Contains($keyName))
 		{
-			$formData.ComboFKey.SelectedItem = $global:DashboardConfig.Config['Ftool'][$keyName]
+			$formData.BtnKeySelect.Text = $global:DashboardConfig.Config['Ftool'][$keyName]
 		}
 		else
 		{
-			$formData.ComboFKey.SelectedIndex = 0
+			$formData.BtnKeySelect.Text = 'F1'
 		}
 		
 		# Set interval from profile or default
@@ -85,9 +280,9 @@ function LoadFtoolSettings
 	}
 	else
 	{
-			$formData.ComboFKey.SelectedIndex = 0
-			$formData.Interval.Text = '1000'
-			$formData.Name.Text = 'Main'
+		$formData.BtnKeySelect.Text = 'F1'
+		$formData.Interval.Text = '1000'
+		$formData.Name.Text = 'Main'
 	}
 }
 
@@ -150,7 +345,7 @@ function InitializeExtensionTracking
 	
 	$instanceKey = "instance_$instanceId"
 	
-	if (-not $global:DashboardConfig.Resources.ExtensionTracking.ContainsKey($instanceKey))
+	if (-not $global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
 	{
 		$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey] = @{
 			NextExtNum       = 2
@@ -163,7 +358,7 @@ function InitializeExtensionTracking
 	$validActiveExtensions = @()
 	foreach ($key in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions)
 	{
-		if ($global:DashboardConfig.Resources.ExtensionData.ContainsKey($key))
+		if ($global:DashboardConfig.Resources.ExtensionData.Contains($key))
 		{
 			$validActiveExtensions += $key
 		}
@@ -278,12 +473,12 @@ function FindExtensionKeyByControl
 	$form = $control.FindForm()
 	
 	# Check if we have a cached mapping
-	if ($form -and $form.Tag -and $form.Tag.ControlToExtensionMap.ContainsKey($controlId))
+	if ($form -and $form.Tag -and $form.Tag.ControlToExtensionMap.Contains($controlId))
 	{
 		$extKey = $form.Tag.ControlToExtensionMap[$controlId]
 		
 		# Verify that the extension still exists
-		if ($global:DashboardConfig.Resources.ExtensionData.ContainsKey($extKey))
+		if ($global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
 		{
 			return $extKey
 		}
@@ -330,18 +525,11 @@ function LoadExtensionSettings
 	if ($global:DashboardConfig.Config['Ftool'].Contains($keyName))
 	{
 		$keyValue = $global:DashboardConfig.Config['Ftool'][$keyName]
-		if ($extData.ComboFKey.Items.Contains($keyValue))
-		{
-			$extData.ComboFKey.SelectedItem = $keyValue
-		}
-		else
-		{
-			$extData.ComboFKey.SelectedIndex = 0
-		}
+		$extData.BtnKeySelect.Text = $keyValue
 	}
 	else
 	{
-		$extData.ComboFKey.SelectedIndex = 0
+		$extData.BtnKeySelect.Text = 'F1'
 	}
 	
 	if ($global:DashboardConfig.Config['Ftool'].Contains($intervalName))
@@ -390,9 +578,9 @@ function UpdateSettings
 			$intervalName = "inpt${extNum}_$profilePrefix"
 			$nameName = "name${extNum}_$profilePrefix"
 			
-			if ($extData.ComboFKey -and $extData.ComboFKey.SelectedItem)
+			if ($extData.BtnKeySelect -and $extData.BtnKeySelect.Text)
 			{
-				$global:DashboardConfig.Config['Ftool'][$keyName] = $extData.ComboFKey.SelectedItem.ToString()
+				$global:DashboardConfig.Config['Ftool'][$keyName] = $extData.BtnKeySelect.Text
 			}
 			
 			if ($extData.Interval)
@@ -408,25 +596,40 @@ function UpdateSettings
 		else
 		{
 			# Update main form settings
-			$global:DashboardConfig.Config['Ftool']["key1_$profilePrefix"] = $formData.ComboFKey.SelectedItem.ToString()
+			$global:DashboardConfig.Config['Ftool']["key1_$profilePrefix"] = $formData.BtnKeySelect.Text
 			$global:DashboardConfig.Config['Ftool']["inpt1_$profilePrefix"] = $formData.Interval.Text
 			$global:DashboardConfig.Config['Ftool']["name1_$profilePrefix"] = $formData.Name.Text
 		}
 		
 		# Batch write operations to reduce disk I/O
-		if (-not $global:DashboardConfig.Resources.Timers.Contains['ConfigWriteTimer'])
+		if (-not $global:DashboardConfig.Resources.Timers.Contains('ConfigWriteTimer'))
 		{
 			$ConfigWriteTimer = New-Object System.Windows.Forms.Timer
 			$ConfigWriteTimer.Interval = 1000
 			$ConfigWriteTimer.Add_Tick({
-					$this.Stop()
-					Write-Config
+					param($timerSender, $timerArgs)
+					try
+					{
+						if ($timerSender)
+						{
+							$timerSender.Stop()
+						}
+						Write-Config
+					}
+					catch
+					{
+						Write-Verbose "FTOOL: Error in config write timer: $($_.Exception.Message)" -ForegroundColor Red
+					}
 				})
+			$global:DashboardConfig.Resources.Timers['ConfigWriteTimer'] = $ConfigWriteTimer
+		}
+		else
+		{
+			$ConfigWriteTimer = $global:DashboardConfig.Resources.Timers['ConfigWriteTimer']
 		}
 		
 		$ConfigWriteTimer.Stop()
 		$ConfigWriteTimer.Start()
-		$global:DashboardConfig.Resources.Timers['ConfigWriteTimer'] = $ConfigWriteTimer
 	}
 }
 
@@ -450,54 +653,65 @@ function CreatePositionTimer
 	
 	$positionTimer.Add_Tick({
 			param($s, $e)
-			$timerData = $s.Tag
-			if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero)
+			try
 			{
-				return
-			}
-		
-			# Verify that form exists
-			if (-not $timerData['FtoolForm'])
-			{
-				return
-			}
-		
-			# Get current window position
-			$rect = New-Object Native+RECT
-			if ([Native]::GetWindowRect($timerData['WindowHandle'], [ref]$rect))
-			{
-				try
+				if (-not $s -or -not $s.Tag)
 				{
-					# Update main form position
-					$timerData['FtoolForm'].Top = $rect.Top + 30
-					$timerData['FtoolForm'].Left = $rect.Left + 8
-				
-					# Get foreground window to check if target window is active
-					$foregroundWindow = [Native]::GetForegroundWindow()
-				
-					# Manage TopMost state based on which window has focus
-					if ($foregroundWindow -eq $timerData['WindowHandle'])
+					return
+				}
+				$timerData = $s.Tag
+				if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero)
+				{
+					return
+				}
+			
+				# Verify that form exists and is not disposed
+				if (-not $timerData['FtoolForm'] -or $timerData['FtoolForm'].IsDisposed)
+				{
+					return
+				}
+		
+				# Get current window position
+				$rect = New-Object Native+RECT
+				if ([Native]::GetWindowRect($timerData['WindowHandle'], [ref]$rect))
+				{
+					try
 					{
-						# If target window has focus, make ftool topmost
-						if (-not $timerData['FtoolForm'].TopMost)
+						# Update main form position
+						$timerData['FtoolForm'].Top = $rect.Top + 30
+						$timerData['FtoolForm'].Left = $rect.Left + 8
+					
+						# Get foreground window to check if target window is active
+						$foregroundWindow = [Native]::GetForegroundWindow()
+					
+						# Manage TopMost state based on which window has focus
+						if ($foregroundWindow -eq $timerData['WindowHandle'])
 						{
-							$timerData['FtoolForm'].TopMost = $true
-							$timerData['FtoolForm'].BringToFront()
+							# If target window has focus, make ftool topmost
+							if (-not $timerData['FtoolForm'].TopMost)
+							{
+								$timerData['FtoolForm'].TopMost = $true
+								$timerData['FtoolForm'].BringToFront()
+							}
+						}
+						elseif ($foregroundWindow -ne $timerData['FtoolForm'].Handle)
+						{
+							# If neither target window nor ftool has focus, remove topmost
+							if ($timerData['FtoolForm'].TopMost)
+							{
+								$timerData['FtoolForm'].TopMost = $false
+							}
 						}
 					}
-					elseif ($foregroundWindow -ne $timerData['FtoolForm'].Handle)
+					catch
 					{
-						# If neither target window nor ftool has focus, remove topmost
-						if ($timerData['FtoolForm'].TopMost)
-						{
-							$timerData['FtoolForm'].TopMost = $false
-						}
+						Write-Verbose "FTOOL: Position timer error: $($_.Exception.Message) for $($timerData['InstanceId'])" -ForegroundColor Red
 					}
 				}
-				catch
-				{
-					Write-Verbose "FTOOL: Position timer error: $($_.Exception.Message) for $($timerData['InstanceId'])" -ForegroundColor Red
-				}
+			}
+			catch
+			{
+				Write-Verbose "FTOOL: Position timer critical error: $($_.Exception.Message)" -ForegroundColor Red
 			}
 		})
 	
@@ -523,7 +737,7 @@ function RepositionExtensions
 	
 	# Check if extension tracking exists
 	if (-not $global:DashboardConfig.Resources.ExtensionTracking -or 
-		-not $global:DashboardConfig.Resources.ExtensionTracking.ContainsKey($instanceKey))
+		-not $global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
 	{
 		return
 	}
@@ -553,7 +767,7 @@ function RepositionExtensions
 			$sortedExtensions = @()
 			foreach ($extKey in $activeExtensions)
 			{
-				if ($global:DashboardConfig.Resources.ExtensionData.ContainsKey($extKey))
+				if ($global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
 				{
 					$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
 					$sortedExtensions += [PSCustomObject]@{
@@ -568,7 +782,7 @@ function RepositionExtensions
 			foreach ($extObj in $sortedExtensions)
 			{
 				$extKey = $extObj.Key
-				if ($global:DashboardConfig.Resources.ExtensionData.ContainsKey($extKey))
+				if ($global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
 				{
 					$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
 					if ($extData -and $extData.Panel -and -not $extData.Panel.IsDisposed)
@@ -616,14 +830,14 @@ Creates spammer timer for F-key
 #>
 function CreateSpammerTimer
 {
-	param($windowHandle, $fKeyValue, $instanceId, $interval, $extNum = $null, $extKey = $null)
+	param($windowHandle, $keyValue, $instanceId, $interval, $extNum = $null, $extKey = $null)
 	
 	$spamTimer = New-Object System.Windows.Forms.Timer
 	$spamTimer.Interval = $interval
 	
 	$timerTag = @{
 		WindowHandle = $windowHandle
-		FKey         = $fKeyValue
+		Key          = $keyValue
 		InstanceId   = $instanceId
 	}
 	
@@ -637,11 +851,35 @@ function CreateSpammerTimer
 	
 	$spamTimer.Add_Tick({
 			param($s, $evt)
-			$timerData = $s.Tag
-			if ($timerData['WindowHandle'] -ne [IntPtr]::Zero)
+			try
 			{
-				# Send F-key message to window
-				[Ftool]::fnPostMessage($timerData['WindowHandle'], 256, 111 + $timerData['FKey'], 0)
+				if (-not $s -or -not $s.Tag)
+				{
+					return
+				}
+				$timerData = $s.Tag
+				if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero)
+				{
+					return
+				}
+				
+				# Get virtual key code for the selected key
+				$keyMappings = Get-VirtualKeyMappings
+				$virtualKeyCode = $keyMappings[$timerData['Key']]
+				
+				if ($virtualKeyCode)
+				{
+					# Send key message to window (WM_KEYDOWN = 256)
+					[Ftool]::fnPostMessage($timerData['WindowHandle'], 256, $virtualKeyCode, 0)
+				}
+				else
+				{
+					Write-Verbose "FTOOL: Unknown key '$($timerData['Key'])' for $($timerData['InstanceId'])" -ForegroundColor Yellow
+				}
+			}
+			catch
+			{
+				Write-Verbose "FTOOL: Spammer timer error: $($_.Exception.Message)" -ForegroundColor Red
 			}
 		})
 	
@@ -682,7 +920,7 @@ function CheckRateLimit
 	param($controlId, $minInterval = 100)
 	
 	$currentTime = Get-Date
-	if ($global:DashboardConfig.Resources.LastEventTimes.ContainsKey($controlId) -and 
+	if ($global:DashboardConfig.Resources.LastEventTimes.Contains($controlId) -and 
 	($currentTime - $global:DashboardConfig.Resources.LastEventTimes[$controlId]).TotalMilliseconds -lt $minInterval)
 	{
 		return $false
@@ -743,7 +981,7 @@ function CleanupInstanceResources
 	
 	# Make a copy of the active extensions array
 	$activeExtensions = @()
-	if ($global:DashboardConfig.Resources.ExtensionTracking.ContainsKey($instanceKey) -and 
+	if ($global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey) -and 
 		$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions)
 	{
 		$activeExtensions = @() + $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions
@@ -751,7 +989,7 @@ function CleanupInstanceResources
 	
 	foreach ($key in $activeExtensions)
 	{
-		if ($global:DashboardConfig.Resources.ExtensionData.ContainsKey($key))
+		if ($global:DashboardConfig.Resources.ExtensionData.Contains($key))
 		{
 			$extData = $global:DashboardConfig.Resources.ExtensionData[$key]
 			if ($extData.RunningSpammer)
@@ -792,7 +1030,7 @@ function CleanupInstanceResources
 	}
 	
 	# Remove extension tracking for this instance
-	if ($global:DashboardConfig.Resources.ExtensionTracking.ContainsKey($instanceKey))
+	if ($global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
 	{
 		$global:DashboardConfig.Resources.ExtensionTracking.Remove($instanceKey)
 	}
@@ -857,7 +1095,7 @@ function RemoveExtension
 	
 	# Check if extension data exists
 	if (-not $global:DashboardConfig.Resources.ExtensionData -or 
-		-not $global:DashboardConfig.Resources.ExtensionData.ContainsKey($extKey))
+		-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
 	{
 		return $false
 	}
@@ -900,7 +1138,7 @@ function RemoveExtension
 		
 		# Initialize tracking if it doesn"t exist
 		if (-not $global:DashboardConfig.Resources.ExtensionTracking -or 
-			-not $global:DashboardConfig.Resources.ExtensionTracking.ContainsKey($instanceKey))
+			-not $global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
 		{
 			InitializeExtensionTracking $instanceId
 		}
@@ -1075,17 +1313,16 @@ function CreateFtoolForm
 	$panelSettings = Set-UIElement -type 'Panel' -visible $true -width 180 -height 70 -top 35 -left 10 -bg @(50, 50, 50)
 	$ftoolForm.Controls.Add($panelSettings)
 	
-	# Create F-key selection combo box
-	$comboFKey = Set-UIElement -type 'ComboBox' -visible $true -width 65 -height 20 -top 10 -left 10 -bg @(40, 40, 40) -fg @(255, 255, 255) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -dropDownStyle 'DropDownList'
-	$comboFKey.Items.AddRange((1..9 | ForEach-Object { "$_" }))
-	$panelSettings.Controls.Add($comboFKey)
+	# Create key selection button
+	$btnKeySelect = Set-UIElement -type 'Button' -visible $true -width 65 -height 20 -top 10 -left 10 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'F1' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8))
+	$panelSettings.Controls.Add($btnKeySelect)
 	
 	# Create interval text box
-	$interval = Set-UIElement -type 'TextBox' -visible $true -width 55 -height 20 -top 10 -left 65 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$interval = Set-UIElement -type 'TextBox' -visible $true -width 55 -height 20 -top 10 -left 75 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$panelSettings.Controls.Add($interval)
 	
 	# Create label for main control
-	$name = Set-UIElement -type 'TextBox' -visible $true -width 40 -height 20 -top 10 -left 130 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
+	$name = Set-UIElement -type 'TextBox' -visible $true -width 45 -height 20 -top 10 -left 130 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
 	$panelSettings.Controls.Add($name)
 	
 	# Create Start button
@@ -1102,7 +1339,7 @@ function CreateFtoolForm
 	$formData = [PSCustomObject]@{
 		InstanceId            = $instanceId
 		SelectedWindow        = $row.Tag.MainWindowHandle
-		ComboFKey             = $comboFKey
+		BtnKeySelect          = $btnKeySelect
 		Interval              = $interval
 		Name                  = $name
 		BtnStart              = $btnStart
@@ -1141,19 +1378,6 @@ function AddFtoolEventHandlers
 {
 	param($formData)
 	
-	# F-key combo box change event
-	$formData.ComboFKey.Add_SelectedIndexChanged({
-			$form = $this.FindForm()
-			if (-not $form -or -not $form.Tag)
-			{
-				return 
-			}
-			$data = $form.Tag
-		
-			# Update settings
-			UpdateSettings $data
-		})
-	
 	# Interval text box change event
 	$formData.Interval.Add_TextChanged({
 			$form = $this.FindForm()
@@ -1187,6 +1411,37 @@ function AddFtoolEventHandlers
 		UpdateSettings $data
 	})
 	
+	# Key selection button click event
+	$formData.BtnKeySelect.Add_Click({
+		$form = $this.FindForm()
+		if (-not $form -or -not $form.Tag)
+		{
+			return 
+		}
+		$data = $form.Tag
+		
+		# Show key capture dialog
+		$currentKey = $data.BtnKeySelect.Text
+		$newKey = Show-KeyCaptureDialog $currentKey
+		
+		if ($newKey -and $newKey -ne $currentKey)
+		{
+			# Stop existing spammer if running before changing key
+			if ($data.RunningSpammer)
+			{
+				$data.RunningSpammer.Stop()
+				$data.RunningSpammer.Dispose()
+				$data.RunningSpammer = $null
+			}
+			
+			$data.BtnKeySelect.Text = $newKey
+			UpdateSettings $data
+			
+			# Reset button states since spammer was stopped
+			ToggleButtonState $data.BtnStart $data.BtnStop $false
+		}
+	})
+	
 	# Start button click event
 	$formData.BtnStart.Add_Click({
 			$form = $this.FindForm()
@@ -1196,12 +1451,12 @@ function AddFtoolEventHandlers
 			}
 			$data = $form.Tag
 		
-			# Get F-key and interval values
-			$comboFKeyValue = 0
-			if (-not [int]::TryParse($data.ComboFKey.SelectedItem, [ref]$comboFKeyValue) -or $comboFKeyValue -lt 1)
+			# Get key and interval values
+			$keyValue = $data.BtnKeySelect.Text
+			if (-not $keyValue -or $keyValue.Trim() -eq '')
 			{
-				[System.Windows.Forms.MessageBox]::Show('Please select an F-key', 'Error')
-				return
+			[System.Windows.Forms.MessageBox]::Show('Please select a key', 'Error')
+			return
 			}
 		
 			# Enforce minimum interval
@@ -1216,7 +1471,7 @@ function AddFtoolEventHandlers
 			ToggleButtonState $data.BtnStart $data.BtnStop $true
 		
 			# Create spammer timer
-			$spamTimer = CreateSpammerTimer $data.SelectedWindow $comboFKeyValue $data.InstanceId $intervalNum
+			$spamTimer = CreateSpammerTimer $data.SelectedWindow $keyValue $data.InstanceId $intervalNum
 		
 			# Store timer references
 			$data.RunningSpammer = $spamTimer
@@ -1381,10 +1636,9 @@ function CreateExtensionPanel
 	$panelExt = Set-UIElement -type 'Panel' -visible $true -width 180 -height 70 -top 0 -left 10 -bg @(50, 50, 50)
 	$form.Controls.Add($panelExt)
 	
-	# Create F-key selection combo box for extension
-	$comboFKeyExt = Set-UIElement -type 'ComboBox' -visible $true -width 65 -height 20 -top 10 -left 10 -bg @(40, 40, 40) -fg @(255, 255, 255) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -dropDownStyle 'DropDownList'
-	$comboFKeyExt.Items.AddRange((1..9 | ForEach-Object { "$_" }))
-	$panelExt.Controls.Add($comboFKeyExt)
+	# Create key selection button for extension
+	$btnKeySelectExt = Set-UIElement -type 'Button' -visible $true -width 65 -height 20 -top 10 -left 10 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'F1' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8))
+	$panelExt.Controls.Add($btnKeySelectExt)
 	
 	# Create interval text box for extension
 	$intervalExt = Set-UIElement -type 'TextBox' -visible $true -width 55 -height 20 -top 10 -left 65 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
@@ -1415,7 +1669,7 @@ function CreateExtensionPanel
 	# Use efficient data structure
 	$extData = [PSCustomObject]@{
 		Panel          = $panelExt
-		ComboFKey      = $comboFKeyExt
+		BtnKeySelect   = $btnKeySelectExt
 		Interval       = $intervalExt
 		BtnStart       = $btnStartExt
 		BtnStop        = $btnStopExt
@@ -1447,44 +1701,6 @@ function AddExtensionEventHandlers
 {
 	param($extData, $formData)
 	
-	# F-key combo box change event for extension
-	$extData.ComboFKey.Add_SelectedIndexChanged({
-			$form = $this.FindForm()
-			if (-not $form -or -not $form.Tag)
-			{
-				return 
-			}
-			$data = $form.Tag
-		
-			# Check rate limit
-			if (-not (CheckRateLimit $this.GetHashCode()))
-			{
-				return 
-			}
-		
-			# Find which extension this belongs to
-			$extKey = FindExtensionKeyByControl $this 'ComboFKey'
-			if (-not $extKey)
-			{
-				return 
-			}
-		
-			# Check if extension data still exists
-			if (-not $global:DashboardConfig.Resources.ExtensionData.ContainsKey($extKey))
-			{
-				return 
-			}
-		
-			$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
-			if (-not $extData)
-			{
-				return 
-			}
-		
-			# Update settings
-			UpdateSettings $data $extData
-		})
-	
 	# Interval text box change event for extension
 	$extData.Interval.Add_TextChanged({
 			$form = $this.FindForm()
@@ -1508,7 +1724,7 @@ function AddExtensionEventHandlers
 			}
 		
 			# Check if extension data still exists
-			if (-not $global:DashboardConfig.Resources.ExtensionData.ContainsKey($extKey))
+			if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
 			{
 				return 
 			}
@@ -1554,7 +1770,7 @@ function AddExtensionEventHandlers
 		}
 	
 		# Check if extension data still exists
-		if (-not $global:DashboardConfig.Resources.ExtensionData.ContainsKey($extKey))
+		if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
 		{
 			return 
 		}
@@ -1567,6 +1783,56 @@ function AddExtensionEventHandlers
 	
 		# Update settings
 		UpdateSettings $data $extData
+	})
+	
+	# Key selection button click event for extension
+	$extData.BtnKeySelect.Add_Click({
+		$form = $this.FindForm()
+		if (-not $form -or -not $form.Tag)
+		{
+			return 
+		}
+		$data = $form.Tag
+		
+		# Find which extension this belongs to
+		$extKey = FindExtensionKeyByControl $this 'BtnKeySelect'
+		if (-not $extKey)
+		{
+			return 
+		}
+		
+		# Check if extension data still exists
+		if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+		{
+			return 
+		}
+		
+		$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+		if (-not $extData)
+		{
+			return 
+		}
+		
+		# Show key capture dialog
+		$currentKey = $extData.BtnKeySelect.Text
+		$newKey = Show-KeyCaptureDialog $currentKey
+		
+		if ($newKey -and $newKey -ne $currentKey)
+		{
+			# Stop existing extension spammer if running before changing key
+			if ($extData.RunningSpammer)
+			{
+				$extData.RunningSpammer.Stop()
+				$extData.RunningSpammer.Dispose()
+				$extData.RunningSpammer = $null
+			}
+			
+			$extData.BtnKeySelect.Text = $newKey
+			UpdateSettings $data $extData
+			
+			# Reset extension button states since spammer was stopped
+			ToggleButtonState $extData.BtnStart $extData.BtnStop $false
+		}
 	})
 	
 	# Start button click event for extension
@@ -1592,7 +1858,7 @@ function AddExtensionEventHandlers
 			}
 		
 			# Check if extension data still exists
-			if (-not $global:DashboardConfig.Resources.ExtensionData.ContainsKey($extKey))
+			if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
 			{
 				return 
 			}
@@ -1605,20 +1871,12 @@ function AddExtensionEventHandlers
 		
 			$extNum = $extData.ExtNum
 		
-			# Get F-key and interval values
-			$comboFKeyValue = 0
-		
-			# Check if ComboFKey exists before accessing it
-			if (-not $extData.ComboFKey -or -not $extData.ComboFKey.SelectedItem)
+			# Get key and interval values
+			$keyValue = $extData.BtnKeySelect.Text
+			 if (-not $keyValue -or $keyValue.Trim() -eq '')
 			{
-				[System.Windows.Forms.MessageBox]::Show('Please select an F-key', 'Error')
-				return
-			}
-		
-			if (-not [int]::TryParse($extData.ComboFKey.SelectedItem, [ref]$comboFKeyValue) -or $comboFKeyValue -lt 1)
-			{
-				[System.Windows.Forms.MessageBox]::Show('Please select an F-key', 'Error')
-				return
+			 [System.Windows.Forms.MessageBox]::Show('Please select a key', 'Error')
+			 return
 			}
 		
 			# Enforce minimum interval
@@ -1658,7 +1916,7 @@ function AddExtensionEventHandlers
 			}
 		
 			# Create spammer timer
-			$spamTimer = CreateSpammerTimer $data.SelectedWindow $comboFKeyValue $data.InstanceId $intervalNum $extNum $extKey
+			$spamTimer = CreateSpammerTimer $data.SelectedWindow $keyValue $data.InstanceId $intervalNum $extNum $extKey
 		
 			# Store timer references
 			$extData.RunningSpammer = $spamTimer
@@ -1688,7 +1946,7 @@ function AddExtensionEventHandlers
 			}
 		
 			# Check if extension data still exists
-			if (-not $global:DashboardConfig.Resources.ExtensionData.ContainsKey($extKey))
+			if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
 			{
 				return 
 			}

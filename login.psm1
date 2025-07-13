@@ -11,7 +11,7 @@
 
 	.NOTES
 		Author: Immortal / Divine
-		Version: 1.0
+		Version: 1.1
 		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, datagrid.psm1
 #>
 
@@ -780,13 +780,28 @@ function LoginSelectedRow
 				}
 				else
 				{
-					# Click again to finalize login
-					$adjustedX = $centerX + 400
-					$adjustedY = $centerY - 100
+					# Check if finalize collector login is enabled in settings
+					$finalizeLogin = $false # Default to false if setting doesn't exist
+					if ($global:DashboardConfig.Config.ContainsKey('Login') -and 
+						$global:DashboardConfig.Config['Login'].ContainsKey('FinalizeCollectorLogin'))
+					{
+						$finalizeLogin = [bool]([int]$global:DashboardConfig.Config['Login']['FinalizeCollectorLogin'])
+					}
 					
-					Write-Verbose "LOGIN: Clicking to finalize collector login at X:$adjustedX Y:$adjustedY" -ForegroundColor Cyan
-					Start-Sleep -Milliseconds 500
-					Invoke-MouseClick -X $adjustedX -Y $adjustedY
+					if ($finalizeLogin)
+					{
+						# Click again to finalize login
+						$adjustedX = $centerX + 400
+						$adjustedY = $centerY - 100
+						
+						Write-Verbose "LOGIN: Clicking to finalize collector login at X:$adjustedX Y:$adjustedY" -ForegroundColor Cyan
+						Start-Sleep -Milliseconds 500
+						Invoke-MouseClick -X $adjustedX -Y $adjustedY
+					}
+					else
+					{
+						Write-Verbose "LOGIN: Skipping finalize collector login (disabled in settings)" -ForegroundColor Yellow
+					}
 
 					Start-Sleep -Milliseconds 500
 					

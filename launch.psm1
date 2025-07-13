@@ -11,7 +11,7 @@
 
 	.NOTES
 		Author: Immortal / Divine
-		Version: 1.0
+		Version: 1.1
 		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1
 #>
 
