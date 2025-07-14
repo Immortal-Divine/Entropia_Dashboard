@@ -79,16 +79,6 @@ function Get-VirtualKeyMappings
 
 <#
 .SYNOPSIS
-Gets available key options for dropdown
-#>
-function Get-AvailableKeys
-{
-	$keyMappings = Get-VirtualKeyMappings
-	return $keyMappings.Keys | Sort-Object
-}
-
-<#
-.SYNOPSIS
 Creates key capture dialog
 #>
 function Show-KeyCaptureDialog
@@ -258,7 +248,7 @@ function LoadFtoolSettings
 			$intervalValue = [int]$global:DashboardConfig.Config['Ftool'][$intervalName]
 			if ($intervalValue -lt 100)
 			{
-				$intervalValue = 1000 
+				$intervalValue = 1000
 			}
 			$formData.Interval.Text = $intervalValue.ToString()
 		}
@@ -748,7 +738,7 @@ function RepositionExtensions
 	try
 	{
 		# Get base height of form (without extensions)
-		$baseHeight = 120
+		$baseHeight = 90
 		
 		# Get active extensions
 		$activeExtensions = @()
@@ -758,7 +748,7 @@ function RepositionExtensions
 		}
 		
 		# Calculate new form height based on number of extensions
-		$newHeight = 120  # Base height with no extensions
+		$newHeight = 90  # Base height with no extensions
 		$position = 0
 		
 		if ($activeExtensions.Count -gt 0)
@@ -788,7 +778,7 @@ function RepositionExtensions
 					if ($extData -and $extData.Panel -and -not $extData.Panel.IsDisposed)
 					{
 						# Calculate new top position with proper spacing
-						$newTop = $baseHeight + ($position * 80)
+						$newTop = $baseHeight + ($position * 70)
 						
 						# Update panel position
 						$extData.Panel.Top = $newTop
@@ -802,7 +792,7 @@ function RepositionExtensions
 			# Calculate height based on actual number of extensions
 			if ($position -gt 0)
 			{
-				$newHeight = 120 + ($position * 80)
+				$newHeight = 90 + ($position * 70)
 			}
 		}
 		
@@ -1269,7 +1259,7 @@ function CreateFtoolForm
 	param($instanceId, $targetWindowRect, $windowTitle, $row)
 	
 	# Create main Ftool form
-	$ftoolForm = Set-UIElement -type 'Form' -visible $true -width 220 -height 160 -top ($targetWindowRect.Top + 30) -left ($targetWindowRect.Left + 10) -bg @(30, 30, 30) -fg @(255, 255, 255) -text "FTool - $instanceId" -startPosition 'Manual' -formBorderStyle 0 -opacity 1
+	$ftoolForm = Set-UIElement -type 'Form' -visible $true -width 200 -height 130 -top ($targetWindowRect.Top + 30) -left ($targetWindowRect.Left + 10) -bg @(30, 30, 30) -fg @(255, 255, 255) -text "FTool - $instanceId" -startPosition 'Manual' -formBorderStyle 0 -opacity 1
 	# Load custom icon if it exists
 	if ($global:DashboardConfig.Paths.Icon -and (Test-Path $global:DashboardConfig.Paths.Icon))
 	{
@@ -1290,47 +1280,47 @@ function CreateFtoolForm
 	}
 	
 	# Create UI elements
-	$headerPanel = Set-UIElement -type 'Panel' -visible $true -width 220 -height 30 -top 0 -left 0 -bg @(40, 40, 40)
+	$headerPanel = Set-UIElement -type 'Panel' -visible $true -width 200 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
 	$ftoolForm.Controls.Add($headerPanel)
 	
 	# Create window title label
-	$labelWinTitle = Set-UIElement -type 'Label' -visible $true -width 125 -height 20 -top 12 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
+	$labelWinTitle = Set-UIElement -type 'Label' -visible $true -width 100 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
 	$headerPanel.Controls.Add($labelWinTitle)
 	
 	# Create Add button
-	$btnAdd = Set-UIElement -type 'Button' -visible $true -width 20 -height 20 -top 5 -left 140 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
+	$btnAdd = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 120 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
 	$headerPanel.Controls.Add($btnAdd)
 	
 	# Create Toggle Height button
-	$btnShowHide = Set-UIElement -type 'Button' -visible $true -width 20 -height 20 -top 5 -left 160 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
+	$btnShowHide = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 140 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
 	$headerPanel.Controls.Add($btnShowHide)
 	
 	# Create Close button
-	$btnClose = Set-UIElement -type 'Button' -visible $true -width 20 -height 20 -top 5 -left 180 -bg @(200, 45, 45) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
+	$btnClose = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 160 -bg @(200, 45, 45) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
 	$headerPanel.Controls.Add($btnClose)
 	
 	# Create settings panel
-	$panelSettings = Set-UIElement -type 'Panel' -visible $true -width 180 -height 70 -top 35 -left 10 -bg @(50, 50, 50)
+	$panelSettings = Set-UIElement -type 'Panel' -visible $true -width 165 -height 60 -top 25 -left 10 -bg @(50, 50, 50)
 	$ftoolForm.Controls.Add($panelSettings)
 	
 	# Create key selection button
-	$btnKeySelect = Set-UIElement -type 'Button' -visible $true -width 65 -height 20 -top 10 -left 10 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'F1' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8))
+	$btnKeySelect = Set-UIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 5 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'F1' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8))
 	$panelSettings.Controls.Add($btnKeySelect)
 	
 	# Create interval text box
-	$interval = Set-UIElement -type 'TextBox' -visible $true -width 55 -height 20 -top 10 -left 75 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$interval = Set-UIElement -type 'TextBox' -visible $true -width 50 -height 15 -top 5 -left 65 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$panelSettings.Controls.Add($interval)
 	
 	# Create label for main control
-	$name = Set-UIElement -type 'TextBox' -visible $true -width 45 -height 20 -top 10 -left 130 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
+	$name = Set-UIElement -type 'TextBox' -visible $true -width 40 -height 17 -top 5 -left 120 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
 	$panelSettings.Controls.Add($name)
 	
 	# Create Start button
-	$btnStart = Set-UIElement -type 'Button' -visible $true -width 45 -height 25 -top 40 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$btnStart = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$panelSettings.Controls.Add($btnStart)
 	
 	# Create Stop button
-	$btnStop = Set-UIElement -type 'Button' -visible $true -width 45 -height 25 -top 40 -left 65 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$btnStop = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$btnStop.Enabled = $false
 	$btnStop.Visible = $false
 	$panelSettings.Controls.Add($btnStop)
@@ -1633,33 +1623,33 @@ function CreateExtensionPanel
 	param($form, $currentHeight, $extNum, $instanceId, $windowHandle)
 	
 	# Create extension panel
-	$panelExt = Set-UIElement -type 'Panel' -visible $true -width 180 -height 70 -top 0 -left 10 -bg @(50, 50, 50)
+	$panelExt = Set-UIElement -type 'Panel' -visible $true -width 165 -height 60 -top 0 -left 10 -bg @(50, 50, 50)
 	$form.Controls.Add($panelExt)
 	
 	# Create key selection button for extension
-	$btnKeySelectExt = Set-UIElement -type 'Button' -visible $true -width 65 -height 20 -top 10 -left 10 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'F1' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8))
+	$btnKeySelectExt = Set-UIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 5 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'F1' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8))
 	$panelExt.Controls.Add($btnKeySelectExt)
 	
 	# Create interval text box for extension
-	$intervalExt = Set-UIElement -type 'TextBox' -visible $true -width 55 -height 20 -top 10 -left 65 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$intervalExt = Set-UIElement -type 'TextBox' -visible $true -width 50 -height 15 -top 5 -left 65 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$panelExt.Controls.Add($intervalExt)
 	
 	# Create Start button for extension
-	$btnStartExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 25 -top 40 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$btnStartExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$panelExt.Controls.Add($btnStartExt)
 	
 	# Create Stop button for extension
-	$btnStopExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 25 -top 40 -left 65 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
+	$btnStopExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
 	$btnStopExt.Enabled = $false
 	$btnStopExt.Visible = $false
 	$panelExt.Controls.Add($btnStopExt)
 	
 	# Create extension name
-	$nameExt = Set-UIElement -type 'TextBox' -visible $true -width 40 -height 20 -top 10 -left 130 -bg @(40, 40, 40) -fg @(255, 255, 255) -text "Name" -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
+	$nameExt = Set-UIElement -type 'TextBox' -visible $true -width 40 -height 17 -top 5 -left 120 -bg @(40, 40, 40) -fg @(255, 255, 255) -text "Name" -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
 	$panelExt.Controls.Add($nameExt)
 	
 	# Create Remove button for the extension
-	$btnRemoveExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 25 -top 40 -left 130 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'Close' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 7))
+	$btnRemoveExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 20 -top 35 -left 120 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'Close' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 7))
 	$panelExt.Controls.Add($btnRemoveExt)
 	
 	# Store extension data in global collection
@@ -2022,6 +2012,6 @@ function AddExtensionEventHandlers
 #region Module Exports
 
 # Export public functions
-Export-ModuleMember -Function FtoolSelectedRow, Stop-FtoolForm, Show-KeyCaptureDialog
+Export-ModuleMember -Function FtoolSelectedRow, Stop-FtoolForm, Show-KeyCaptureDialog, Get-VirtualKeyMappings
 
 #endregion

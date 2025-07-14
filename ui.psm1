@@ -100,6 +100,12 @@
 					$global:DashboardConfig.Config['Login']['FinalizeCollectorLogin'] = $finalizeLoginValue
 				#endregion Step: Sync finalize collector login checkbox to config
 
+				#region Step: Sync NeverRestarting collector login checkbox to config
+					# Read checkbox state and store as string (0 for false, 1 for true).
+					$NeverRestartingLoginValue = if ($UI.NeverRestartingCollectorLogin.Checked) { '1' } else { '0' }
+					$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin'] = $NeverRestartingLoginValue
+				#endregion Step: Sync NeverRestarting collector login checkbox to config
+
 				#region Step: Log Sync Success
 					Write-Verbose '  UI: UI synced to config' -ForegroundColor Green
 					return $true
@@ -206,6 +212,19 @@
 						$UI.FinalizeCollectorLogin.Checked = $false
 					}
 				#endregion Step: Sync finalize collector login config to checkbox
+
+				#region Step: Sync NeverRestarting collector login config to checkbox
+					# Update NeverRestartingCollectorLogin CheckBox if the config value exists.
+					if ($global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin'])
+					{
+						$UI.NeverRestartingCollectorLogin.Checked = ([int]$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin']) -eq 1
+					}
+					else
+					{
+						# Default to unchecked if setting doesn't exist
+						$UI.NeverRestartingCollectorLogin.Checked = $false
+					}
+				#endregion Step: Sync NeverRestarting collector login config to checkbox
 
 				#region Step: Log Sync Success
 					Write-Verbose '  UI: Config synced to UI' -ForegroundColor Green
@@ -713,6 +732,24 @@
 				$settingsForm.Controls.Add($chkFinalizeLogin)
 			#endregion Step: Create Finalize Collector Login CheckBox
 
+			#region Step: Create NeverRestarting Collector Login CheckBox
+				# $NeverRestartingCheckBoxProps: Hashtable defining properties for the CheckBox to enable/disable NeverRestarting collector login.
+				$NeverRestartingCheckBoxProps = @{
+					type    = 'CheckBox'
+					width   = 200
+					height  = 20
+					top     = 290
+					left    = 0
+					bg      = @(30, 30, 30)
+					fg      = @(240, 240, 240)
+					id      = 'NeverRestartingCollectorLogin'
+					text    = 'Fix to start disc. collector'
+					font    = New-Object System.Drawing.Font('Segoe UI', 9)
+				}
+				$chkNeverRestartingLogin = Set-UIElement @NeverRestartingCheckBoxProps
+				$settingsForm.Controls.Add($chkNeverRestartingLogin)
+			#endregion Step: Create NeverRestarting Collector Login CheckBox
+
 		#endregion Step: Create Settings Form Input Controls
 
 		#region Step: Create Main Form DataGrid Display Controls
@@ -829,6 +866,7 @@
 				PosRange                   = $slotOptions # Available position numbers
 				Login                      = $LoginCombos # Dictionary of Login ComboBoxes
 				FinalizeCollectorLogin     = $chkFinalizeLogin # Checkbox for finalize collector login
+				NeverRestartingCollectorLogin = $chkNeverRestartingLogin # Checkbox for NeverRestarting collector login
 
 				# Context menu items
 				ContextMenu                = $ctxMenu

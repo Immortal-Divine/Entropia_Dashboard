@@ -298,8 +298,15 @@ function Invoke-MouseClick
 		[Native]::mouse_event($MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
 		Start-Sleep -Milliseconds 10
 		
-		# Fallback to SendMessage if needed - using the ACTUAL coordinates
-		if ($hWnd -ne [IntPtr]::Zero)
+		$neverRestarting = $false # Default to false if setting doesn't exist
+		if ($global:DashboardConfig.Config.Contains('Login') -and 
+			$global:DashboardConfig.Config['Login'].Contains('NeverRestartingCollectorLogin'))
+		{
+			$neverRestarting = [bool]([int]$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin'])
+		}
+
+		# Fallback to SendMessage if needed - using the ACTUAL coordinates (collector DC workaround)
+		if ($hWnd -ne [IntPtr]::Zero -and $neverRestarting -eq $true)
 		{
 			$currentPos = [System.Windows.Forms.Cursor]::Position
 			$lparam = ($currentPos.Y -shl 16) -bor $currentPos.X
@@ -782,8 +789,8 @@ function LoginSelectedRow
 				{
 					# Check if finalize collector login is enabled in settings
 					$finalizeLogin = $false # Default to false if setting doesn't exist
-					if ($global:DashboardConfig.Config.ContainsKey('Login') -and 
-						$global:DashboardConfig.Config['Login'].ContainsKey('FinalizeCollectorLogin'))
+					if ($global:DashboardConfig.Config.Contains('Login') -and 
+						$global:DashboardConfig.Config['Login'].Contains('FinalizeCollectorLogin'))
 					{
 						$finalizeLogin = [bool]([int]$global:DashboardConfig.Config['Login']['FinalizeCollectorLogin'])
 					}
