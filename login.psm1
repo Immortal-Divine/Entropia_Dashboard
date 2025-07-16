@@ -11,7 +11,7 @@
 
 	.NOTES
 		Author: Immortal / Divine
-		Version: 1.1
+		Version: 1.1.3
 		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, datagrid.psm1
 #>
 

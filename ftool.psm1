@@ -12,7 +12,7 @@
 
 	.NOTES
 		Author: Immortal / Divine
-		Version: 1.1
+		Version: 1.1.3
 		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, ini.psm1, datagrid.psm1, ftool.dll
 #>
 
@@ -231,6 +231,7 @@ function LoadFtoolSettings
 		$keyName = "key1_$profilePrefix"
 		$intervalName = "inpt1_$profilePrefix"
 		$nameName = "name1_$profilePrefix"
+		$positionName = "pos1_$profilePrefix"
 
 		# Set Key from profile or default		
 		if ($global:DashboardConfig.Config['Ftool'].Contains($keyName))
@@ -266,6 +267,17 @@ function LoadFtoolSettings
 		else
 		{
 			$formData.Name.Text = 'Main'
+		}
+
+		# Set position from profile or default
+		if ($global:DashboardConfig.Config['Ftool'].Contains($positionName))
+		{
+			$positionValue = [int]$global:DashboardConfig.Config['Ftool'][$positionName]
+			$formData.PositionSlider.Value = $positionValue
+		}
+		else
+		{
+			$formData.PositionSlider.Value = 0
 		}
 	}
 	else
@@ -589,6 +601,7 @@ function UpdateSettings
 			$global:DashboardConfig.Config['Ftool']["key1_$profilePrefix"] = $formData.BtnKeySelect.Text
 			$global:DashboardConfig.Config['Ftool']["inpt1_$profilePrefix"] = $formData.Interval.Text
 			$global:DashboardConfig.Config['Ftool']["name1_$profilePrefix"] = $formData.Name.Text
+			$global:DashboardConfig.Config['Ftool']["pos1_$profilePrefix"] = $formData.PositionSlider.Value
 		}
 		
 		# Batch write operations to reduce disk I/O
@@ -669,7 +682,14 @@ function CreatePositionTimer
 					{
 						# Update main form position
 						$timerData['FtoolForm'].Top = $rect.Top + 30
-						$timerData['FtoolForm'].Left = $rect.Left + 8
+						$sliderValue = $timerData.FormData.PositionSlider.Value
+						$maxLeft = $rect.Right - $timerData['FtoolForm'].Width - 8
+						$targetLeft = $rect.Left + 8 + (($maxLeft - ($rect.Left + 8)) * $sliderValue / 100)
+						
+						# Smoothly move the form
+						$currentLeft = $timerData['FtoolForm'].Left
+						$newLeft = $currentLeft + ($targetLeft - $currentLeft) * 0.2 # Adjust the 0.2 value to control the smoothness
+						$timerData['FtoolForm'].Left = [int]$newLeft
 					
 						# Get foreground window to check if target window is active
 						$foregroundWindow = [Native]::GetForegroundWindow()
@@ -738,7 +758,7 @@ function RepositionExtensions
 	try
 	{
 		# Get base height of form (without extensions)
-		$baseHeight = 90
+		$baseHeight = 110
 		
 		# Get active extensions
 		$activeExtensions = @()
@@ -748,7 +768,7 @@ function RepositionExtensions
 		}
 		
 		# Calculate new form height based on number of extensions
-		$newHeight = 90  # Base height with no extensions
+		$newHeight = 110  # Base height with no extensions
 		$position = 0
 		
 		if ($activeExtensions.Count -gt 0)
@@ -792,7 +812,7 @@ function RepositionExtensions
 			# Calculate height based on actual number of extensions
 			if ($position -gt 0)
 			{
-				$newHeight = 90 + ($position * 70)
+				$newHeight = 110 + ($position * 70)
 			}
 		}
 		
@@ -1259,7 +1279,7 @@ function CreateFtoolForm
 	param($instanceId, $targetWindowRect, $windowTitle, $row)
 	
 	# Create main Ftool form
-	$ftoolForm = Set-UIElement -type 'Form' -visible $true -width 200 -height 130 -top ($targetWindowRect.Top + 30) -left ($targetWindowRect.Left + 10) -bg @(30, 30, 30) -fg @(255, 255, 255) -text "FTool - $instanceId" -startPosition 'Manual' -formBorderStyle 0 -opacity 1
+	$ftoolForm = Set-UIElement -type 'Form' -visible $true -width 200 -height 150 -top ($targetWindowRect.Top + 30) -left ($targetWindowRect.Left + 10) -bg @(30, 30, 30) -fg @(255, 255, 255) -text "FTool - $instanceId" -startPosition 'Manual' -formBorderStyle 0 -opacity 1
 	# Load custom icon if it exists
 	if ($global:DashboardConfig.Paths.Icon -and (Test-Path $global:DashboardConfig.Paths.Icon))
 	{
@@ -1280,12 +1300,21 @@ function CreateFtoolForm
 	}
 	
 	# Create UI elements
-	$headerPanel = Set-UIElement -type 'Panel' -visible $true -width 200 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
+	$headerPanel = Set-UIElement -type 'Panel' -visible $true -width 200 -height 40 -top 0 -left 0 -bg @(40, 40, 40)
 	$ftoolForm.Controls.Add($headerPanel)
 	
 	# Create window title label
 	$labelWinTitle = Set-UIElement -type 'Label' -visible $true -width 100 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
 	$headerPanel.Controls.Add($labelWinTitle)
+
+	# Create position slider
+	$positionSlider = New-Object System.Windows.Forms.TrackBar
+	$positionSlider.Minimum = 0
+	$positionSlider.Maximum = 100
+	$positionSlider.Value = 0
+	$positionSlider.Size = New-Object System.Drawing.Size(170, 20)
+	$positionSlider.Location = New-Object System.Drawing.Point(10, 25)
+	$headerPanel.Controls.Add($positionSlider)
 	
 	# Create Add button
 	$btnAdd = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 120 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
@@ -1300,7 +1329,7 @@ function CreateFtoolForm
 	$headerPanel.Controls.Add($btnClose)
 	
 	# Create settings panel
-	$panelSettings = Set-UIElement -type 'Panel' -visible $true -width 165 -height 60 -top 25 -left 10 -bg @(50, 50, 50)
+	$panelSettings = Set-UIElement -type 'Panel' -visible $true -width 165 -height 60 -top 45 -left 10 -bg @(50, 50, 50)
 	$ftoolForm.Controls.Add($panelSettings)
 	
 	# Create key selection button
@@ -1337,6 +1366,7 @@ function CreateFtoolForm
 		BtnAdd                = $btnAdd
 		BtnClose              = $btnClose
 		BtnShowHide           = $btnShowHide
+		PositionSlider        = $positionSlider
 		Form                  = $ftoolForm
 		RunningSpammer        = $null
 		WindowTitle           = $windowTitle
@@ -1346,7 +1376,7 @@ function CreateFtoolForm
 		LastExtensionAdded    = 0
 		ExtensionCount        = 0
 		ControlToExtensionMap = @{}
-		OriginalHeight        = 120
+		OriginalHeight        = 130
 	}
 	
 	# Store form data in Tag property
@@ -1398,6 +1428,17 @@ function AddFtoolEventHandlers
 		$data = $form.Tag
 	
 		# Update settings
+		UpdateSettings $data
+	})
+
+	# Position slider change event
+	$formData.PositionSlider.Add_ValueChanged({
+		$form = $this.FindForm()
+		if (-not $form -or -not $form.Tag)
+		{
+			return
+		}
+		$data = $form.Tag
 		UpdateSettings $data
 	})
 	
