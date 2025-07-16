@@ -4,13 +4,13 @@
 
 > Interface
 
-![](https://imgur.com/PCHgJ1G)
-![](https://imgur.com/aFxYlkZ)
+![](https://imgur.com/PCHgJ1G.png)
+![](https://imgur.com/aFxYlkZ.png)
 
 
 > Ftool
 
-![](https://imgur.com/n44KmAW)
+![](https://imgur.com/n44KmAW.png)
 
 
 ### Features
