@@ -106,6 +106,12 @@
 					$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin'] = $NeverRestartingLoginValue
 				#endregion Step: Sync NeverRestarting collector login checkbox to config
 
+				#region Step: Sync HideMinimizedWindows checkbox to config
+					# Read checkbox state and store as string (0 for false, 1 for true).
+					$hideMinimizedWindowsValue = if ($UI.HideMinimizedWindows.Checked) { '1' } else { '0' }
+					$global:DashboardConfig.Config['Options']['HideMinimizedWindows'] = $hideMinimizedWindowsValue
+				#endregion Step: Sync HideMinimizedWindows checkbox to config
+
 				#region Step: Log Sync Success
 					Write-Verbose '  UI: UI synced to config' -ForegroundColor Green
 					return $true
@@ -225,6 +231,19 @@
 						$UI.NeverRestartingCollectorLogin.Checked = $false
 					}
 				#endregion Step: Sync NeverRestarting collector login config to checkbox
+
+				#region Step: Sync HideMinimizedWindows config to checkbox
+					# Update HideMinimizedWindows CheckBox if the config value exists.
+					if ($global:DashboardConfig.Config['Options']['HideMinimizedWindows'])
+					{
+						$UI.HideMinimizedWindows.Checked = ([int]$global:DashboardConfig.Config['Options']['HideMinimizedWindows']) -eq 1
+					}
+					else
+					{
+						# Default to unchecked if setting doesn't exist
+						$UI.HideMinimizedWindows.Checked = $false
+					}
+				#endregion Step: Sync HideMinimizedWindows config to checkbox
 
 				#region Step: Log Sync Success
 					Write-Verbose '  UI: Config synced to UI' -ForegroundColor Green
@@ -750,6 +769,24 @@
 				$settingsForm.Controls.Add($chkNeverRestartingLogin)
 			#endregion Step: Create NeverRestarting Collector Login CheckBox
 
+			#region Step: Create Hide Minimized Windows CheckBox
+				# $hideMinimizedWindowsCheckBoxProps: Hashtable defining properties for the CheckBox to enable/disable hiding minimized windows.
+				$hideMinimizedWindowsCheckBoxProps = @{
+					type    = 'CheckBox'
+					width   = 200
+					height  = 20
+					top     = 270
+					left    = 0
+					bg      = @(30, 30, 30)
+					fg      = @(240, 240, 240)
+					id      = 'HideMinimizedWindows'
+					text    = 'Hide minimized clients'
+					font    = New-Object System.Drawing.Font('Segoe UI', 9)
+				}
+				$chkHideMinimizedWindows = Set-UIElement @hideMinimizedWindowsCheckBoxProps
+				$settingsForm.Controls.Add($chkHideMinimizedWindows)
+			#endregion Step: Create Hide Minimized Windows CheckBox
+
 		#endregion Step: Create Settings Form Input Controls
 
 		#region Step: Create Main Form DataGrid Display Controls
@@ -867,6 +904,7 @@
 				Login                      = $LoginCombos # Dictionary of Login ComboBoxes
 				FinalizeCollectorLogin     = $chkFinalizeLogin # Checkbox for finalize collector login
 				NeverRestartingCollectorLogin = $chkNeverRestartingLogin # Checkbox for NeverRestarting collector login
+				HideMinimizedWindows       = $chkHideMinimizedWindows # Checkbox for hiding minimized windows
 
 				# Context menu items
 				ContextMenu                = $ctxMenu

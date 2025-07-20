@@ -680,6 +680,20 @@
                                         {
                                             $script:States.Normal
                                         }
+
+                                        # Hide or show the window from Alt+Tab based on its minimized state
+                                        if ($hWnd -ne 0 -and $hWnd -ne [IntPtr]::Zero)
+                                        {
+                                            $hideMinimized = $global:DashboardConfig.Config['Options']['HideMinimizedWindows'] -eq '1'
+                                            if ($isMinimized) {
+                                                if ($hideMinimized) {
+                                                    Set-WindowToolStyle -hWnd $hWnd -Hide $true
+                                                }
+                                            }
+                                            else {
+                                                Set-WindowToolStyle -hWnd $hWnd -Hide $false
+                                            }
+                                        }
                                     #endregion Step: Callback - Determine Window State
 
                                     #region Step: Callback - Update Row State Cell if Changed
@@ -860,6 +874,81 @@
             #endregion Step: Remove Identified Keys from Cache
         }
     #endregion Function: Clear-OldProcessCache
+
+    #region Function: Set-WindowToolStyle
+        function Set-WindowToolStyle
+        {
+            <#
+            .SYNOPSIS
+                Hides or shows a window from the ALT+TAB task switcher by applying or removing the WS_EX_TOOLWINDOW extended style.
+            .PARAMETER hWnd
+                [IntPtr] The handle of the window to modify. (Mandatory)
+            .PARAMETER Hide
+                [bool] If $true, hides the window from ALT+TAB. If $false, shows it. (Optional, defaults to $true)
+            .OUTPUTS
+                [void]
+            .NOTES
+                Uses P/Invoke to call the native Win32 API functions GetWindowLong and SetWindowLong.
+                This modification makes or unmakes the window as a "tool window."
+                Includes error handling for the P/Invoke calls.
+            #>
+            param(
+                [Parameter(Mandatory = $true)]
+                [IntPtr]$hWnd,
+                [Parameter(Mandatory = $false)]
+                [bool]$Hide = $true
+            )
+
+            #region Step: Define P/Invoke Signature for Window Style Manipulation
+                $source = @'
+                [DllImport("user32.dll")]
+                public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+                [DllImport("user32.dll")]
+                public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+'@
+            #endregion Step: Define P/Invoke Signature for Window Style Manipulation
+
+            #region Step: Compile P/Invoke Helper Class
+                Add-Type -MemberDefinition $source -Name WindowUtils -Namespace User32 -ErrorAction 'SilentlyContinue'
+            #endregion Step: Compile P/Invoke Helper Class
+
+            #region Step: Define Window Style Constants
+                $GWL_EXSTYLE = -20
+                $WS_EX_TOOLWINDOW = 0x00000080
+            #endregion Step: Define Window Style Constants
+
+            #region Step: Apply or Remove WS_EX_TOOLWINDOW Style
+                try
+                {
+                    $currentExStyle = [User32.WindowUtils]::GetWindowLong($hWnd, $GWL_EXSTYLE)
+                    $newExStyle = 0
+
+                    $hideMinimized = $global:DashboardConfig.Config['Options']['HideMinimizedWindows'] -eq '1'
+                    if ($Hide -and $hideMinimized)
+                    {
+                        # Add the WS_EX_TOOLWINDOW style using a bitwise OR operation.
+                        $newExStyle = $currentExStyle -bor $WS_EX_TOOLWINDOW
+                    }
+                    else
+                    {
+                        # Remove the WS_EX_TOOLWINDOW style using a bitwise AND with a NOT mask.
+                        $newExStyle = $currentExStyle -band (-bnot $WS_EX_TOOLWINDOW)
+                    }
+
+                    # Only call SetWindowLong if the style has actually changed.
+                    if ($newExStyle -ne $currentExStyle)
+                    {
+                        [User32.WindowUtils]::SetWindowLong($hWnd, $GWL_EXSTYLE, $newExStyle) | Out-Null
+                    }
+                }
+                catch
+                {
+                    Write-Verbose "DATAGRID: Failed to set window tool style for handle $hWnd. $_" -ForegroundColor Red
+                }
+            #endregion Step: Apply or Remove WS_EX_TOOLWINDOW Style
+        }
+    #endregion Function: Set-WindowToolStyle
 #endregion Helper Functions
 
 #region Core Functions
@@ -1006,7 +1095,7 @@
                             Start-WindowStateCheck -Process $process -Row $existingRow -Grid $Grid
                         }
                     #endregion Step: Start Asynchronous Window State Check for the Row
-                }
+                                    }
             #endregion Step: Process Each Running Target Process
 
             #region Step: Update All Row Indices for Sequential Numbering
