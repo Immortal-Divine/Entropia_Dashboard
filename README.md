@@ -29,12 +29,15 @@
 
 	+ Selecting one or more entrys is mandatory for other features.
 
+  	+ Minimized clients can be hidden from taskbar and alt+tab view.
+
 
 + Launch
 
 	+ Can start the desired total amount of clients without loading errors
 
 	+ Works in the background
+   
 
 + Login
 
