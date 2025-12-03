@@ -15,7 +15,7 @@
         - Copy-OrderedDictionary: Helper to deep-copy ordered dictionaries.
     .NOTES
         Author: Immortal / Divine
-        Version: 1.1.3
+        Version: 1.2
         Requires:
         - PowerShell 5.1+
         - .NET Framework 4.5+
@@ -469,7 +469,7 @@
             #region Step: Use IniFile Class to Read
             # Assuming IniFile class is loaded
             # $iniHandler: Instance of the C# class used to interact with the INI file.
-            $iniHandler = [IniFile]::new($ConfigPath)
+            $iniHandler = [Custom.IniFile]::new($ConfigPath)
             # $readConfig: The raw content read from the INI file as a .NET OrderedDictionary.
             $readConfig = $iniHandler.ReadIniFile()
             #endregion Step: Use IniFile Class to Read
@@ -642,7 +642,7 @@
         {
             # Assuming IniFile class is loaded
             # $iniFile: Instance of the C# class used to write the INI file.
-            $iniFile = [IniFile]::new($ConfigPath)
+            $iniFile = [Custom.IniFile]::new($ConfigPath)
             # Pass the prepared .NET OrderedDictionary to the writing method
             $iniFile.WriteIniFile($configToWrite) # Assumes WriteIniFile handles potential IOExceptions
 

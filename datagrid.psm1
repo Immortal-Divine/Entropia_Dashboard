@@ -12,7 +12,7 @@
         - Provides thread-safe UI updates from background operations
     .NOTES
         Author: Immortal / Divine
-        Version: 1.1.3
+        Version: 1.2
         Requires: PowerShell 5.1+, .NET Framework 4.5+, classes.psm1, ini.psm1, ui.psm1
 
         Documentation Standards Followed:
@@ -571,7 +571,7 @@
             .OUTPUTS
                 [void]
             .NOTES
-                Uses the custom [Native]::ResponsiveAsync method for a non-blocking responsiveness check.
+                Uses the custom [Custom.Native]::ResponsiveAsync method for a non-blocking responsiveness check.
                 If the process has no main window, it defaults the state to 'Normal'.
                 Uses Task.ContinueWith and TaskScheduler.FromCurrentSynchronizationContext() to ensure the UI update
                 (setting the row's state cell value) happens safely on the UI thread after the async check completes.
@@ -606,7 +606,7 @@
                 {
                     #region Step: Start Asynchronous Responsiveness Check
                         # Call native helper to check responsiveness without blocking
-                        $task = [Native]::ResponsiveAsync($Process.MainWindowHandle)
+                        $task = [Custom.Native]::ResponsiveAsync($Process.MainWindowHandle)
                     #endregion Step: Start Asynchronous Responsiveness Check
 
                     #region Step: Prepare State Data for Callback
@@ -658,7 +658,7 @@
 
                                     #region Step: Callback - Determine Window State
                                         # Check minimized state using native helper
-                                        $isMinimized = [Native]::IsMinimized($hWnd)
+                                        $isMinimized = [Custom.Native]::IsMinimized($hWnd)
                                         $isResponsive = $null
 
                                         # Get responsiveness result from the completed async task

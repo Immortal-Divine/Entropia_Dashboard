@@ -12,7 +12,7 @@
         - Provides Launch / Login / Ftool automation
     .NOTES
         Author: Immortal / Divine
-        Version: 1.1.3
+        Version: 1.2
         Requires: PowerShell 5.1+, .NET Framework 4.5+, classes.psm1, ini.psm1, datagrid.psm1
 
         Documentation Standards Followed:
@@ -374,7 +374,7 @@
 					left    = 10
 					fg      = @(230, 230, 230)
 					id      = 'CopyrightLabel'
-					text    = [char]0x00A9 + ' Immortal / Divine 2025 - v1.0'
+					text    = [char]0x00A9 + ' Immortal / Divine 2025 - v1.2'
 					font    = New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)
 				}
 				$copyrightLabelForm = Set-UIElement @copyrightLabelProps
@@ -1364,8 +1364,8 @@
 							param($src, $e)
 							#region Step: Enable Form Dragging via Top Bar
 								# Use native Windows messages to allow dragging the borderless form by its top bar.
-								[Native]::ReleaseCapture()
-								[Native]::SendMessage($global:DashboardConfig.UI.MainForm.Handle, 0xA1, 0x2, 0) # WM_NCLBUTTONDOWN, HTCAPTION
+								[Custom.Native]::ReleaseCapture()
+								[Custom.Native]::SendMessage($global:DashboardConfig.UI.MainForm.Handle, 0xA1, 0x2, 0) # WM_NCLBUTTONDOWN, HTCAPTION
 							#endregion Step: Enable Form Dragging via Top Bar
 						}
 					#endregion Step: Handle TopBar MouseDown Event
@@ -1477,7 +1477,7 @@
 									# Assuming $row.Tag holds a process object or similar with MainWindowHandle
 									if ($row.Tag -and $row.Tag.GetType().GetProperty('MainWindowHandle') -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero) {
 										# Use helper function/native methods if available
-										[Native]::BringToFront($row.Tag.MainWindowHandle)
+										[Custom.Native]::BringToFront($row.Tag.MainWindowHandle)
 										Write-Verbose "  UI: DoubleClick - Bringing window handle $($row.Tag.MainWindowHandle) to front." -ForegroundColor DarkGray
 									} elseif ($row.Tag -and $row.Tag.GetType().GetProperty('MainWindowHandle')) {
 										Write-Verbose "  UI: DoubleClick - Row $($hitTestInfo.RowIndex) has tag, but MainWindowHandle is Zero." -ForegroundColor DarkGray
@@ -1569,7 +1569,7 @@
 										if ($row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
 										{
 											# Bring the window to the foreground.
-											[Native]::BringToFront($row.Tag.MainWindowHandle)
+											[Custom.Native]::BringToFront($row.Tag.MainWindowHandle)
 										}
 									}
 								}
@@ -1591,9 +1591,9 @@
 										if ($row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
 										{
 											Write-Verbose 'UI: Minimizing...' -ForegroundColor Cyan
-											[Native]::SendToBack($row.Tag.MainWindowHandle)
+											[Custom.Native]::SendToBack($row.Tag.MainWindowHandle)
 											Write-Verbose 'UI: Optimizing...' -ForegroundColor Cyan
-											[Native]::EmptyWorkingSet($row.Tag.Handle)
+											[Custom.Native]::EmptyWorkingSet($row.Tag.Handle)
 										}
 									}
 								}
@@ -1620,15 +1620,15 @@
 										if ($row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
 										{
 											# Use native function to resize and center the window.
-											[Native]::PositionWindow(
+											[Custom.Native]::PositionWindow(
 												$row.Tag.MainWindowHandle,
-												[Native]::TopWindowHandle,
+												[Custom.Native]::TopWindowHandle,
 												[int](($scr.Width - $width) / 2),  # Center X
 												[int](($scr.Height - $height) / 2), # Center Y
 												$width,
 												$height,
 												# Flags: Don't activate
-												[Native+WindowPositionOptions]::DoNotActivate
+												[Custom.Native+WindowPositionOptions]::DoNotActivate
 											)
 										}
 									}
@@ -1786,9 +1786,9 @@
 													if (-not $process.HasExited)
 													{
 														# Restore if minimized before closing main window.
-														if ([Native]::IsWindowMinimized($process.MainWindowHandle))
+														if ([Custom.Native]::IsWindowMinimized($process.MainWindowHandle))
 														{
-															[Native]::ShowWindow($process.MainWindowHandle, [Native]::SW_RESTORE)
+															[Custom.Native]::ShowWindow($process.MainWindowHandle, [Custom.Native]::SW_RESTORE)
 														}
 														Start-Sleep -MilliSeconds 100
 
@@ -1832,7 +1832,19 @@
 										if ($global:DashboardConfig.UI.DataGridFiller.RefreshMethod)
 										{
 											Write-Verbose "  UI: Refreshing DataGrid after termination attempts." -ForegroundColor DarkGray
-											& $global:DashboardConfig.UI.DataGridFiller.RefreshMethod
+											$refresh = $global:DashboardConfig.UI.DataGridFiller.RefreshMethod
+											try {
+												if ($refresh -is [ScriptBlock]) { & $refresh }
+												elseif ($refresh -is [System.Delegate] -or $refresh -is [System.Action]) { $refresh.Invoke() }
+												elseif ($refresh -is [string]) {
+													$cmd = Get-Command $refresh -ErrorAction SilentlyContinue
+													if ($cmd) { & $cmd.Name } else { Invoke-Expression $refresh }
+												} else {
+													Write-Verbose ("UI: RefreshMethod unsupported type {0}" -f $refresh.GetType().FullName)
+												}
+											} catch {
+												Write-Verbose ("UI: RefreshMethod invocation failed: {0}" -f $_.Exception.Message)
+											}
 										}
 									}
 								} else {
@@ -2064,7 +2076,7 @@
 		.SYNOPSIS
 			Creates and configures various System.Windows.Forms UI elements based on provided parameters.
 		.PARAMETER type
-			[string] The type of UI element to create. Valid values: 'Form', 'Panel', 'Button', 'Label', 'DataGridView', 'TextBox', 'ComboBox', 'CheckBox'. (Mandatory)
+			[string] The type of UI element to create. Valid values: 'Form', 'Panel', 'Button', 'Label', 'DataGridView', 'TextBox', 'ComboBox', 'CheckBox', 'Toggle'. (Mandatory)
 		.PARAMETER visible
 			[bool] Sets the initial visibility of the element.
 		.PARAMETER width
@@ -2095,6 +2107,8 @@
 			[double] For Forms, sets the opacity level (0.0 to 1.0). Defaults to 1.0.
 		.PARAMETER topMost
 			[bool] For Forms, sets whether the form should stay on top of other windows.
+        .PARAMETER checked
+            [bool] For CheckBox or Toggle, sets the initial checked state.
 		.PARAMETER multiline
 			[switch] For TextBoxes, enables multi-line input.
 		.PARAMETER readOnly
@@ -2113,7 +2127,7 @@
 		[CmdletBinding()]
 		param(
 			[Parameter(Mandatory=$true)]
-			[ValidateSet('Form', 'Panel', 'Button', 'Label', 'DataGridView', 'TextBox', 'ComboBox', 'CheckBox')]
+			[ValidateSet('Form', 'Panel', 'Button', 'Label', 'DataGridView', 'TextBox', 'ComboBox', 'CheckBox', 'Toggle')]
 			[string]$type,
 			[bool]$visible,
 			[int]$width,
@@ -2130,6 +2144,7 @@
 			[int]$formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None,
 			[double]$opacity = 1.0,
 			[bool]$topMost,
+            [bool]$checked,
 			[switch]$multiline,
 			[switch]$readOnly,
 			[switch]$scrollBars,
@@ -2149,6 +2164,7 @@
 				'TextBox'      { New-Object System.Windows.Forms.TextBox }
 				'ComboBox'     { New-Object System.Windows.Forms.ComboBox }
 				'CheckBox'     { New-Object System.Windows.Forms.CheckBox }
+				'Toggle'       { New-Object Custom.Toggle }
 				default        { throw "Invalid element type specified: $type" }
 			}
 		#endregion Step: Create UI Element Based on Type
@@ -2370,7 +2386,7 @@
 						$el.Add_DropDown($originalDropDownScript)
 													
 						# Create a new instance of our custom ComboBox
-						$customComboBox = New-Object DarkComboBox
+						$customComboBox = New-Object Custom.DarkComboBox
 						
 						# Copy properties from the original ComboBox
 						$customComboBox.Location = $el.Location
@@ -2399,19 +2415,24 @@
 						$el = $customComboBox
 					}
 				}
-					'CheckBox' {
-							if ($PSBoundParameters.ContainsKey('text')) { $el.Text = $text }
-					# Set modern flat style for dark theme
-					$el.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-					$el.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(60, 60, 60)
-					$el.FlatAppearance.BorderSize = 1
-					$el.FlatAppearance.CheckedBackColor = [System.Drawing.Color]::FromArgb(0, 120, 215) # Windows blue
-					$el.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(50, 50, 50)
-					$el.UseVisualStyleBackColor = $false
-					$el.CheckAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-					$el.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-					$el.Padding = [System.Windows.Forms.Padding]::new(20, 0, 0, 0) # Space between checkbox and text
-				}
+                'CheckBox' {
+                    if ($PSBoundParameters.ContainsKey('text')) { $el.Text = $text }
+                    if ($PSBoundParameters.ContainsKey('checked')) { $el.Checked = $checked }
+                    # Set modern flat style for dark theme
+                    $el.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+                    $el.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(60, 60, 60)
+                    $el.FlatAppearance.BorderSize = 1
+                    $el.FlatAppearance.CheckedBackColor = [System.Drawing.Color]::FromArgb(0, 120, 215) # Windows blue
+                    $el.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(50, 50, 50)
+                    $el.UseVisualStyleBackColor = $false
+                    $el.CheckAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+                    $el.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+                    $el.Padding = [System.Windows.Forms.Padding]::new(20, 0, 0, 0) # Space between checkbox and text
+                }
+                'Toggle' {
+                    if ($PSBoundParameters.ContainsKey('text')) { $el.Text = $text }
+                    if ($PSBoundParameters.ContainsKey('checked')) { $el.Checked = $checked }
+                }
 			}
 		#endregion Step: Apply Type-Specific Properties
 

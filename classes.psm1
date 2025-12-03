@@ -17,7 +17,7 @@
         - DarkComboBox: Custom styled ComboBox for dark theme UI.
     .NOTES
         Author: Immortal / Divine
-        Version: 1.1.3
+        Version: 1.2
         Requires: PowerShell 5.1+, .NET Framework 4.5+, Administrator rights
 
         Documentation Standards Followed:
@@ -87,6 +87,8 @@
 	using System.Threading.Tasks;
 	using System.Management.Automation; // Added for ScriptBlock
 
+	namespace Custom
+	{
 	/// <summary>
 	/// Windows API functions for window and process management via P/Invoke (Platform Invoke).
 	/// Provides static methods to interact with the Windows operating system at a low level.
@@ -417,6 +419,9 @@
 		public const int SWP_NOZORDER = 0x0004;   // Retains the current Z order (ignores insertAfterHandle).
 		public const int SWP_NOACTIVATE = 0x0010; // Does not activate the window.
 		public const int SWP_SHOWWINDOW = 0x0040; // Displays the window.
+
+		[DllImport("user32.dll", SetLastError = true)]
+		public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, IntPtr dwExtraInfo);
 
 		// Keyboard Event Constants
 		public const byte VK_MENU = 0x12; // ALT key
@@ -990,6 +995,80 @@
 		// Override background color property if needed
 		// public override Color BackColor { get => BackgroundColor; set { BackgroundColor = value; Invalidate(); } }
 	}
+
+    public class Toggle : CheckBox
+    {
+        public Toggle()
+        {
+            this.SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
+            this.Padding = new Padding(1);
+            this.Appearance = Appearance.Button; // Important to hide default checkbox appearance
+            this.FlatStyle = FlatStyle.Flat;
+            this.FlatAppearance.BorderSize = 0;
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            // Base painting
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            
+            Color backColor = this.Parent != null ? this.Parent.BackColor : SystemColors.Control;
+            e.Graphics.Clear(backColor);
+
+            // Colors
+            Color onColor = Color.FromArgb(35, 175, 75); // Green
+            Color offColor = Color.FromArgb(210, 45, 45); // Red
+
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                var d = this.Padding.All;
+                var r = this.Height - 2 * d;
+                path.AddArc(d, d, r, r, 90, 180);
+                path.AddArc(this.Width - r - d, d, r, r, -90, 180);
+                path.CloseFigure();
+
+                // Fill background track
+                using(var brush = new SolidBrush(this.Checked ? onColor : offColor))
+                {
+                    e.Graphics.FillPath(brush, path);
+                }
+
+                // Draw thumb
+                r = this.Height - 6;
+                var rect = this.Checked ? new Rectangle(this.Width - r - 3, 3, r, r) : new Rectangle(3, 3, r, r);
+                e.Graphics.FillEllipse(Brushes.White, rect);
+                
+				// Draw Text on thumb (legacy) -- replaced by centered, contrast-aware drawing below
+				// TextRenderer.DrawText(e.Graphics, this.Text, this.Font, rect, Color.Black, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+				// Draw the symbol centered over the control with a small shadow to ensure
+				// visibility against both the red and green track backgrounds.
+				Color trackColor = this.Checked ? onColor : offColor;
+				// Calculate luminance to pick a contrasting text color
+				double luminance = (0.2126 * trackColor.R) + (0.7152 * trackColor.G) + (0.0722 * trackColor.B);
+				Color textColor = (luminance < 140) ? Color.White : Color.Black;
+
+				using (var shadowBrush = new SolidBrush(Color.FromArgb(140, 0, 0, 0))) // semi-transparent shadow
+				using (var textBrush = new SolidBrush(textColor))
+				{
+					var sf = new System.Drawing.StringFormat();
+					sf.Alignment = System.Drawing.StringAlignment.Center;
+					sf.LineAlignment = System.Drawing.StringAlignment.Center;
+
+					var boundsF = new RectangleF(0, 0, this.Width, this.Height);
+
+					// Draw shadow slightly offset
+					var shadowOffset = 1;
+					var shadowBounds = new RectangleF(boundsF.X + shadowOffset, boundsF.Y + shadowOffset, boundsF.Width, boundsF.Height);
+					e.Graphics.DrawString(this.Text, this.Font, shadowBrush, shadowBounds, sf);
+
+					// Draw main text
+					e.Graphics.DrawString(this.Text, this.Font, textBrush, boundsF, sf);
+				}
+            }
+        }
+	}
+	} // namespace Custom
 
 "@ # End of C# here-string
     #endregion Step: Define C# Class String

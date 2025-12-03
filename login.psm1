@@ -11,7 +11,7 @@
 
 	.NOTES
 		Author: Immortal / Divine
-		Version: 1.1.3
+		Version: 1.2
 		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, datagrid.psm1
 #>
 
@@ -29,10 +29,10 @@ function Restore-Window
 	
 	if ($Process -and $Process.MainWindowHandle -ne [IntPtr]::Zero)
 	{
-		if ([Native]::IsWindowMinimized($Process.MainWindowHandle))
+		if ([Custom.Native]::IsWindowMinimized($Process.MainWindowHandle))
 		{
 			Write-Verbose "LOGIN: Restoring minimized window for PID $($Process.Id)" -ForegroundColor DarkGray
-			[Native]::BringToFront($Process.MainWindowHandle)
+			[Custom.Native]::BringToFront($Process.MainWindowHandle)
 			Start-Sleep -Milliseconds 100
 		}
 	}
@@ -54,7 +54,7 @@ function Set-WindowForeground
 	}
 	
 	$script:ScriptInitiatedMove = $true
-	$result = [Native]::BringToFront($Process.MainWindowHandle)
+	$result = [Custom.Native]::BringToFront($Process.MainWindowHandle)
 	Write-Verbose "LOGIN: Brought window to front: $result" -ForegroundColor Green
 	Start-Sleep -Milliseconds 100
 	
@@ -62,7 +62,7 @@ function Set-WindowForeground
 	$script:ScriptInitiatedMove = $false
 	
 	# Validate if the window is now the foreground window
-	$foregroundHandle = [Native]::GetForegroundWindow()
+	$foregroundHandle = [Custom.Native]::GetForegroundWindow()
 	if ($foregroundHandle -ne $Process.MainWindowHandle)
 	{
 		Write-Verbose "LOGIN: Failed to bring window to foreground for PID $($Process.Id)" -ForegroundColor Red
@@ -132,7 +132,7 @@ function Wait-ForResponsive
 			return $false
 		}
 		
-		$responsiveTask = [Native]::ResponsiveAsync($Monitor.MainWindowHandle, 100)
+		$responsiveTask = [Custom.Native]::ResponsiveAsync($Monitor.MainWindowHandle, 100)
 		if ($responsiveTask.Result)
 		{
 			$isResponsive = $true
@@ -247,7 +247,7 @@ function Invoke-MouseClick
 	$script:LastScriptMouseMoveTime = Get-Date
 	
 	# Get the handle of the foreground window
-	$hWnd = [Native]::GetForegroundWindow()
+	$hWnd = [Custom.Native]::GetForegroundWindow()
 	
 	try
 	{
@@ -255,9 +255,9 @@ function Invoke-MouseClick
 		
 		# Force cursor position
 		Start-Sleep -Milliseconds 10
-		[void][Native]::SetCursorPos($X, $Y)
+		[void][Custom.Native]::SetCursorPos($X, $Y)
 		Start-Sleep -Milliseconds 10
-		[void][Native]::SetCursorPos($X, $Y)
+			[void][Custom.Native]::SetCursorPos($X, $Y)
 		Start-Sleep -Milliseconds 10
 		
 		$newPos = [System.Windows.Forms.Cursor]::Position
@@ -271,9 +271,9 @@ function Invoke-MouseClick
 			
 			# Try one more time with a longer delay
 			Start-Sleep -Milliseconds 50
-			[void][Native]::SetCursorPos($X, $Y)
+			[void][Custom.Native]::SetCursorPos($X, $Y)
 			Start-Sleep -Milliseconds 50
-			[void][Native]::SetCursorPos($X, $Y)
+			[void][Custom.Native]::SetCursorPos($X, $Y)
 			Start-Sleep -Milliseconds 50
 			
 			# Check again
@@ -293,9 +293,9 @@ function Invoke-MouseClick
 		$MOUSEEVENTF_LEFTUP = 0x0004
 		
 		# Perform click
-		[Native]::mouse_event($MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+		[Custom.Native]::mouse_event($MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
 		Start-Sleep -Milliseconds 10
-		[Native]::mouse_event($MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+		[Custom.Native]::mouse_event($MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
 		Start-Sleep -Milliseconds 10
 		
 		$neverRestarting = $false # Default to false if setting doesn't exist
@@ -314,9 +314,9 @@ function Invoke-MouseClick
 			$windowsMouseDown = 0x0201  # WM_LBUTTONDOWN
 			$windowsMouseUp = 0x0202    # WM_LBUTTONUP
 			
-			[Native]::SendMessage($hWnd, $windowsMouseDown, 0, $lparam)
+			[Custom.Native]::SendMessage($hWnd, $windowsMouseDown, 0, $lparam)
 			Start-Sleep -Milliseconds 20
-			[Native]::SendMessage($hWnd, $windowsMouseUp, 0, $lparam)
+			[Custom.Native]::SendMessage($hWnd, $windowsMouseUp, 0, $lparam)
 			Start-Sleep -Milliseconds 20
 			Write-Verbose "Mouse click was performed." -ForegroundColor DarkGray
 		}
@@ -349,13 +349,13 @@ function Invoke-KeyPress
 	)
 	
 	# Get the handle of the foreground window
-	$hWnd = [Native]::GetForegroundWindow()
-	[Native]::BringToFront($Process.MainWindowHandle) | Out-Null
-	
+	$hWnd = [Custom.Native]::GetForegroundWindow()
+	[Custom.Native]::BringToFront($Process.MainWindowHandle) | Out-Null
+
 	# Simulate key press (this is still using ftool.dll)
-	[Ftool]::fnPostMessage($hWnd, 0x0100, $VirtualKeyCode, 0) # WM_KEYDOWN
+	[Custom.Ftool]::fnPostMessage($hWnd, 0x0100, $VirtualKeyCode, 0) # WM_KEYDOWN
 	Start-Sleep -Milliseconds 20
-	[Ftool]::fnPostMessage($hWnd, 0x0101, $VirtualKeyCode, 0) # WM_KEYUP
+	[Custom.Ftool]::fnPostMessage($hWnd, 0x0101, $VirtualKeyCode, 0) # WM_KEYUP
 	
 	Start-Sleep -Milliseconds 100
 }
@@ -557,8 +557,8 @@ function LoginSelectedRow
 				
 				
 				# Calculate target click position (center of client window)
-				$rect = New-Object Native+RECT
-				if (-not [Native]::GetWindowRect($process.MainWindowHandle, [ref]$rect))
+				$rect = New-Object Custom.Native+RECT
+				if (-not [Custom.Native]::GetWindowRect($process.MainWindowHandle, [ref]$rect))
 				{
 					
 					continue
@@ -813,9 +813,9 @@ function LoginSelectedRow
 					Start-Sleep -Milliseconds 500
 					
 					Write-Verbose 'LOGIN: Minimizing...' -ForegroundColor Cyan
-                    [Native]::SendToBack($process.MainWindowHandle)
+					[Custom.Native]::SendToBack($process.MainWindowHandle)
 					Write-Verbose 'LOGIN: Optimizing...' -ForegroundColor Cyan
-					[Native]::EmptyWorkingSet($process.Handle)
+					[Custom.Native]::EmptyWorkingSet($process.Handle)
 
 					Write-Verbose "LOGIN: Login complete for PID $($process.Id)" -ForegroundColor Green
 				}

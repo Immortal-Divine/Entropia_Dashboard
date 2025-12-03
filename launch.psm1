@@ -11,7 +11,7 @@
 
 	.NOTES
 		Author: Immortal / Divine
-		Version: 1.1.3
+		Version: 1.2
 		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1
 #>
 
@@ -485,12 +485,12 @@ function Start-ClientLaunch
 									
 										Write-Verbose 'LAUNCH: Minimizing...' -ForegroundColor DarkGray
 										Start-Sleep -Milliseconds 500
-										[Native]::ShowWindow($clientWindowHandle, [Native]::SW_MINIMIZE)
+										[Custom.Native]::ShowWindow($clientWindowHandle, [Custom.Native]::SW_MINIMIZE)
 									
 										Write-Verbose 'LAUNCH: Optimizing...' -ForegroundColor Cyan
 										try
 										{
-											[Native]::EmptyWorkingSet($clientHandle)
+											[Custom.Native]::EmptyWorkingSet($clientHandle)
 										}
 										catch
 										{

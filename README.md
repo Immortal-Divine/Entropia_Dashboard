@@ -60,9 +60,12 @@
 
 	+ Gets pinned to the window.
 
-	+ Up to 10 Keys can be set with a minimum delay of 100ms.
+	+ Up to 10 Keys can be set with a minimum delay of 10ms.
 	 + Multiple Ftools are possible.
 
+	+ Hotkey Manager
+
+	+ Custom position on client
 
 + Terminate
 
