@@ -1,0 +1,7 @@
+<# 
+	.NOTES
+		Author: Immortal / Divine
+		Version: 1.2.1
+		Requires: PowerShell 5.1+, .NET Framework 4.5+, Administrator privileges, Bypassed 32-bit PowerShell execution.
+
+#>

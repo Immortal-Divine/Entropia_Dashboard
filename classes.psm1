@@ -17,7 +17,7 @@
         - DarkComboBox: Custom styled ComboBox for dark theme UI.
     .NOTES
         Author: Immortal / Divine
-        Version: 1.2
+        Version: 1.2.1
         Requires: PowerShell 5.1+, .NET Framework 4.5+, Administrator rights
 
         Documentation Standards Followed:
@@ -104,7 +104,7 @@
 			int Y,                    // New position of the top of the window
 			int width,                // New width of the window
 			int height,               // New height of the window
-			WindowPositionOptions flags); // Window sizing and positioning flags
+			uint flags); // Window sizing and positioning flags
 
 		// Get window size: Retrieves the dimensions of the bounding rectangle of the specified window.
 		[DllImport("user32.dll", EntryPoint = "GetWindowRect")]
@@ -126,6 +126,15 @@
 		// Get focused window: Retrieves a handle to the foreground window (the window with which the user is currently working).
 		[DllImport("user32.dll", EntryPoint = "GetForegroundWindow")]
 		public static extern IntPtr GetForegroundWindow();
+
+		// Check if a window handle is valid
+		[DllImport("user32.dll")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		public static extern bool IsWindow(IntPtr hWnd);
+
+		// Get Thread Process ID: Retrieves the identifier of the thread that created the specified window and, optionally, the identifier of the process that created the window.
+		[DllImport("user32.dll", SetLastError = true)]
+		public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
 		// Get active window (alternative name): Retrieves the window handle to the active window attached to the calling thread's message queue.
 		[DllImport("user32.dll", EntryPoint = "GetActiveWindow")]
@@ -387,46 +396,57 @@
 		}
 
 		// --- Constants used by the Native methods ---
-		// Window Handles
-		public static readonly IntPtr TopWindowHandle = new IntPtr(0); // Used with SetWindowPos to place window at top
-
-		// Window Messages
-		public const uint WM_NULL = 0x0000; // Null message, often used for responsiveness checks
-
-		// Error Codes
-		public const int ERROR_TIMEOUT = 1460; // Timeout error code
-
-		// SendMessageTimeout Flags
-		public const uint SMTO_ABORTIFHUNG = 0x0002; // Do not wait if the target thread is hung
-
-		// ShowWindow Commands (nCmdShow parameter)
-		public const int SW_HIDE = 0;       // Hides the window and activates another window.
-		public const int SW_MINIMIZE = 6;   // Minimizes the specified window and activates the next top-level window in the Z order.
-		public const int SW_RESTORE = 9;    // Activates and displays the window. If the window is minimized or maximized, the system restores it to its original size and position.
-		public const int SW_SHOW = 5;       // Activates the window and displays it in its current size and position.
-		public const int SW_MAXIMIZE = 3;   // Maximizes the specified window.
-
-		// Queue Status Flags (dwWakeMask for MsgWaitForMultipleObjects)
-		public const uint QS_ALLINPUT = 0x04FF; // Any message is in the queue.
-
-		// PeekMessage Flags (wRemoveMsg parameter)
-		public const uint PM_REMOVE = 0x0001; // Messages are removed from the queue after processing by PeekMessage.
-
-		// Wait Constants (Return value for MsgWaitForMultipleObjects)
-		public const uint WAIT_TIMEOUT = 258; // The time-out interval elapsed, and the object's state is nonsignaled.
-
-		// SetWindowPos Flags (Combined with WindowPositionOptions enum)
-		public const int SWP_NOZORDER = 0x0004;   // Retains the current Z order (ignores insertAfterHandle).
-		public const int SWP_NOACTIVATE = 0x0010; // Does not activate the window.
-		public const int SWP_SHOWWINDOW = 0x0040; // Displays the window.
-
-		[DllImport("user32.dll", SetLastError = true)]
-		public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, IntPtr dwExtraInfo);
-
-		// Keyboard Event Constants
-		public const byte VK_MENU = 0x12; // ALT key
-		public const uint KEYEVENTF_EXTENDEDKEY = 0x0001; // Key down flag
-		public const uint KEYEVENTF_KEYUP = 0x0002; // Key up flag
+		        // Window Handles
+				public static readonly IntPtr TopWindowHandle = new IntPtr(0); // HWND_TOP
+				public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+				public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+		
+				// Window Messages
+				public const uint WM_NULL = 0x0000; // Null message, often used for responsiveness checks
+		
+				// Error Codes
+				public const int ERROR_TIMEOUT = 1460; // Timeout error code
+		
+				// SendMessageTimeout Flags
+				public const uint SMTO_ABORTIFHUNG = 0x0002; // Do not wait if the target thread is hung
+		
+				// ShowWindow Commands (nCmdShow parameter)
+				public const int SW_HIDE = 0;       // Hides the window and activates another window.
+				public const int SW_MINIMIZE = 6;   // Minimizes the specified window and activates the next top-level window in the Z order.
+				public const int SW_RESTORE = 9;    // Activates and displays the window. If the window is minimized or maximized, the system restores it to its original size and position.
+				public const int SW_SHOW = 5;       // Activates the window and displays it in its current size and position.
+				public const int SW_MAXIMIZE = 3;   // Maximizes the specified window.
+		
+				// Queue Status Flags (dwWakeMask for MsgWaitForMultipleObjects)
+				public const uint QS_ALLINPUT = 0x04FF; // Any message is in the queue.
+		
+				// PeekMessage Flags (wRemoveMsg parameter)
+				public const uint PM_REMOVE = 0x0001; // Messages are removed from the queue after processing by PeekMessage.
+		
+				// Wait Constants (Return value for MsgWaitForMultipleObjects)
+				public const uint WAIT_TIMEOUT = 258; // The time-out interval elapsed, and the object's state is nonsignaled.
+		
+				// SetWindowPos Flags (Combined with WindowPositionOptions enum)
+				public const uint SWP_NOSIZE = 0x0001;
+				public const uint SWP_NOMOVE = 0x0002;
+						public const uint SWP_NOZORDER = 0x0004;   // Retains the current Z order (ignores insertAfterHandle).
+						public const int SWP_NOACTIVATE = 0x0010; // Does not activate the window.
+						public const int SWP_SHOWWINDOW = 0x0040; // Displays the window.
+				
+						// For GetWindowLong
+						public const int GWL_EXSTYLE = -20;
+						public const uint WS_EX_TOPMOST = 0x00000008;
+				
+						[DllImport("user32.dll", SetLastError = true)]
+						public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, IntPtr dwExtraInfo);
+						
+						[DllImport("user32.dll", EntryPoint="GetWindowLong")]
+						public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+				
+						// Keyboard Event Constants
+						public const byte VK_MENU = 0x12; // ALT key
+						public const uint KEYEVENTF_EXTENDEDKEY = 0x0001; // Key down flag
+						public const uint KEYEVENTF_KEYUP = 0x0002; // Key up flag
 
 		/// <summary>
 		/// Flags for the SetWindowPos function (PositionWindow method).

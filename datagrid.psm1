@@ -12,7 +12,7 @@
         - Provides thread-safe UI updates from background operations
     .NOTES
         Author: Immortal / Divine
-        Version: 1.2
+        Version: 1.2.1
         Requires: PowerShell 5.1+, .NET Framework 4.5+, classes.psm1, ini.psm1, ui.psm1
 
         Documentation Standards Followed:

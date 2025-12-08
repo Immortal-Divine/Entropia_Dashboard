@@ -13,7 +13,7 @@
 
 	.NOTES
 		Author: Immortal / Divine
-		Version: 1.2
+		Version: 1.2.1
 		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, ini.psm1, datagrid.psm1, ftool.dll
 #>
 
@@ -1827,75 +1827,97 @@ function CreatePositionTimer
 	
 	$positionTimer = New-Object System.Windows.Forms.Timer
 	$positionTimer.Interval = 10
-	$positionTimer.Tag = @{
-		WindowHandle = $formData.SelectedWindow
-		FtoolForm    = $formData.Form
-		InstanceId   = $formData.InstanceId
-		FormData     = $formData
-	}
-	
-	$positionTimer.Add_Tick({
-			param($s, $e)
-			try
-			{
-				if (-not $s -or -not $s.Tag)
-				{
-					return
-				}
-				$timerData = $s.Tag
-				if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero)
-				{
-					return
-				}
-			
-				if (-not $timerData['FtoolForm'] -or $timerData['FtoolForm'].IsDisposed)
-				{
-					return
-				}
+		$positionTimer.Tag = @{
+			WindowHandle = $formData.SelectedWindow
+			FtoolForm    = $formData.Form
+			InstanceId   = $formData.InstanceId
+			FormData     = $formData
+			FtoolZState  = 'unknown' # Add state tracking for Z-order
+		}
 		
-				$rect = New-Object Custom.Native+RECT
-				if ([Custom.Native]::GetWindowRect($timerData['WindowHandle'], [ref]$rect))
+		$positionTimer.Add_Tick({
+				param($s, $e)
+				try
 				{
-					try
+					if (-not $s -or -not $s.Tag) { return }
+					$timerData = $s.Tag
+					if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
+					if (-not $timerData['FtoolForm'] -or $timerData['FtoolForm'].IsDisposed) { return }
+			
+					$rect = New-Object Custom.Native+RECT
+					# Check if the parent window is still a valid window.
+					if ([Custom.Native]::IsWindow($timerData['WindowHandle']))
 					{
-						$sliderValueX = $timerData.FormData.PositionSliderX.Value
-						$maxLeft = $rect.Right - $timerData['FtoolForm'].Width - 8
-						$targetLeft = $rect.Left + 8 + (($maxLeft - ($rect.Left + 8)) * $sliderValueX / 100)
-						
-						$sliderValueY = 100 - $timerData.FormData.PositionSliderY.Value
-						$maxTop = $rect.Bottom - $timerData['FtoolForm'].Height - 8
-						$targetTop = $rect.Top + 8 + (($maxTop - ($rect.Top + 8)) * $sliderValueY / 100)
-
-						$currentLeft = $timerData['FtoolForm'].Left
-						$newLeft = $currentLeft + ($targetLeft - $currentLeft) * 0.2 
-						$timerData['FtoolForm'].Left = [int]$newLeft
-
-						$currentTop = $timerData['FtoolForm'].Top
-						$newTop = $currentTop + ($targetTop - $currentTop) * 0.2 
-						$timerData['FtoolForm'].Top = [int]$newTop
-					
-						$foregroundWindow = [Custom.Native]::GetForegroundWindow()
-					
-						if ($foregroundWindow -eq $timerData['WindowHandle'])
+						if ([Custom.Native]::GetWindowRect($timerData['WindowHandle'], [ref]$rect))
 						{
-							if (-not $timerData['FtoolForm'].TopMost)
+							try
 							{
-								$timerData['FtoolForm'].TopMost = $true
-								$timerData['FtoolForm'].BringToFront()
-							}
-						}
-						elseif ($foregroundWindow -ne $timerData['FtoolForm'].Handle)
-						{
-							if ($timerData['FtoolForm'].TopMost)
-							{
-								$timerData['FtoolForm'].TopMost = $false
-							}
+								# Positioning logic
+								$sliderValueX = $timerData.FormData.PositionSliderX.Value
+								$maxLeft = $rect.Right - $timerData['FtoolForm'].Width - 8
+								$targetLeft = $rect.Left + 8 + (($maxLeft - ($rect.Left + 8)) * $sliderValueX / 100)
+								
+								$sliderValueY = 100 - $timerData.FormData.PositionSliderY.Value
+								$maxTop = $rect.Bottom - $timerData['FtoolForm'].Height - 8
+								$targetTop = $rect.Top + 8 + (($maxTop - ($rect.Top + 8)) * $sliderValueY / 100)
+	
+								$currentLeft = $timerData['FtoolForm'].Left
+								$newLeft = $currentLeft + ($targetLeft - $currentLeft) * 0.2 
+								$timerData['FtoolForm'].Left = [int]$newLeft
+	
+								                        $currentTop = $timerData['FtoolForm'].Top
+								                        $newTop = $currentTop + ($targetTop - $currentTop) * 0.2 
+								                        $timerData['FtoolForm'].Top = [int]$newTop
+								                    
+								                                                $foregroundWindow = [Custom.Native]::GetForegroundWindow()
+								                                                $ftoolHandle = $timerData['FtoolForm'].Handle
+								                                                $linkedHandle = $timerData['WindowHandle']
+								                                                
+								                                                # Flags for SetWindowPos to only affect Z-order
+								                                                $flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
+								                                                
+								                                                if ($foregroundWindow -eq $linkedHandle -or $foregroundWindow -eq $ftoolHandle)
+								                                                {
+								                                                    # Linked window is active, make ftool topmost if it's not already.
+								                                                    if ($timerData.FtoolZState -ne 'topmost')
+								                                                    {
+								                                                        [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
+								                                                        $timerData.FtoolZState = 'topmost'
+								                                                    }
+								                                                }
+								                                                                                                                                                                                                                                                else
+								                                                                                                                                                                                                                                                {
+								                                                                                                                                                                                                                                                    # Another window is active, make ftool non-topmost and stack it correctly.
+								                                                                                                                                                                                                                                                    if ($timerData.FtoolZState -ne 'standard')
+								                                                                                                                                                                                                                                                    {
+								                                                                                                                                                                                                                                                        # 1. Make the ftool a non-topmost window. This transitions it from being 'always on top'.
+								                                                                                                                                                                                                                                                        [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
+								                                                                                                                                                                                                                                                        
+								                                                                                                                                                                                                                                                        # 2. Position the linked window to be directly behind the ftool window in the Z-order.
+								                                                                                                                                                                                                                                                        #    Calling PositionWindow(A, B) places A behind B.
+								                                                                                                                                                                                                                                                        #    This ensures ftool stays on top of linked, without bringing the pair to the foreground.
+								                                                                                                                                                                                                                                                        [Custom.Native]::PositionWindow($linkedHandle, $ftoolHandle, 0, 0, 0, 0, $flags) | Out-Null
+                                                        
+                                                        # 3. Explicitly re-assert that the new foreground window should be at the top.
+                                                        #    This counteracts the Z-order promotion that the previous calls might have caused.
+                                                        [Custom.Native]::PositionWindow($foregroundWindow, [Custom.Native]::TopWindowHandle, 0, 0, 0, 0, $flags) | Out-Null
+								                                                                                                                                                                                                                                                        
+								                                                                                                                                                                                                                                                        $timerData.FtoolZState = 'standard'
+								                                                                                                                                                                                                                                                    }
+								                                                                                                                                                                                                                                                }								                    }
+								                    catch
+													{							Write-Verbose ("FTOOL: Position timer error: {0} for {1}" -f $_.Exception.Message, $($timerData['InstanceId'])) -ForegroundColor Red
 						}
 					}
-					catch
-					{
-						Write-Verbose ("FTOOL: Position timer error: {0} for {1}" -f $_.Exception.Message, $($timerData['InstanceId'])) -ForegroundColor Red
-					}
+				}
+				else
+				{
+					# Parent window handle is no longer valid, so close the ftool form and stop the timer.
+					Write-Verbose ("FTOOL: Parent window handle no longer valid. Closing ftool {0}." -f $timerData['InstanceId']) -ForegroundColor Yellow
+					$timerData['FtoolForm'].Close()
+					$s.Stop()
+					$s.Dispose()
+					$global:DashboardConfig.Resources.Timers.Remove("ftoolPosition_$($timerData.InstanceId)")
 				}
 			}
 			catch

@@ -12,7 +12,7 @@
         - Provides Launch / Login / Ftool automation
     .NOTES
         Author: Immortal / Divine
-        Version: 1.2
+        Version: 1.2.1
         Requires: PowerShell 5.1+, .NET Framework 4.5+, classes.psm1, ini.psm1, datagrid.psm1
 
         Documentation Standards Followed:
@@ -374,7 +374,7 @@
 					left    = 10
 					fg      = @(230, 230, 230)
 					id      = 'CopyrightLabel'
-					text    = [char]0x00A9 + ' Immortal / Divine 2025 - v1.2'
+					text    = [char]0x00A9 + ' Immortal / Divine 2025 - v1.2.1'
 					font    = New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)
 				}
 				$copyrightLabelForm = Set-UIElement @copyrightLabelProps

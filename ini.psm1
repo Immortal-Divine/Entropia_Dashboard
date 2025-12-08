@@ -15,7 +15,7 @@
         - Copy-OrderedDictionary: Helper to deep-copy ordered dictionaries.
     .NOTES
         Author: Immortal / Divine
-        Version: 1.2
+        Version: 1.2.1
         Requires:
         - PowerShell 5.1+
         - .NET Framework 4.5+

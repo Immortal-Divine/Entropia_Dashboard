@@ -11,7 +11,7 @@
 
 	.NOTES
 		Author: Immortal / Divine
-		Version: 1.2
+		Version: 1.2.1
 		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, datagrid.psm1
 #>
 
@@ -530,7 +530,7 @@ function LoginSelectedRow
 						Start-Sleep -Milliseconds 10
 					}
 					
-					Start-Sleep -Milliseconds 100
+					Start-Sleep -Milliseconds 250
 				}
 				
 				# If we reach here, we've timed out
@@ -565,7 +565,7 @@ function LoginSelectedRow
 				}
 				
 				$centerX = [int](($rect.Left + $rect.Right) / 2) + 25
-				$centerY = [int](($rect.Top + $rect.Bottom) / 2)
+				$centerY = [int](($rect.Top + $rect.Bottom) / 2) + 18 # 18 pixel for Genesis fix
 				
 				
 				
@@ -622,7 +622,7 @@ function LoginSelectedRow
 					if ($logStatus -contains 'CERT_FOUND')
 					{
 						$foundCERT = $true
-						Start-Sleep -Milliseconds 100
+						Start-Sleep -Milliseconds 250
 						Write-Verbose "LOGIN: CERT found for PID $($process.Id)" -ForegroundColor Green
 					}
 					
@@ -675,7 +675,7 @@ function LoginSelectedRow
 					if ($logStatus -contains 'LOGIN_FOUND')
 					{
 						$foundLogin = $true
-						Start-Sleep -Milliseconds 100
+						Start-Sleep -Milliseconds 250
 						Write-Verbose "LOGIN: LOGIN found for PID $($process.Id)" -ForegroundColor Green
 					}
 					
@@ -756,7 +756,7 @@ function LoginSelectedRow
 					if ($logStatus -contains 'CACHE_FOUND')
 					{
 						$foundCacheJoin = $true
-						Start-Sleep -Milliseconds 100
+						Start-Sleep -Milliseconds 250
 						Write-Verbose "LOGIN: Cache confirmed for PID $($process.Id)" -ForegroundColor Green
 					}
 					
@@ -815,7 +815,9 @@ function LoginSelectedRow
 					Write-Verbose 'LOGIN: Minimizing...' -ForegroundColor Cyan
 					[Custom.Native]::SendToBack($process.MainWindowHandle)
 					Write-Verbose 'LOGIN: Optimizing...' -ForegroundColor Cyan
+					Start-Sleep -Milliseconds 250
 					[Custom.Native]::EmptyWorkingSet($process.Handle)
+					Start-Sleep -Milliseconds 250
 
 					Write-Verbose "LOGIN: Login complete for PID $($process.Id)" -ForegroundColor Green
 				}
