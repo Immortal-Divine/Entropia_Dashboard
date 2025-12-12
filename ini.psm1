@@ -2,36 +2,25 @@
     .SYNOPSIS
         INI Configuration Management Module for Entropia Dashboard.
     .DESCRIPTION
-        This PowerShell module provides functions to handle configuration file operations
-        (reading and writing INI files) for the Entropia Dashboard application.
-        It interacts with the global dashboard configuration state and utilizes the
-        custom C# 'IniFile' class (defined in classes.psm1) for file parsing and writing.
+        This PowerShell module is dedicated to managing all aspects of INI file configuration for the Entropia Dashboard application. 
+        It serves as the bridge between the application's in-memory configuration state (`$global:DashboardConfig`) and the persistent `config.ini` file on disk.
+        The module's core functionality relies on a custom C# `IniFile` class (expected to be loaded from `classes.psm1`) for efficient and structured parsing of INI data.
 
-        Key Functions:
-        - Initialize-IniConfig: Ensures the main configuration file exists and is populated with necessary defaults.
-        - Read-Config: Reads the configuration from the INI file into the global state.
-        - Write-Config: Writes the current global configuration state back to the INI file.
-        - Get-IniFileContent: Reads an arbitrary INI file into a PowerShell OrderedDictionary.
-        - Copy-OrderedDictionary: Helper to deep-copy ordered dictionaries.
-    .NOTES
-        Author: Immortal / Divine
-        Version: 1.2.1
-        Requires:
-        - PowerShell 5.1+
-        - .NET Framework 4.5+
-        - Entropia_Dashboard module 'classes.psm1' (for the IniFile C# class)
-        - Entropia_Dashboard global variable '$global:DashboardConfig' (expected structure)
+        The module's primary responsibilities and key functions are:
 
-        Documentation Standards Followed:
-        - Module Level Documentation: Synopsis, Description, Notes.
-        - Function Level Documentation: Synopsis, Parameter Descriptions, Output Specifications.
-        - Code Organization: Logical grouping using #region / #endregion. Functions organized by workflow.
-        - Step Documentation: Code blocks enclosed in '#region Step: Description' / '#endregion Step: Description'.
-        - Variable Definitions: Inline comments describing the purpose of significant variables.
-        - Error Handling: Comprehensive try/catch/finally blocks with error logging and user notification.
+        1.  **Configuration Initialization and Synchronization (`Initialize-IniConfig`):**
+            *   This is the primary entry point for configuration handling. It ensures the application starts with a valid and complete configuration.
+            *   On first run, it creates a `config.ini` file from a predefined default template.
+            *   On subsequent runs, it reads the existing `config.ini` and intelligently synchronizes it with the default template. It automatically adds any new sections or keys that might have been introduced in an application update, ensuring backward compatibility and preventing errors from missing settings. The updated configuration is then saved back to the file.
 
-        Relies heavily on the structure and availability of the $global:DashboardConfig variable.
-        Ensure the IniFile C# class from 'classes.psm1' is loaded before using these functions.
+        2.  **Configuration Reading and Writing:**
+            *   **`Read-Config`:** Reads the `config.ini` file and populates the global configuration variable. It includes a robust fallback mechanism: if the file cannot be read, it loads the default settings into memory to allow the application to start with a safe, baseline configuration.
+            *   **`Write-Config`:** Persists the in-memory configuration to the `config.ini` file. It includes data preparation logic, such as converting PowerShell arrays into comma-separated strings suitable for the INI format. This function also supports PowerShell's `-WhatIf` and `-Confirm` parameters for safe execution.
+
+        3.  **Utility and Helper Functions:**
+            *   **`Get-IniFileContent`:** A general-purpose function for reading any arbitrary INI file into a PowerShell ordered dictionary.
+            *   **`Copy-OrderedDictionary`:** A crucial helper that performs a deep copy of configuration dictionaries, which is used to safely instantiate default settings without modifying the original template.
+            *   **`LoadDefaultConfigOnError`:** An internal helper that provides the fallback-to-default functionality for `Read-Config`.
 #>
 
 #region Helper Functions

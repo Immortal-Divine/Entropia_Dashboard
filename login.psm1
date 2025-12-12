@@ -1,859 +1,555 @@
 <# login.psm1 
-	.SYNOPSIS
-		Login Automation Module for Entropia Dashboard.
+    .SYNOPSIS
+        Provides a multi-client automation engine for logging into the game. 
+		It uses coordinate-based mouse simulation, direct key presses, and active log file monitoring to navigate the login sequence, with a built-in safety-cancellation feature triggered by user mouse movement.
 
-	.DESCRIPTION
-		This module provides a comprehensive login automation system for the Entropia Dashboard:
-		- Processes multiple game clients sequentially based on selection
-		- Monitors client processes and window states
-		- Provides thread-safe logging of login operations
-		- Handles cleanup of resources when operations complete
+    .DESCRIPTION
+        This module implements the core "Login" functionality of the dashboard. It is a powerful automation script designed to log in multiple game clients sequentially based on user-defined settings. The process is fully automated, from restoring the client window to entering the game world, and provides detailed progress feedback to the user. A critical safety feature allows the user to immediately cancel the entire operation at any time by simply moving their mouse.
 
-	.NOTES
-		Author: Immortal / Divine
-		Version: 1.2.1
-		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, datagrid.psm1
+        The module's architecture and key features include:
+
+        1.  **Automated Login Sequence (`ProcessSingleClient`):**
+            *   For each selected client, the module executes a precise sequence of actions to navigate the login screen and character selection.
+            *   **Coordinate-Based Clicks:** It uses pre-configured screen coordinates (set by the user in the Settings UI) to simulate mouse clicks on server, channel, and character selection buttons.
+            *   **Simulated Key Presses:** It programmatically sends "Enter" key presses to confirm selections and enter the game.
+            *   **State-Driven Logic:** Instead of relying on fixed delays, the automation actively waits for confirmation that the game has reached the next stage. It does this by monitoring the game's own network log file for specific entries (e.g., `CACHE_ACK_JOIN`), ensuring the process is robust and reliable.
+
+        2.  **Safety and User Control (`LoginSelectedRow`):**
+            *   Before starting, the script installs a system-wide mouse hook. If any mouse movement is detected that was not initiated by the script itself, a cancellation flag is triggered.
+            *   The entire automation sequence is interspersed with checks for this flag. If detected, the process throws an exception and halts immediately, running a `finally` block to guarantee all resources (like the mouse hook) are cleaned up. This gives the user instant and reliable control to abort the process.
+
+        3.  **Progress and UI Feedback:**
+            *   Throughout the multi-step login process for each client, the module continuously updates a progress bar and status text on the main dashboard UI. This gives the user clear, real-time feedback on what stage the automation is in (e.g., "Waiting for World Load...").
+
+        4.  **Window Management and Optimization:**
+            *   The module automatically restores and brings the target client window to the foreground before interacting with it.
+            *   After a successful login, it minimizes the client window and calls the `EmptyWorkingSet` API to reduce its memory footprint, which is essential for running multiple clients.
 #>
+
+#region Configuration
+class CancellationState {
+    [bool]$IsCancelled = $false
+    [void]Cancel() {
+        if (-not $this.IsCancelled) {
+            $this.IsCancelled = $true
+            Write-Verbose "LOGIN: Cancellation requested by user mouse movement." -ForegroundColor Yellow
+        }
+    }
+    [void]Reset() { $this.IsCancelled = $false }
+}
+
+$global:LoginCancel = [CancellationState]::new()
+
+$TOTAL_STEPS_PER_CLIENT = 13 
+
+# Flag to indicate if mouse movement is script-initiated.
+$script:ScriptInitiatedMove = $false
+
+#endregion Configuration
 
 #region Helper Functions
 
-<#
-.SYNOPSIS
-Restores a minimized window
-#>
-function Restore-Window
-{
-	param(
-		[System.Diagnostics.Process]$Process
-	)
-	
-	if ($Process -and $Process.MainWindowHandle -ne [IntPtr]::Zero)
-	{
-		if ([Custom.Native]::IsWindowMinimized($Process.MainWindowHandle))
-		{
-			Write-Verbose "LOGIN: Restoring minimized window for PID $($Process.Id)" -ForegroundColor DarkGray
-			[Custom.Native]::BringToFront($Process.MainWindowHandle)
-			Start-Sleep -Milliseconds 100
-		}
-	}
+function Lock-MousePosition {
+    param([int]$X, [int]$Y)
+    $rect = New-Object Custom.Native+RECT
+    $rect.Left = $X; $rect.Top = $Y; $rect.Right = $X + 1; $rect.Bottom = $Y + 1
+    if ([Custom.Native].GetMethod("ClipCursor", [type[]]@([Custom.Native+RECT].MakeByRefType()))) {
+        [Custom.Native]::ClipCursor([ref]$rect)
+    }
 }
 
-<#
-.SYNOPSIS
-Brings window to foreground with validation
-#>
-function Set-WindowForeground
-{
-	param(
-		[System.Diagnostics.Process]$Process
-	)
-	
-	if (-not $Process -or $Process.MainWindowHandle -eq [IntPtr]::Zero)
-	{
-		return $false
-	}
-	
-	$script:ScriptInitiatedMove = $true
-	$result = [Custom.Native]::BringToFront($Process.MainWindowHandle)
-	Write-Verbose "LOGIN: Brought window to front: $result" -ForegroundColor Green
-	Start-Sleep -Milliseconds 100
-	
-	# Reset the script-initiated move flag
-	$script:ScriptInitiatedMove = $false
-	
-	# Validate if the window is now the foreground window
-	$foregroundHandle = [Custom.Native]::GetForegroundWindow()
-	if ($foregroundHandle -ne $Process.MainWindowHandle)
-	{
-		Write-Verbose "LOGIN: Failed to bring window to foreground for PID $($Process.Id)" -ForegroundColor Red
-		return $false
-	}
-	
-	return $true
+function Unlock-MousePosition {
+    if ([Custom.Native].GetMethod("ClipCursor", [type[]]@([IntPtr]))) {
+        [Custom.Native]::ClipCursor([IntPtr]::Zero)
+    }
 }
 
-<#
-.SYNOPSIS
-Checks if user moved the mouse or changed focus
-#>
-function Test-UserMouseIntervention
-{
-	param()
-	
-	# If we're currently performing a script-initiated move, don't detect as intervention
-	if ($script:ScriptInitiatedMove)
-	{
-		return $false
-	}
-	
-	# Get current mouse position
-	$currentPosition = [System.Windows.Forms.Cursor]::Position
-	$currentTime = Get-Date
-	
-	# If the mouse position has changed significantly since our last script action
-	if ([Math]::Abs($currentPosition.X - $script:LastScriptMouseTarget.X) -gt 5 -or 
-		[Math]::Abs($currentPosition.Y - $script:LastScriptMouseTarget.Y) -gt 5)
-	{
-		
-		# Check if enough time has passed since our last script-initiated move
-		$timeSinceLastMove = New-TimeSpan -Start $script:LastScriptMouseMoveTime -End $currentTime
-		
-		# Only consider it user intervention if it's been more than 500ms since our last script move
-		# This prevents false positives when the script itself is moving the mouse
-		if ($timeSinceLastMove.TotalMilliseconds -gt 500)
-		{
-			Write-Verbose 'LOGIN: User mouse intervention detected' -ForegroundColor Yellow
-			return $true
-		}
-	}
-	
-	return $false
+function Update-Progress {
+    param(
+        [string]$Text,
+        [int]$Value = -1, 
+        [int]$CurrentStep = -1, 
+        [int]$TotalSteps = -1 
+    )
+    $pb = $global:DashboardConfig.UI.GlobalProgressBar
+    if ($pb) {
+        $pb.CustomText = $Text
+        if ($CurrentStep -ne -1 -and $TotalSteps -gt 0) {
+            $percent = [int](($CurrentStep / $TotalSteps) * 100)
+            if ($percent -ge 0 -and $percent -le 100) {
+                $pb.Value = $percent
+            }
+        } elseif ($Value -ne -1) {
+            $pb.Value = $Value
+        } else {
+            $pb.Value = 0
+        }
+        [System.Windows.Forms.Application]::DoEvents()
+    }
 }
 
-<#
-.SYNOPSIS
-Waits for an application to be responsive
-#>
-function Wait-ForResponsive
-{
-	param(
-		[System.Diagnostics.Process]$Monitor
-	)
-	
-	$waitInterval = 100
-	$maxAttempts = 40  # 8 seconds max
-	$isResponsive = $false
-	
-	for ($i = 0; $i -lt $maxAttempts; $i++)
-	{
-		# Check if process is still valid
-		if (-not $Monitor -or $Monitor.HasExited -or $Monitor.MainWindowHandle -eq [IntPtr]::Zero)
-		{
-			return $false
-		}
-		
-		$responsiveTask = [Custom.Native]::ResponsiveAsync($Monitor.MainWindowHandle, 100)
-		if ($responsiveTask.Result)
-		{
-			$isResponsive = $true
-			Start-Sleep -Milliseconds $waitInterval
-			break
-		}
-		
-		Start-Sleep -Milliseconds $waitInterval
-	}
-	
-	if (-not $isResponsive)
-	{
-		Write-Verbose "LOGIN: Window unresponsive for PID $($Monitor.Id)" -ForegroundColor Yellow
-	}
-	
-	return $isResponsive
+function Restore-Window {
+    param([System.Diagnostics.Process]$Process)
+    CheckCancel
+    if ($Process -and $Process.MainWindowHandle -ne [IntPtr]::Zero) {
+        if ([Custom.Native]::IsWindowMinimized($Process.MainWindowHandle)) {
+            [Custom.Native]::BringToFront($Process.MainWindowHandle)
+            Start-Sleep -Milliseconds 250
+        }
+    }
+    CheckCancel
 }
 
-<#
-.SYNOPSIS
-Waits for file to be accessible
-#>
-function Wait-ForFileAccess
-{
-	param(
-		[string]$FilePath
-	)
-	
-	$maxAttempts = 40  # 4 second max
-	$waitInterval = 100  # 50ms
-	
-	for ($i = 0; $i -lt $maxAttempts; $i++)
-	{
-		try
-		{
-			# Check if file exists and can be opened
-			if (Test-Path -Path $FilePath)
-			{
-				$fileStream = [System.IO.File]::Open($FilePath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
-				if ($fileStream)
-				{
-					$fileStream.Close()
-					$fileStream.Dispose()
-					return $true
-				}
-			}
-		}
-		catch
-		{
-			# File is locked or doesn't exist
-		}
-		
-		Start-Sleep -Milliseconds $waitInterval
-	}
-	
-	return $false
+function CheckCancel {
+    if ($global:LoginCancel.IsCancelled) {
+        throw "Login cancelled by user mouse movement."
+    }
 }
 
-<#
-.SYNOPSIS
-Thread-safe log writing
-#>
-function Write-LogWithRetry
-{
-	param(
-		[string]$FilePath,
-		[string]$Value
-	)
-	
-	$maxAttempts = 10
-	$waitInterval = 100
-	
-	for ($i = 0; $i -lt $maxAttempts; $i++)
-	{
-		try
-		{
-			if (-not (Test-Path -Path (Split-Path -Path $FilePath -Parent)))
-			{
-				New-Item -Path (Split-Path -Path $FilePath -Parent) -ItemType Directory -Force | Out-Null
-			}
-			
-			Set-Content -Path $FilePath -Value $Value -Force
-			return $true
-		}
-		catch
-		{
-			Start-Sleep -Milliseconds $waitInterval
-		}
-	}
-	
-	Write-Verbose "LOGIN: Failed to write to log file $FilePath" -ForegroundColor Red
-	return $false
+
+function Set-WindowForeground {
+    param([System.Diagnostics.Process]$Process)
+    
+    # Check before action
+    CheckCancel
+
+    if (-not $Process -or $Process.MainWindowHandle -eq [IntPtr]::Zero) { return $false }
+    
+    $script:ScriptInitiatedMove = $true
+    try {
+        [Custom.Native]::BringToFront($Process.MainWindowHandle)
+        Start-Sleep -Milliseconds 100
+    } finally {
+        $script:ScriptInitiatedMove = $false
+        # Check after action (Buffered intervention)
+        CheckCancel
+    }
+    return $true
 }
 
-<#
-.SYNOPSIS
-Simulates a mouse click at specific coordinates without using ftool.dll
-#>
-function Invoke-MouseClick
-{
-	param(
-		[int]$X,
-		[int]$Y
-	)
-	
-	# Store the current cursor position to restore later
-	$originalPosition = [System.Windows.Forms.Cursor]::Position
-	
-	# Track that this movement is script-initiated
-	$script:ScriptInitiatedMove = $true
-	$script:LastScriptMouseTarget = New-Object System.Drawing.Point($X, $Y)
-	$script:LastScriptMouseMoveTime = Get-Date
-	
-	# Get the handle of the foreground window
-	$hWnd = [Custom.Native]::GetForegroundWindow()
-	
-	try
-	{
-		Write-Verbose "LOGIN: Moving cursor from ($($originalPosition.X),$($originalPosition.Y)) to ($X,$Y)" -ForegroundColor DarkGray
-		
-		# Force cursor position
-		Start-Sleep -Milliseconds 10
-		[void][Custom.Native]::SetCursorPos($X, $Y)
-		Start-Sleep -Milliseconds 10
-			[void][Custom.Native]::SetCursorPos($X, $Y)
-		Start-Sleep -Milliseconds 10
-		
-		$newPos = [System.Windows.Forms.Cursor]::Position
-		Start-Sleep -Milliseconds 10
-		Write-Verbose "LOGIN: Cursor position after move: ($($newPos.X),$($newPos.Y))" -ForegroundColor DarkGray
-		
-		# If position is still off by more than 5 pixels, try one more time
-		if ([Math]::Abs($newPos.X - $X) -gt 5 -or [Math]::Abs($newPos.Y - $Y) -gt 5)
-		{
-			Write-Verbose "LOGIN: Cursor position verification failed. Expected: ($X,$Y), Actual: ($($newPos.X),$($newPos.Y))" -ForegroundColor Red
-			
-			# Try one more time with a longer delay
-			Start-Sleep -Milliseconds 50
-			[void][Custom.Native]::SetCursorPos($X, $Y)
-			Start-Sleep -Milliseconds 50
-			[void][Custom.Native]::SetCursorPos($X, $Y)
-			Start-Sleep -Milliseconds 50
-			
-			# Check again
-			$newPos = [System.Windows.Forms.Cursor]::Position
-			Start-Sleep -Milliseconds 50
-			Write-Verbose "LOGIN: Cursor position after second attempt: ($($newPos.X),$($newPos.Y))" -ForegroundColor Gray
-			if ([Math]::Abs($newPos.X - $X) -gt 5 -or [Math]::Abs($newPos.Y - $Y) -gt 5)
-			{
-				Write-Verbose "LOGIN: Cursor position verification failed. Expected: ($X,$Y), Actual: ($($newPos.X),$($newPos.Y)). Stopping login." -ForegroundColor Red
-				return $false
-			}
-		}
-		
-		# Use mouse_event for more reliable clicking at the CURRENT position
-		# This is important - we click where the cursor actually is
-		$MOUSEEVENTF_LEFTDOWN = 0x0002
-		$MOUSEEVENTF_LEFTUP = 0x0004
-		
-		# Perform click
-		[Custom.Native]::mouse_event($MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-		Start-Sleep -Milliseconds 10
-		[Custom.Native]::mouse_event($MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-		Start-Sleep -Milliseconds 10
-		
-		$neverRestarting = $false # Default to false if setting doesn't exist
-		if ($global:DashboardConfig.Config.Contains('Login') -and 
-			$global:DashboardConfig.Config['Login'].Contains('NeverRestartingCollectorLogin'))
-		{
-			$neverRestarting = [bool]([int]$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin'])
-		}
-
-		# Fallback to SendMessage if needed - using the ACTUAL coordinates (collector DC workaround)
-		if ($hWnd -ne [IntPtr]::Zero -and $neverRestarting -eq $true)
-		{
-			$currentPos = [System.Windows.Forms.Cursor]::Position
-			$lparam = ($currentPos.Y -shl 16) -bor $currentPos.X
-			
-			$windowsMouseDown = 0x0201  # WM_LBUTTONDOWN
-			$windowsMouseUp = 0x0202    # WM_LBUTTONUP
-			
-			[Custom.Native]::SendMessage($hWnd, $windowsMouseDown, 0, $lparam)
-			Start-Sleep -Milliseconds 20
-			[Custom.Native]::SendMessage($hWnd, $windowsMouseUp, 0, $lparam)
-			Start-Sleep -Milliseconds 20
-			Write-Verbose "Mouse click was performed." -ForegroundColor DarkGray
-		}
-		
-		# Small delay to ensure any next clicks register
-		Start-Sleep -Milliseconds 50
-	} 
-	catch
-	{
-		Write-Verbose "LOGIN: Mouse click simulation failed: $_" -ForegroundColor Red
-	}
-	finally
-	{
-		
-		# Reset script-initiated flag after a short delay
-		Start-Sleep -Milliseconds 50
-		$script:ScriptInitiatedMove = $false
-		Start-Sleep -Milliseconds 50
-	}
+function ParseCoordinates {
+    param([string]$ConfigString)
+    if ([string]::IsNullOrWhiteSpace($ConfigString) -or $ConfigString -notmatch ',') { return $null }
+    $parts = $ConfigString.Split(',')
+    if ($parts.Count -eq 2) { return @{ X = [int]$parts[0].Trim(); Y = [int]$parts[1].Trim() } }
+    return $null
 }
 
-<#
-.SYNOPSIS
-Simulates a key press
-#>
-function Invoke-KeyPress
-{
-	param(
-		[int]$VirtualKeyCode
-	)
-	
-	# Get the handle of the foreground window
-	$hWnd = [Custom.Native]::GetForegroundWindow()
-	[Custom.Native]::BringToFront($Process.MainWindowHandle) | Out-Null
+function Invoke-MouseClick {
+    param([int]$X, [int]$Y)
+    
+    # Check before starting
+    CheckCancel
 
-	# Simulate key press (this is still using ftool.dll)
-	[Custom.Ftool]::fnPostMessage($hWnd, 0x0100, $VirtualKeyCode, 0) # WM_KEYDOWN
-	Start-Sleep -Milliseconds 20
-	[Custom.Ftool]::fnPostMessage($hWnd, 0x0101, $VirtualKeyCode, 0) # WM_KEYUP
-	
-	Start-Sleep -Milliseconds 100
+    $script:ScriptInitiatedMove = $true
+    
+    try {
+        [Custom.Native]::SetCursorPos($X, $Y)
+        Start-Sleep -Milliseconds 20
+        [Custom.Native]::SetCursorPos($X, $Y)
+        Start-Sleep -Milliseconds 30
+        
+        $MOUSEEVENTF_LEFTDOWN = 0x0002
+        $MOUSEEVENTF_LEFTUP = 0x0004
+        
+        [Custom.Native]::mouse_event($MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        Start-Sleep -Milliseconds 50
+        [Custom.Native]::mouse_event($MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        Start-Sleep -Milliseconds 50
+    } catch {
+        Write-Verbose "LOGIN: Mouse click failed: $_" -ForegroundColor Red
+    } finally {
+        Start-Sleep -Milliseconds 50
+        $script:ScriptInitiatedMove = $false
+        
+        # Check after finishing (Buffered intervention)
+        # If user moved mouse *during* the sleeps above, this throws now.
+        CheckCancel
+    }
 }
 
+function Invoke-KeyPress {
+    param([int]$VirtualKeyCode)
+    
+    CheckCancel
+    
+    # KeyPress doesn't move mouse, but we mark InitiatedMove true 
+    # to prevent race conditions in parallel checks if they existed (safeguard)
+    $script:ScriptInitiatedMove = $true 
+    try {
+        $hWnd = [Custom.Native]::GetForegroundWindow()
+        [Custom.Ftool]::fnPostMessage($hWnd, 0x0100, $VirtualKeyCode, 0) # WM_KEYDOWN
+        Start-Sleep -Milliseconds 50
+        [Custom.Ftool]::fnPostMessage($hWnd, 0x0101, $VirtualKeyCode, 0) # WM_KEYUP
+        Start-Sleep -Milliseconds 100
+    } finally {
+        $script:ScriptInitiatedMove = $false
+        CheckCancel
+    }
+}
+
+function Write-LogWithRetry {
+    param([string]$FilePath, [string]$Value)
+    for ($i=0; $i -lt 5; $i++) {
+        try {
+            Set-Content -Path $FilePath -Value $Value -Force -ErrorAction Stop
+            return
+        } catch { Start-Sleep -Milliseconds 50 }
+    }
+}
+
+function Wait-ForFileAccess {
+    param([string]$FilePath)
+    return (Test-Path $FilePath)
+}
+
+function Wait-UntilClientNormalState {
+    param(
+        $Row,
+        [int]$currentGlobalStep, 
+        [int]$totalGlobalSteps
+    )
+    if (-not $Row) { return }
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    
+    while ($true) {
+        # Continuous Check
+        CheckCancel
+
+        $state = $Row.Cells[3].Value 
+        if ($state -eq 'Normal') {
+            return
+        }
+        
+        if ($sw.Elapsed.Milliseconds % 2000 -lt 100) {
+            Update-Progress -Text "Waiting for Client Normal State..." -CurrentStep $currentGlobalStep -TotalSteps $totalGlobalSteps
+        }
+        
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 250
+    }
+}
+
+function Wait-ForLogEntry {
+    param(
+        [string]$LogPath,
+        [string[]]$SearchStrings,
+        [int]$TimeoutSeconds = 60,
+        [int]$currentGlobalStep,
+        [int]$totalGlobalSteps 
+    )
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    Update-Progress -Text "Watching log for: $($SearchStrings -join ', ')..." -CurrentStep $currentGlobalStep -TotalSteps $totalGlobalSteps
+
+    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        # Continuous Check
+        CheckCancel
+        
+        if (Test-Path $LogPath) {
+            try {
+                $lines = Get-Content $LogPath -Tail 20 -ErrorAction SilentlyContinue
+                foreach ($str in $SearchStrings) {
+                    if ($lines -match [regex]::Escape($str)) {
+                        Write-Verbose "Log Match Found: $str" -ForegroundColor Green
+                        return $true
+                    }
+                }
+            } catch {}
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    return $false
+}
+
+function Wait-UntilWorldLoaded {
+    param(
+        $LogPath,
+        [int]$currentGlobalStep, 
+        [int]$totalGlobalSteps
+    )
+    
+    $threshold = 3
+    $searchStr = "13 - CACHE_ACK_JOIN"
+    if ($global:DashboardConfig.Config['LoginConfig']) {
+        $cfg = $global:DashboardConfig.Config['LoginConfig']
+        if ($cfg['WorldLoadLogThreshold']) { $threshold = [int]$cfg['WorldLoadLogThreshold'] }
+        if ($cfg['WorldLoadLogEntry']) { $searchStr = $cfg['WorldLoadLogEntry'] }
+    }
+    
+    $foundCount = 0
+    $timeout = New-TimeSpan -Minutes 2
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    
+    Update-Progress -Text "Waiting for World Load..." -CurrentStep $currentGlobalStep -TotalSteps $totalGlobalSteps
+
+    while ($foundCount -lt $threshold) {
+        if ($sw.Elapsed -gt $timeout) { throw "World load timeout" }
+        
+        # Continuous Check
+        CheckCancel
+
+        if (Test-Path $LogPath) {
+            try {
+                $lines = Get-Content $LogPath -Tail 50 -ErrorAction SilentlyContinue
+                if ($lines) {
+                    $foundCount = ($lines | Select-String -SimpleMatch $searchStr).Count
+                }
+            } catch {}
+        }
+        Start-Sleep -Seconds 1
+    }
+}
+
+function ProcessSingleClient {
+    param(
+        $Row,
+        $LogFilePath,
+        $LoginConfig,
+        [int]$clientIndex,
+        [int]$totalClients
+    )
+    # Initial Check
+    CheckCancel
+    $clientStepCounter = 0
+    $process = $Row.Tag
+    if (-not $process) { throw "No process attached to row" }
+    $entryNumber = $Row.Cells[0].Value
+    $clientStepCounter++; Update-Progress -Text "Starting login for Client $entryNumber" -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    # --- READ CONFIGURATION ---
+    $serverID = "1"; $channelID = "1"; $charSlot = "1"; $startCollector = "No"
+    $settingKey = "Client${entryNumber}_Settings"
+    if ($LoginConfig[$settingKey]) {
+        $parts = $LoginConfig[$settingKey] -split ','
+        if ($parts.Count -eq 4) {
+            $serverID = $parts[0]
+            $channelID = $parts[1]
+            $charSlot = $parts[2]
+            $startCollector = $parts[3]
+        }
+    }
+    # 1. Clear Logs & Restore
+    Write-LogWithRetry -FilePath $LogFilePath -Value ""
+    Restore-Window -Process $process
+    CheckCancel
+    # 2. Wait for Responsive Window
+    $clientStepCounter++; 
+    $cgswait = (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter)
+    $tgswait = ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    Update-Progress -Text "Waiting for Responsive Window..." -CurrentStep $cgswait -TotalSteps $tgswait
+    Wait-UntilClientNormalState -Row $Row -currentGlobalStep $cgswait -totalGlobalSteps $tgswait
+    Set-WindowForeground -Process $process | Out-Null
+    # Note: Set-WindowForeground does internal intervention checks
+    $rect = New-Object Custom.Native+RECT
+    [Custom.Native]::GetWindowRect($process.MainWindowHandle, [ref]$rect)
+    # --- STEP 1: INITIAL CLICK ---
+    $clientStepCounter++; Update-Progress -Text "Selecting Client Index..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    $centerX = [int](($rect.Left + $rect.Right) / 2) + 25
+    $centerY = [int](($rect.Top + $rect.Bottom) / 2) + 18
+    $adjustedY = $centerY
+    if ($entryNumber -ge 6 -and $entryNumber -le 10) {
+        $yOffset = ($entryNumber - 8) * 18
+        $adjustedY = $centerY + $yOffset
+        $scrollCenterX = $centerX + 145
+        $scrollCenterY = $centerY + 28
+        Invoke-MouseClick -X $scrollCenterX -Y $scrollCenterY
+        Start-Sleep -Milliseconds 200
+    } elseif ($entryNumber -ge 1 -and $entryNumber -le 5) {
+        $yOffset = ($entryNumber - 3) * 18
+        $adjustedY = $centerY + $yOffset
+    }
+    Invoke-MouseClick -X $centerX -Y $adjustedY
+    Invoke-MouseClick -X $centerX -Y $adjustedY
+    Start-Sleep -Milliseconds 200
+    CheckCancel
+    # --- STEP 2: SERVER SELECTION ---
+    $coordKey = "Server${serverID}Coords"
+    if ($LoginConfig[$coordKey]) {
+        $coords = ParseCoordinates $LoginConfig[$coordKey]
+        if ($coords) {
+            $clientStepCounter++; Update-Progress -Text "Clicking Server $serverID..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+            Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+            Start-Sleep -Milliseconds 50
+        }
+    }
+    CheckCancel
+    # --- STEP 3: CHANNEL SELECTION ---
+    $coordKey = "Channel${channelID}Coords"
+    if ($LoginConfig[$coordKey]) {
+        $coords = ParseCoordinates $LoginConfig[$coordKey]
+        if ($coords) {
+            $clientStepCounter++; Update-Progress -Text "Clicking Channel $channelID..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+            Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+            Start-Sleep -Milliseconds 50
+        }
+    }
+    CheckCancel
+    # --- STEP 4: CERT LOGIN ---
+    Invoke-KeyPress -VirtualKeyCode 0x0D 
+    $clientStepCounter++; 
+    $cgscert = (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter)
+    $tgscert = ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    Update-Progress -Text "Waiting for Cert Login..." -CurrentStep $cgscert -TotalSteps $tgscert
+    $loginReady = Wait-ForLogEntry -LogPath $LogFilePath -SearchStrings @("6 - LOGIN_PLAYER_LIST") -TimeoutSeconds 25 -currentGlobalStep $cgscert -totalGlobalSteps $tgscert
+    if (-not $loginReady) { throw "CERT Login Timeout." }
+    CheckCancel
+    # --- STEP 5: CHARACTER SELECTION ---
+    # This must happen BEFORE the next Enter press
+    $coordKey = "Char${charSlot}Coords"
+    if ($LoginConfig[$coordKey] -and $LoginConfig[$coordKey] -ne '0,0') {
+        $coords = ParseCoordinates $LoginConfig[$coordKey]
+        if ($coords) {
+            $clientStepCounter++; Update-Progress -Text "Selecting Character Slot $charSlot..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+            Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+            Start-Sleep -Milliseconds 500 # Wait for selection to register
+        }
+    } else {
+        if ($charSlot -ne "1") {
+             Write-Verbose "WARNING: No coordinates for Char $charSlot. Defaulting to Char 1." -ForegroundColor Yellow
+        }
+    }
+    CheckCancel
+    # --- STEP 6: MAIN LOGIN (Enter World) ---
+    $clientStepCounter++; 
+    $cgsmain = (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter)
+    $tgsmain = ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    Update-Progress -Text "Entering World..." -CurrentStep $cgsmain -TotalSteps $tgsmain
+    Invoke-KeyPress -VirtualKeyCode 0x0D
+    Start-Sleep -Milliseconds 500
+    CheckCancel
+    $cacheJoin = Wait-ForLogEntry -LogPath $LogFilePath -SearchStrings @("13 - CACHE_ACK_JOIN") -TimeoutSeconds 60 -currentGlobalStep $cgsmain -totalGlobalSteps $tgsmain
+    if (-not $cacheJoin) { throw "Main Login Timeout." }
+    # --- STEP 7: WORLD LOAD ---
+    $clientStepCounter++; 
+    $cgsworld = (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter)
+    $tgsworld = ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    Update-Progress -Text "Waiting for World Load..." -CurrentStep $cgsworld -TotalSteps $tgsworld
+    Wait-UntilWorldLoaded -LogPath $LogFilePath -currentGlobalStep $cgsworld -totalGlobalSteps $tgsworld
+    # Finalization
+    $delay = 1 
+    if ($LoginConfig['PostLoginDelay']) { $delay = [int]$LoginConfig['PostLoginDelay'] }
+    $clientStepCounter++; Update-Progress -Text "Optimization Delay ($delay s)..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    # Sleep with check
+    $swDelay = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($swDelay.Elapsed.TotalSeconds -lt $delay) {
+        CheckCancel
+        Start-Sleep -Milliseconds 250
+    }
+    # Collector Start
+    if ($startCollector -eq "Yes" -and $LoginConfig['CollectorStartCoords'] -and $LoginConfig['CollectorStartCoords'] -ne '0,0') {
+        $coords = ParseCoordinates $LoginConfig['CollectorStartCoords']
+        if ($coords) {
+            $clientStepCounter++; Update-Progress -Text "Starting Collector..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+            Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+            Start-Sleep -Seconds 1
+        }
+    }
+    # Minimize
+    $clientStepCounter++; Update-Progress -Text "Minimizing..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    CheckCancel
+    if ($global:DashboardConfig.Config['Options']['HideMinimizedWindows'] -eq '1') {
+        # Hide window completely (SW_HIDE = 0)
+        #[Custom.Native]::ShowWindow($process.MainWindowHandle, 0)
+		[Custom.Native]::SendMessage($process.MainWindowHandle, 0x0112, 0xF020, 0)
+    } else {
+        # Minimize window gracefully using WM_SYSCOMMAND (SC_MINIMIZE = 0xF020)
+        [Custom.Native]::SendMessage($process.MainWindowHandle, 0x0112, 0xF020, 0)
+    }
+    [Custom.Native]::EmptyWorkingSet($process.Handle)
+}
 #endregion
 
-#region Core Functions
+#region Core Function
 
-# Login state tracking
-$script:LoginState = @{
-	Active      = $false
-	LastAttempt = $null
-	RetryCount  = 0
-	MaxRetries  = 1
-	Timeout     = 120 # seconds
-}
-
-<#
-.SYNOPSIS
-Logs into selected game client
-#>
-function LoginSelectedRow
-{
-	param(
-		[System.Windows.Forms.DataGridViewRow]$Row,
-		[string]$LogFolder = ($global:DashboardConfig.Config['LauncherPath']['LauncherPath'] -replace '\\Launcher\.exe$', ''),
-		[string]$LogFilePath = "$($LogFolder)\Log\network_$(Get-Date -Format 'yyyyMMdd').log"
-	)
-	
-	$global:DashboardConfig.State.LoginActive = $true
-	
-	# Initialize global variables if they don't exist
-	if (-not $script:LastScriptMouseTarget)
-	{
-		$script:LastScriptMouseTarget = New-Object System.Drawing.Point(0, 0)
-		$script:LastScriptMouseMoveTime = Get-Date
-		$script:ScriptInitiatedMove = $false
-	}
-	
-	# Get UI reference
-	$UI = $global:DashboardConfig.UI
-	if (-not $UI)
-	{
-		Write-Verbose 'LOGIN: UI reference not found' -ForegroundColor Red
-		return
-	}
-	
-	# Ensure log file exists
-	if (-not (Test-Path $LogFilePath))
-	{
-		Write-Verbose 'LOGIN: Creating new log file' -ForegroundColor Yellow
-		try
-		{
-			New-Item -Path $LogFilePath -ItemType File -Force | Out-Null
+function LoginSelectedRow {
+    param(
+        [Parameter(Mandatory=$false)]
+        [System.Windows.Forms.DataGridViewRow]$RowInput,
+        [string]$LogFilePath
+    )
+    $global:DashboardConfig.State.LoginActive = $true
+    # Reset cancellation state and hook for this run
+    $global:LoginCancel.Reset()
+    $script:ScriptInitiatedMove = $false
+    # Define and start the mouse hook
+    $hookCallback = [Custom.MouseHookManager+HookProc] {
+        param($nCode, $wParam, $lParam)
+        # WM_MOUSEMOVE is 0x0200
+        if ($nCode -ge 0 -and $wParam -eq 0x0200) {
+            # Ignore mouse moves that this script initiated
+            if (-not $script:ScriptInitiatedMove) {
+                $global:LoginCancel.Cancel()
+            }
+        }
+        # Always pass the event to the next hook in the chain
+        return [Custom.MouseHookManager]::CallNextHookEx([Custom.MouseHookManager]::HookId, $nCode, $wParam, $lParam)
+    }
+    [Custom.MouseHookManager]::Start($hookCallback)
+    # UI SETUP
+    $pb = $global:DashboardConfig.UI.GlobalProgressBar
+    if ($pb) {
+        $pb.Visible = $true
+        $pb.Value = 0
+        $pb.CustomText = "Starting Login Process..."
+    }
+    $global:DashboardConfig.UI.LoginButton.BackColor = [System.Drawing.Color]::FromArgb(90, 90, 90)
+    $global:DashboardConfig.UI.LoginButton.Text = "Running..."
+    $rowsToProcess = @()
+    if ($RowInput) {
+        $rowsToProcess += $RowInput
+    } elseif ($global:DashboardConfig.UI.DataGridFiller.SelectedRows.Count -gt 0) {
+        $rowsToProcess = $global:DashboardConfig.UI.DataGridFiller.SelectedRows | Sort-Object { $_.Cells[0].Value -as [int] }
+    } else {
+        Write-Verbose "LOGIN: No rows selected." -ForegroundColor Yellow
+        $global:DashboardConfig.State.LoginActive = $false
+        # Reset Button to Ready
+        $global:DashboardConfig.UI.LoginButton.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
+        $global:DashboardConfig.UI.LoginButton.Text = "Login"
+        return
+    }
+    $total = $rowsToProcess.Count
+    $totalGlobalSteps = $total * $TOTAL_STEPS_PER_CLIENT
+    Update-Progress -Text "Starting Login Process..." -CurrentStep 0 -TotalSteps $totalGlobalSteps
+    $current = 0
+    $loginConfig = $global:DashboardConfig.Config['LoginConfig']
+    if (-not $loginConfig) { $loginConfig = @{} }
+    try {
+        foreach ($row in $rowsToProcess) {
+            CheckCancel
+            $current++
+            $entryNum = $row.Cells[0].Value
+            # Logic to find log path if not provided
+            $actualLogPath = $LogFilePath
+            if ([string]::IsNullOrEmpty($actualLogPath)) {
+            	$LogFolder = ($global:DashboardConfig.Config['LauncherPath']['LauncherPath'] -replace '\\Launcher\.exe$', '')
+        		$actualLogPath = Join-Path -Path $LogFolder -ChildPath "Log\network_$(Get-Date -Format 'yyyyMMdd').log"
+        	}
+            ProcessSingleClient -Row $row -LogFilePath $actualLogPath -LoginConfig $loginConfig -clientIndex $current -totalClients $total
 		}
-		catch
-		{
-			Write-Verbose "LOGIN: Error creating log file: $_" -ForegroundColor Red
-			return
-		}
-	}
-	else
-	{
-		# Clear log file
-		Write-LogWithRetry -FilePath $LogFilePath -Value ''
-	}
-	
-	# Simple property change handler that updates button appearance
-	if ($global:DashboardConfig.State.LoginActive -eq $true) {
-		$global:DashboardConfig.UI.LoginButton.FlatStyle = 'Popup'
-	} else {
-		$global:DashboardConfig.UI.LoginButton.FlatStyle = 'Flat'
-	}
-	
-	Write-Verbose 'LOGIN: Login process started' -ForegroundColor Cyan
-	
-	# Check if rows are selected
-	if ($UI.DataGridFiller.SelectedRows.Count -eq 0)
-	{
-		Write-Verbose 'LOGIN: No clients selected' -ForegroundColor Yellow
-		return
-	}
-	
-	# Sort rows by index to process in order
-	$sortedRows = $UI.DataGridFiller.SelectedRows | Sort-Object { $_.Cells[0].Value -as [int] }
-	
-	# Process each selected row
-	foreach ($row in $sortedRows)
-	{
-		try
-		{
-			$process = $row.Tag
-			if (-not $process)
-			{
-				Write-Verbose 'LOGIN: No process associated with row' -ForegroundColor Yellow
-				continue 
-			}
-			
-			# Reset state flags
-			$null = $foundCERT
-			$null = $foundLogin
-			$null = $foundCacheJoin
-			$foundCERT = $false
-			$foundLogin = $false
-			$foundCacheJoin = $false
-			
-			# Start log monitoring job with timeout mechanism
-			$logMonitorJob = Start-Job -ArgumentList $LogFilePath -ScriptBlock {
-				param($LogFilePath)
-				
-				$null = $foundCERT
-				$null = $foundLogin
-				$null = $foundCacheJoin
-				$foundCERT = $false
-				$foundLogin = $false
-				$foundCacheJoin = $false
-				
-				if (-not (Test-Path $LogFilePath))
-				{
-					Write-Verbose "Log file does not exist: $LogFilePath" -ForegroundColor Yellow
-					return
-				}
-				
-				# Add a timeout mechanism to prevent infinite loops
-				$startTime = Get-Date
-				$timeout = New-TimeSpan -Minutes 2  # 2 minute timeout
-				
-				while ((New-TimeSpan -Start $startTime -End (Get-Date)) -lt $timeout)
-				{
-					try
-					{
-						$line = Get-Content -Path $LogFilePath -Tail 1 -ErrorAction SilentlyContinue
-						$lines = Get-Content -Path $LogFilePath -Tail 6 -ErrorAction SilentlyContinue
-						
-						if ($line -eq '2 - CERT_SRVR_LIST')
-						{
-							Start-Sleep -Milliseconds 50
-							$foundCERT = $true
-							Write-Output 'CERT_FOUND'
-							Start-Sleep -Milliseconds 50
-						}
-						elseif ($line -eq '6 - LOGIN_PLAYER_LIST')
-						{
-							Start-Sleep -Milliseconds 50
-							$foundLogin = $true
-							Write-Output 'LOGIN_FOUND'
-							Start-Sleep -Milliseconds 50
-						}
-						
-						# Check for cache join pattern
-						if ($lines -and $lines.Count -ge 6)
-						{
-							for ($i = 0; $i -le $lines.Count - 3; $i++)
-							{
-								if ($lines[$i] -match '13 - CACHE_ACK_JOIN' -and 
-									$lines[$i + 2] -match '13 - CACHE_ACK_JOIN' -and 
-									$lines[$i + 4] -match '13 - CACHE_ACK_JOIN')
-								{
-									Start-Sleep -Milliseconds 50
-									$foundCacheJoin = $true
-									Write-Output 'CACHE_FOUND'
-									Start-Sleep -Milliseconds 50
-									break
-								}
-							}
-						}
-					}
-					catch
-					{
-						# Ignore errors during log reading
-						Write-Output "ERROR: $_"
-						Start-Sleep -Milliseconds 10
-					}
-					
-					Start-Sleep -Milliseconds 250
-				}
-				
-				# If we reach here, we've timed out
-				Write-Output 'TIMEOUT'
-			}
-			
-			# Get client position from the index column (column 0)
-			# This is the actual displayed index, not the row position
-			$entryNumber = [int]$row.Cells[0].Value
-			Write-Verbose "LOGIN: Processing entry $entryNumber (PID $($process.Id))" -ForegroundColor Cyan
-			
-			try
-			{
-				# Restore window if minimized
-				Restore-Window -Process $process 
-				
-				
-				# Bring window to foreground
-				if (-not (Set-WindowForeground -Process $process ))
-				{
-					
-					continue
-				}
-				
-				
-				# Calculate target click position (center of client window)
-				$rect = New-Object Custom.Native+RECT
-				if (-not [Custom.Native]::GetWindowRect($process.MainWindowHandle, [ref]$rect))
-				{
-					
-					continue
-				}
-				
-				$centerX = [int](($rect.Left + $rect.Right) / 2) + 25
-				$centerY = [int](($rect.Top + $rect.Bottom) / 2) + 18 # 18 pixel for Genesis fix
-				
-				
-				
-				
-				# Adjust Y position based on row index value from column 0
-				$adjustedY = $centerY
-				if ($entryNumber -ge 1 -and $entryNumber -le 5)
-				{
-					$yOffset = ($entryNumber - 3) * 18
-					$adjustedY = $centerY + $yOffset
-					
-				}
-				
-				if ($entryNumber -ge 6 -and $entryNumber -le 10)
-				{
-					$yOffset = ($entryNumber - 8) * 18
-					$adjustedY = $centerY + $yOffset
-					
-				}
-				
-				
-				if ($entryNumber -ge 6 -and $entryNumber -le 10)
-				{
-					$scrollCenterX = $centerX + 145
-					$scrollCenterY = $centerY + 28
-					$adjustedY = $centerY + $yOffset
-					
-					Invoke-MouseClick -X $scrollCenterX -Y $scrollCenterY
-					
-				}
-				
-				# Perform first click with explicit coordinates
-				
-				Invoke-MouseClick -X $centerX -Y $adjustedY
-				Invoke-MouseClick -X $centerX -Y $adjustedY		
-				
-				# Wait for process to be responsive
-				
-				Wait-ForResponsive -Monitor $process
-				
-				# Wait for CERT screen with timeout
-				$certTimeout = New-TimeSpan -Seconds 20
-				$certStartTime = Get-Date
-				while (-not $foundCERT -and ((New-TimeSpan -Start $certStartTime -End (Get-Date)) -lt $certTimeout))
-				{
-					if (-not (Wait-ForFileAccess -FilePath $LogFilePath))
-					{
-						Write-Verbose 'LOGIN: File lock timeout, retrying...' -ForegroundColor Yellow
-						Start-Sleep -Milliseconds 200
-						continue
-					}
-					
-					$logStatus = Receive-Job -Job $logMonitorJob -Keep
-					if ($logStatus -contains 'CERT_FOUND')
-					{
-						$foundCERT = $true
-						Start-Sleep -Milliseconds 250
-						Write-Verbose "LOGIN: CERT found for PID $($process.Id)" -ForegroundColor Green
-					}
-					
-					if ($logStatus -contains 'TIMEOUT')
-					{
-						Write-Verbose 'LOGIN: Log monitoring timed out' -ForegroundColor Red
-						break
-					}
-					
-					if (Test-UserMouseIntervention)
-					{
-						Write-Verbose 'LOGIN: User intervention detected - stopping' -ForegroundColor Yellow
-						if ($logMonitorJob)
-						{
-							Stop-Job -Job $logMonitorJob -ErrorAction SilentlyContinue
-							Remove-Job -Job $logMonitorJob -Force -ErrorAction SilentlyContinue
-						}
-						$global:DashboardConfig.State.LoginActive = $false
-						return
-					}
-					
-
-				}
-				
-				if (-not $foundCERT)
-				{
-					Write-Verbose 'LOGIN: CERT not found within timeout period' -ForegroundColor Yellow
-					continue
-				}
-				
-				# Press Enter to continue
-				Write-LogWithRetry -FilePath $LogFilePath -Value ''
-				Write-Verbose 'LOGIN: Pressing Enter at CERT' -ForegroundColor Green
-				Invoke-KeyPress -VirtualKeyCode 0x0D  # Enter key
-				Wait-ForResponsive -Monitor $process
-				
-				# Wait for LOGIN screen with timeout
-				$loginTimeout = New-TimeSpan -Seconds 60
-				$loginStartTime = Get-Date
-				while (-not $foundLogin -and ((New-TimeSpan -Start $loginStartTime -End (Get-Date)) -lt $loginTimeout))
-				{
-					if (-not (Wait-ForFileAccess -FilePath $LogFilePath))
-					{
-						Write-Verbose 'LOGIN: File lock timeout, retrying...' -ForegroundColor Yellow
-						Start-Sleep -Milliseconds 200
-						continue
-					}
-					
-					$logStatus = Receive-Job -Job $logMonitorJob -Keep
-					if ($logStatus -contains 'LOGIN_FOUND')
-					{
-						$foundLogin = $true
-						Start-Sleep -Milliseconds 250
-						Write-Verbose "LOGIN: LOGIN found for PID $($process.Id)" -ForegroundColor Green
-					}
-					
-					if ($logStatus -contains 'TIMEOUT')
-					{
-						Write-Verbose 'LOGIN: Log monitoring timed out' -ForegroundColor Red
-						break
-					}
-					
-					if (Test-UserMouseIntervention)
-					{
-						Write-Verbose 'LOGIN: User intervention detected - stopping' -ForegroundColor Yellow
-						if ($logMonitorJob)
-						{
-							Stop-Job -Job $logMonitorJob -ErrorAction SilentlyContinue
-							Remove-Job -Job $logMonitorJob -Force -ErrorAction SilentlyContinue
-						}
-						$global:DashboardConfig.State.LoginActive = $false
-						return
-					}
-					
-				}
-				
-				if (-not $foundLogin)
-				{
-					Write-Verbose 'LOGIN: LOGIN not found within timeout period' -ForegroundColor Yellow
-					continue
-				}
-				
-				# Select login position if configured
-				$loginPosSetting = $null
-				if ($global:DashboardConfig.Config -and 
-					$global:DashboardConfig.Config['Login'] -and 
-					$global:DashboardConfig.Config['Login']['Login'])
-				{
-					
-					$loginPositions = $global:DashboardConfig.Config['Login']['Login'] -split ','
-					if ($entryNumber -le $loginPositions.Count)
-					{
-						$loginPosSetting = $loginPositions[$entryNumber - 1]
-					}
-				}
-				
-				if ($loginPosSetting)
-				{
-					$num = [int]$loginPosSetting
-					$rightArrowCount = $num - 1
-					
-					for ($r = 1; $r -le $rightArrowCount; $r++)
-					{
-						Write-Verbose 'LOGIN: Pressing right arrow for login position selection' -ForegroundColor Cyan
-						Invoke-KeyPress -VirtualKeyCode 0x27  # Right arrow key
-					}
-					
-					Write-Verbose "LOGIN: Selected login position $num for PID $($process.Id)" -ForegroundColor Green
-				}
-				
-				# Press Enter to login
-				Write-LogWithRetry -FilePath $LogFilePath -Value ''
-				Write-Verbose 'LOGIN: Pressing Enter to login' -ForegroundColor Green
-				Invoke-KeyPress -VirtualKeyCode 0x0D  # Enter key
-				Start-Sleep -Milliseconds 500
-				Wait-ForResponsive -Monitor $process
-				
-				# Wait for CACHE_JOIN with timeout
-				$cacheTimeout = New-TimeSpan -Seconds 60  # Longer timeout for login
-				$cacheStartTime = Get-Date
-				while (-not $foundCacheJoin -and ((New-TimeSpan -Start $cacheStartTime -End (Get-Date)) -lt $cacheTimeout))
-				{
-					if (-not (Wait-ForFileAccess -FilePath $LogFilePath))
-					{
-						Write-Verbose 'LOGIN: File lock timeout, retrying...' -ForegroundColor Yellow
-						Start-Sleep -Milliseconds 200
-						continue
-					}
-					
-					$logStatus = Receive-Job -Job $logMonitorJob -Keep
-					if ($logStatus -contains 'CACHE_FOUND')
-					{
-						$foundCacheJoin = $true
-						Start-Sleep -Milliseconds 250
-						Write-Verbose "LOGIN: Cache confirmed for PID $($process.Id)" -ForegroundColor Green
-					}
-					
-					if ($logStatus -contains 'TIMEOUT')
-					{
-						Write-Verbose 'LOGIN: Log monitoring timed out' -ForegroundColor Red
-						break
-					}
-					
-					if (Test-UserMouseIntervention)
-					{
-						Write-Verbose 'LOGIN: User intervention detected - stopping' -ForegroundColor Yellow
-						if ($logMonitorJob)
-						{
-							Stop-Job -Job $logMonitorJob -ErrorAction SilentlyContinue
-							Remove-Job -Job $logMonitorJob -Force -ErrorAction SilentlyContinue
-						}
-						$global:DashboardConfig.State.LoginActive = $false
-						return
-					}
-					
-				}
-				
-				if (-not $foundCacheJoin)
-				{
-					Write-Verbose 'LOGIN: Cache not detected within timeout period' -ForegroundColor Yellow
-					continue
-				}
-				else
-				{
-					# Check if finalize collector login is enabled in settings
-					$finalizeLogin = $false # Default to false if setting doesn't exist
-					if ($global:DashboardConfig.Config.Contains('Login') -and 
-						$global:DashboardConfig.Config['Login'].Contains('FinalizeCollectorLogin'))
-					{
-						$finalizeLogin = [bool]([int]$global:DashboardConfig.Config['Login']['FinalizeCollectorLogin'])
-					}
-					
-					if ($finalizeLogin)
-					{
-						# Click again to finalize login
-						$adjustedX = $centerX + 400
-						$adjustedY = $centerY - 100
-						
-						Write-Verbose "LOGIN: Clicking to finalize collector login at X:$adjustedX Y:$adjustedY" -ForegroundColor Cyan
-						Start-Sleep -Milliseconds 500
-						Invoke-MouseClick -X $adjustedX -Y $adjustedY
-					}
-					else
-					{
-						Write-Verbose "LOGIN: Skipping finalize collector login (disabled in settings)" -ForegroundColor Yellow
-					}
-
-					Start-Sleep -Milliseconds 500
-					
-					Write-Verbose 'LOGIN: Minimizing...' -ForegroundColor Cyan
-					[Custom.Native]::SendToBack($process.MainWindowHandle)
-					Write-Verbose 'LOGIN: Optimizing...' -ForegroundColor Cyan
-					Start-Sleep -Milliseconds 250
-					[Custom.Native]::EmptyWorkingSet($process.Handle)
-					Start-Sleep -Milliseconds 250
-
-					Write-Verbose "LOGIN: Login complete for PID $($process.Id)" -ForegroundColor Green
-				}
-				
-			}
-			catch
-			{
-				Write-Verbose "LOGIN: Window setup error for PID $($process.Id): $_" -ForegroundColor Red
-				continue
-			}
-		}
-		catch
-		{
-			Write-Verbose "LOGIN: Login process error for row $entryNumber`: $_" -ForegroundColor Red
-			$global:DashboardConfig.State.LoginActive = $false
-		}
-		finally
-		{
-			# Clean up resources
-			if ($logMonitorJob)
-			{
-				Stop-Job -Job $logMonitorJob -ErrorAction SilentlyContinue
-				Remove-Job -Job $logMonitorJob -Force -ErrorAction SilentlyContinue
-			}
-			$global:DashboardConfig.State.LoginActive = $false
-		}
-	}
-
-	# Simple property change handler that updates button appearance
-	if ($global:DashboardConfig.State.LoginActive -eq $true) {
-		$global:DashboardConfig.UI.LoginButton.FlatStyle = 'Popup'
-	} else {
-		$global:DashboardConfig.UI.LoginButton.FlatStyle = 'Flat'
-	}
-	
-	Write-Verbose 'LOGIN: All selected clients processed' -ForegroundColor Green
+        Update-Progress -Text "Done" -CurrentStep $totalGlobalSteps -TotalSteps $totalGlobalSteps
+        Write-Verbose "All selected clients processed." -ForegroundColor Green
+    } catch {
+        # Catch the Abort/Intervention errors here
+        Update-Progress -Text "Aborted" -Value 0
+        Write-Verbose "Login Process Stopped: $_" -ForegroundColor Red
+        # Cleanup is handled in the 'finally' block.
+    } finally {
+        # Always unhook the mouse listener
+        [Custom.MouseHookManager]::Stop()
+        Unlock-MousePosition
+        $global:DashboardConfig.State.LoginActive = $false
+        # Reset UI
+        if ($pb) {
+            $pb.Visible = $false
+            $pb.Value = 0
+            $pb.CustomText = ""
+        }
+        $global:DashboardConfig.UI.LoginButton.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
+        $global:DashboardConfig.UI.LoginButton.Text = "Login"
+        # Force the message queue to process UI updates and prevent freezing.
+        [System.Windows.Forms.Application]::DoEvents()
+    }
 }
 
 #endregion
@@ -861,6 +557,5 @@ function LoginSelectedRow
 #region Module Exports
 
 # Export module functions
-Export-ModuleMember -Function LoginSelectedRow
-
-#endregion
+Export-ModuleMember -Function LoginSelectedRow, Restore-Window, Set-WindowForeground, Wait-ForFileAccess, Invoke-MouseClick, Invoke-KeyPress, Write-LogWithRetry
+#endregion Module Exports

@@ -1,18 +1,28 @@
 <# launch.psm1 
-	.SYNOPSIS
-		Client Launcher Module for Entropia Dashboard.
+    .SYNOPSIS
+        Provides a robust, asynchronous process for launching multiple game clients in a staggered and monitored sequence.
 
-	.DESCRIPTION
-		This module provides functionality to launch and manage Entropia Universe game clients:
-		- Launches multiple game clients based on configuration
-		- Monitors client processes and window states
-		- Provides thread-safe logging of launch operations
-		- Handles cleanup of resources when operations complete
+    .DESCRIPTION
+        This module handles the complex task of launching one or more game clients based on user configuration. To prevent the main application UI from freezing, the entire launch operation is executed on a separate background thread using a dedicated PowerShell Runspace. The module carefully monitors each step of the process, from starting the launcher to confirming the game client is fully initialized, and includes robust timeout and cleanup mechanisms.
 
-	.NOTES
-		Author: Immortal / Divine
-		Version: 1.2.1
-		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1
+        The module's primary responsibilities and features are:
+
+        1.  **Asynchronous and Non-Blocking Operation:**
+            *   The `Start-ClientLaunch` function initiates the launch sequence in a background runspace, immediately returning control to the UI.
+            *   It uses PowerShell events (`InvocationStateChanged`) to detect when the background task is complete, at which point it automatically triggers the `Stop-ClientLaunch` cleanup function.
+            *   This architecture ensures the dashboard remains fully interactive while clients are being launched.
+
+        2.  **Staggered and Monitored Launch Sequence:**
+            *   The module launches clients one by one, waiting for the previous one to be fully ready before starting the next.
+            *   **Launcher Monitoring:** For each client, it starts the official launcher executable and actively monitors it. If the launcher hangs, becomes unresponsive, or takes too long (e.g., during a lengthy patch), it is automatically terminated to prevent the sequence from getting stuck.
+            *   **Client Verification:** After the launcher closes, the script waits for the actual game client process to appear. It then further waits for the client's window to be created and become responsive before considering the launch successful.
+
+        3.  **Post-Launch Optimization:**
+            *   Once a new client is verified as running and responsive, the module immediately minimizes its window and calls the `EmptyWorkingSet` API. This significantly reduces the memory footprint of background clients, which is crucial for running multiple instances.
+
+        4.  **Resource Management and Safety:**
+            *   The `Stop-ClientLaunch` function ensures all resources—including the background runspace, PowerShell instance, event handlers, and timers—are properly disposed of, preventing memory and handle leaks.
+            *   A safety timer is implemented as a fail-safe to automatically clean up resources if the launch process hangs for an unexpectedly long time.
 #>
 
 #region Configuration and Constants
@@ -21,7 +31,7 @@
 $script:LauncherTimeout = 30
 
 # Default delay between client launches in seconds
-$script:LaunchDelay = 5
+$script:LaunchDelay = 3
 
 # Maximum retry attempts
 $script:MaxRetryAttempts = 3
@@ -29,7 +39,7 @@ $script:MaxRetryAttempts = 3
 $script:ProcessConfig = @{
 	MaxRetries = 3
 	RetryDelay = 500 # milliseconds
-	Timeout    = 30000 # milliseconds
+	Timeout    = 60000 # milliseconds
 }
 
 #endregion Configuration and Constants
@@ -239,10 +249,10 @@ function Start-ClientLaunch
 					if ($launcherRunning)
 					{
 						Write-Verbose 'LAUNCH: Launcher running' -ForegroundColor DarkGray
-						Write-Verbose 'LAUNCH: Waiting (30s timeout)' -ForegroundColor DarkGray
-						$launcherTimeout = New-TimeSpan -Seconds 30
+						Write-Verbose 'LAUNCH: Waiting (60s timeout)' -ForegroundColor DarkGray
+						$launcherTimeout = New-TimeSpan -Seconds 60
 						$launcherStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-						$progressReported = @(5, 10, 15, 20, 25)
+						$progressReported = @(5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60)
 					
 						while ($null -ne (Get-Process -Name $launcherName -ErrorAction SilentlyContinue))
 						{
@@ -251,7 +261,7 @@ function Start-ClientLaunch
 							if ($elapsedSeconds -in $progressReported)
 							{
 								$progressReported = $progressReported | Where-Object { $_ -ne $elapsedSeconds }
-								Write-Verbose "LAUNCH: Waiting. ($elapsedSeconds s / 30)" -ForegroundColor DarkGray
+								Write-Verbose "LAUNCH: Waiting. ($elapsedSeconds s / 60)" -ForegroundColor DarkGray
 							}
 						
 							if ($launcherStopwatch.Elapsed -gt $launcherTimeout)
@@ -383,7 +393,7 @@ function Start-ClientLaunch
 						if ($elapsedSeconds -in $progressReported)
 						{
 							$progressReported = $progressReported | Where-Object { $_ -ne $elapsedSeconds }
-							Write-Verbose "LAUNCH: Waiting. ($elapsedSeconds s / 30)" -ForegroundColor DarkGray
+							Write-Verbose "LAUNCH: Waiting. ($elapsedSeconds s / 60)" -ForegroundColor DarkGray
 						}
 					
 						# Get current client PIDs without keeping process objects
@@ -439,7 +449,7 @@ function Start-ClientLaunch
 									if ($innerElapsedSeconds -in $innerProgressReported)
 									{
 										$innerProgressReported = $innerProgressReported | Where-Object { $_ -ne $innerElapsedSeconds }
-										Write-Verbose "LAUNCH: Waiting. ($innerElapsedSeconds s / 30)" -ForegroundColor DarkGray
+										Write-Verbose "LAUNCH: Waiting. ($innerElapsedSeconds s / 60)" -ForegroundColor DarkGray
 									}
 								
 									# Check client without keeping references

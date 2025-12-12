@@ -4,13 +4,16 @@
 
 > Interface
 
-![](https://imgur.com/PCHgJ1G.png)
-![](https://imgur.com/aFxYlkZ.png)
+![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface.png)
 
+> Settings
+
+![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/settings-general.png)
+![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/settings-login.png)
 
 > Ftool
 
-![](https://imgur.com/n44KmAW.png)
+![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/ftool.png)
 
 
 ### Features
@@ -25,11 +28,9 @@
 
 	+ Right click for context menu with additional features.
 
-	+ Lists the current state of the window
+	+ Lists the current state of the window (e.G. Loading, Minimized, Normal)
 
 	+ Selecting one or more entrys is mandatory for other features.
-
-  	+ Minimized clients can be hidden from taskbar and alt+tab view.
 
 
 + Launch
@@ -41,15 +42,14 @@
 
 + Login
 
-	+ The login takes the # of the process list to log the # of the nickname in the client in.
+	+ The login takes the # of the process list to log the same # but as position in the nickname list of the client.(Entropia)
 	 + \# 4 is nickname # 4 etc.
 
-	+ Once the login process is completed, it can click on 'Start' for collecting, can be enabled in the settings. 
-	 + Minimal client resolution and default collector position mandatory.
+	+ Once the login process is completed, it can click on 'Start' for collecting, can be enabled in the Settings. 
 
 	+ Login only works for the first 10 clients in the process list.
 
-	 + If your character is in another slot, change the Login Position in the Settings.
+	 + You can select which server/channel/character to login in the Settings.
 
 	 + Mouse movement aborts the login operation.
 
@@ -63,9 +63,11 @@
 	+ Up to 10 Keys can be set with a minimum delay of 10ms.
 	 + Multiple Ftools are possible.
 
-	+ Hotkey Manager
+	+ Hotkey Manager for every individual Ftool Instance
+	 + Master Hotkey Toggle block other Ftool Hotkeys
+	 + Can also be toggled with a hotkey with the ⌨ icon.
 
-	+ Custom position on client
+	+ Custom position for each client
 
 + Terminate
 

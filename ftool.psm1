@@ -1,20 +1,33 @@
 <# ftool.psm1 
-	.SYNOPSIS
-		Interface for Ftool.
+    .SYNOPSIS
+        Provides an in-game automation tool ("Ftool") that attaches a floating UI to a target application window. 
+		This UI allows users to configure and run multiple, hotkey-driven, automated key-presses for that specific application instance.
 
-	.DESCRIPTION
-		This module creates and manages the complete ftool interface for Entropia Dashboard:
-		- Builds the main application window and all dialog forms
-		- Creates interactive controls (buttons, panels, grids, text boxes)
-		- Handles window positioning
-		- Handles hotkeys
-		- Implements settings management
-		- Activates Ftool
+    .DESCRIPTION
+        This module implements the "Ftool," an advanced automation utility for the Entropia Dashboard. When triggered for a selected application, it launches a small, independent tool window that docks to the target application's window. This tool window serves as a control panel for creating and managing multiple automated key-press macros, often called "spammers." The module features a sophisticated hotkey system, dynamic UI generation, and persistent, profile-based configuration.
 
-	.NOTES
-		Author: Immortal / Divine
-		Version: 1.2.1
-		Requires: PowerShell 5.1, .NET Framework 4.5+, classes.psm1, ini.psm1, datagrid.psm1, ftool.dll
+        Its primary features are:
+
+        1.  **The Ftool Window:**
+            *   A floating UI that attaches to and moves with a target application window.
+            *   Allows the user to configure a "main" key-presser and dynamically add/remove multiple "extension" key-pressers.
+            *   Each key-presser can be configured with a specific key, an execution interval in milliseconds, and a descriptive name.
+            *   Key presses are sent directly to the target window using `PostMessage` via the `ftool.dll`, a method often used for effective automation in games.
+
+        2.  **Advanced Hotkey Engine:**
+            *   Implements a robust, system-wide hotkey manager that runs in the background.
+            *   Allows users to assign a unique hotkey to toggle the start/stop state of the main spammer and each individual extension.
+            *   Includes a master hotkey to enable/disable all hotkeys for a given Ftool instance.
+            *   Features a user-friendly "Key Capture" dialog (`Show-KeyCaptureDialog`) for easy hotkey assignment.
+            *   Supports pausing, resuming, and conflict detection for all registered hotkeys.
+
+        3.  **Dynamic and Persistent UI:**
+            *   The Ftool window can be expanded to add new key-presser extensions on the fly and collapsed to a minimal title bar.
+            *   All settings, including configured keys, intervals, hotkeys, and even the relative position of the Ftool window to its target, are saved to the main `config.ini`.
+            *   It uses a profile system based on the target window's title to maintain separate configurations for different application instances.
+
+        4.  **Lifecycle Management:**
+            *   The module carefully manages all created resources. When an Ftool window is closed or its target application window disappears, it automatically stops all timers, unregisters associated hotkeys, and disposes of the UI to prevent memory leaks.
 #>
 
 #region Hotkey Management
@@ -1821,6 +1834,25 @@ function UpdateSettings
 	}
 }
 
+function Is-WindowBelow {
+    param(
+        [IntPtr]$hWndTop,
+        [IntPtr]$hWndToFind
+    )
+    $current = $hWndTop
+    # Limit search to avoid infinite loops on weird window hierarchies
+    for ($i = 0; $i -lt 500; $i++) {
+        $current = [Custom.Native]::GetWindow($current, [Custom.Native]::GW_HWNDNEXT)
+        if ($current -eq [IntPtr]::Zero) {
+            return $false # Reached the end of the Z-order
+        }
+        if ($current -eq $hWndToFind) {
+            return $true # Found it below
+        }
+    }
+    return $false
+}
+
 function CreatePositionTimer
 {
 	param($formData)
@@ -1869,42 +1901,44 @@ function CreatePositionTimer
 								                        $newTop = $currentTop + ($targetTop - $currentTop) * 0.2 
 								                        $timerData['FtoolForm'].Top = [int]$newTop
 								                    
-								                                                $foregroundWindow = [Custom.Native]::GetForegroundWindow()
-								                                                $ftoolHandle = $timerData['FtoolForm'].Handle
-								                                                $linkedHandle = $timerData['WindowHandle']
-								                                                
-								                                                # Flags for SetWindowPos to only affect Z-order
-								                                                $flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
-								                                                
-								                                                if ($foregroundWindow -eq $linkedHandle -or $foregroundWindow -eq $ftoolHandle)
-								                                                {
-								                                                    # Linked window is active, make ftool topmost if it's not already.
-								                                                    if ($timerData.FtoolZState -ne 'topmost')
-								                                                    {
-								                                                        [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-								                                                        $timerData.FtoolZState = 'topmost'
-								                                                    }
-								                                                }
-								                                                                                                                                                                                                                                                else
-								                                                                                                                                                                                                                                                {
-								                                                                                                                                                                                                                                                    # Another window is active, make ftool non-topmost and stack it correctly.
-								                                                                                                                                                                                                                                                    if ($timerData.FtoolZState -ne 'standard')
-								                                                                                                                                                                                                                                                    {
-								                                                                                                                                                                                                                                                        # 1. Make the ftool a non-topmost window. This transitions it from being 'always on top'.
-								                                                                                                                                                                                                                                                        [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-								                                                                                                                                                                                                                                                        
-								                                                                                                                                                                                                                                                        # 2. Position the linked window to be directly behind the ftool window in the Z-order.
-								                                                                                                                                                                                                                                                        #    Calling PositionWindow(A, B) places A behind B.
-								                                                                                                                                                                                                                                                        #    This ensures ftool stays on top of linked, without bringing the pair to the foreground.
-								                                                                                                                                                                                                                                                        [Custom.Native]::PositionWindow($linkedHandle, $ftoolHandle, 0, 0, 0, 0, $flags) | Out-Null
-                                                        
-                                                        # 3. Explicitly re-assert that the new foreground window should be at the top.
-                                                        #    This counteracts the Z-order promotion that the previous calls might have caused.
-                                                        [Custom.Native]::PositionWindow($foregroundWindow, [Custom.Native]::TopWindowHandle, 0, 0, 0, 0, $flags) | Out-Null
-								                                                                                                                                                                                                                                                        
-								                                                                                                                                                                                                                                                        $timerData.FtoolZState = 'standard'
-								                                                                                                                                                                                                                                                    }
-								                                                                                                                                                                                                                                                }								                    }
+								                        # Z-Order Management
+								                        $ftoolHandle = $timerData['FtoolForm'].Handle
+								                        $linkedHandle = $timerData['WindowHandle']
+								                        $foregroundWindow = [Custom.Native]::GetForegroundWindow()
+								                        $flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
+
+								                        if ($foregroundWindow -eq $linkedHandle -or $foregroundWindow -eq $ftoolHandle)
+								                        {
+								                            # ACTIVE: The ftool/linked window pair is active. Make ftool topmost.
+								                            if ($timerData.FtoolZState -ne 'topmost')
+								                            {
+								                                [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
+								                                $timerData.FtoolZState = 'topmost'
+								                            }
+								                        }
+								                        else
+								                        {
+								                            # INACTIVE: The pair is not the foreground window. Make ftool a normal, non-topmost window.
+								                            if ($timerData.FtoolZState -ne 'standard')
+								                            {
+								                                [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
+								                                $timerData.FtoolZState = 'standard'
+								                            }
+
+								                            # INVARIANT CHECK: As an inactive window, ftool must still never be behind its linked partner.
+								                            # Check if ftool is positioned lower than (behind) its linked window in the Z-order.
+								                            if (Is-WindowBelow -hWndTop $linkedHandle -hWndToFind $ftoolHandle) {
+								                                # CORRECTION: ftool is behind. Move it to be directly in front of the linked window.
+								                                # Get the window currently in front of the linked window.
+								                                $prevHandle = [Custom.Native]::GetWindow($linkedHandle, [Custom.Native]::GW_HWNDPREV)
+								                                # Move ftool to that position, which is now on top of the linked window.
+								                                # This only moves the ftool window, respecting the "don't touch linked window" rule.
+								                                if ($prevHandle -ne $ftoolHandle) {
+								                                    [Custom.Native]::PositionWindow($ftoolHandle, $prevHandle, 0, 0, 0, 0, $flags) | Out-Null
+								                                }
+								                            }
+								                        }
+								                    }
 								                    catch
 													{							Write-Verbose ("FTOOL: Position timer error: {0} for {1}" -f $_.Exception.Message, $($timerData['InstanceId'])) -ForegroundColor Red
 						}
@@ -2445,7 +2479,7 @@ function CreateFtoolForm
 	$btnShowHide = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 185 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
 	$headerPanel.Controls.Add($btnShowHide)
 	
-	$btnClose = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 210 -bg @(200, 45, 45) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
+	$btnClose = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 210 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
 	$headerPanel.Controls.Add($btnClose)
 	
 	$panelSettings = Set-UIElement -type 'Panel' -visible $true -width 190 -height 60 -top 60 -left 40 -bg @(50, 50, 50)
@@ -2468,7 +2502,7 @@ function CreateFtoolForm
 	$btnStop.Visible = $false
 	$panelSettings.Controls.Add($btnStop)
 
-	$btnHotKey = Set-UIElement -type 'Button' -visible $true -width 40 -height 30 -top 1 -left 146 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+	$btnHotKey = Set-UIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6))
 	$panelSettings.Controls.Add($btnHotKey)
 	
 	$positionSliderY = New-Object System.Windows.Forms.TrackBar
@@ -2969,7 +3003,7 @@ function CreateExtensionPanel
 	$btnStopExt.Visible = $false
 	$panelExt.Controls.Add($btnStopExt)
 
-	$btnHotKeyExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 30 -top 1 -left 146 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+	$btnHotKeyExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 30 -top 1 -left 146 -bg @(150, 20, 20) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6))
 	$panelExt.Controls.Add($btnHotKeyExt)
 	
 	$nameExt = Set-UIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text "Name" -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))

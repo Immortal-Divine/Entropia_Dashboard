@@ -1,27 +1,30 @@
 <# datagrid.psm1
     .SYNOPSIS
-        Process Monitoring Grid for Entropia Dashboard.
-    .DESCRIPTION
-        This module provides real-time process monitoring capabilities for the Entropia Dashboard:
-        - Detects and displays game client processes in a data grid
-        - Monitors window states (normal, minimized, loading)
-        - Updates process information asynchronously without UI freezing
-        - Prevents duplicate process entries with intelligent caching
-        - Automatically removes terminated processes
-        - Handles process sorting with error protection
-        - Provides thread-safe UI updates from background operations
-    .NOTES
-        Author: Immortal / Divine
-        Version: 1.2.1
-        Requires: PowerShell 5.1+, .NET Framework 4.5+, classes.psm1, ini.psm1, ui.psm1
+        Manages the real-time process monitoring grid in the main dashboard UI. 
+		It tracks and displays the state of target application instances using a timer-driven, asynchronous update loop.
 
-        Documentation Standards Followed:
-        - Module Level Documentation: Synopsis, Description, Notes.
-        - Function Level Documentation: Synopsis, Parameter Descriptions, Output Specifications.
-        - Code Organization: Logical grouping using #region / #endregion. Functions organized by workflow.
-        - Step Documentation: Code blocks enclosed in '#region Step: Description' / '#endregion Step: Description'.
-        - Variable Definitions: Inline comments describing the purpose of significant variables.
-        - Error Handling: Comprehensive try/catch/finally blocks with error logging and user notification.
+    .DESCRIPTION
+        This "Important" module is the engine behind the dashboard's main process grid. Its sole responsibility is to keep the `DataGridView` perfectly synchronized with the state of all running target application instances (e.g., game clients). It uses a combination of efficient data structures, asynchronous operations, and direct Windows API calls to provide real-time information without freezing the UI.
+
+        The module's key responsibilities are:
+
+        1.  **Continuous Process Monitoring (`Update-DataGrid`):**
+            *   The module is driven by a high-frequency timer (`Start-DataGridUpdateTimer`) that repeatedly calls the `Update-DataGrid` function.
+            *   This central function orchestrates the entire refresh cycle: it gets the latest process list, removes terminated processes from the grid, updates existing entries, and adds new ones.
+
+        2.  **Intelligent Process Tracking:**
+            *   It uses a process cache to track seen processes, even those that might temporarily lack a main window during startup. This prevents visual flickering and ensures processes are added to the grid reliably.
+            *   Grid updates are optimized using a lookup dictionary (hashtable) to find rows by Process ID instantly, avoiding slow, iterative searches.
+
+        3.  **Asynchronous State Checking (`Start-WindowStateCheck`):**
+            *   To determine if a client window is `Normal`, `Minimized`, or `Loading` (unresponsive), it initiates a non-blocking, asynchronous check for each process.
+            *   This prevents the entire dashboard from freezing while waiting for a potentially hung application window to respond.
+            *   Once the check completes on a background thread, the result is safely passed back to the UI thread to update the grid's 'State' column.
+
+        4.  **Window Style Management (`Set-WindowToolStyle`):**
+            *   If the user enables the "Hide minimized clients" option, this module is responsible for modifying the window style of minimized clients.
+            *   It applies the `WS_EX_TOOLWINDOW` style to hide the client from the Windows taskbar and Alt+Tab switcher, reducing clutter.
+            *   A corresponding `Restore-WindowStyles` function ensures all window styles are returned to normal when the dashboard application exits.
 #>
 
 #region Global Configuration
@@ -360,8 +363,8 @@
 
     #region Function: Update-ExistingRow
         function Update-ExistingRow
-        {
-            <#
+		{
+			<#
             .SYNOPSIS
                 Updates the cell values and Tag property of an existing DataGridViewRow with current process information.
             .PARAMETER Row
@@ -410,19 +413,19 @@
                 {
                     $Row.Cells[1].Value = $ProcessTitle
                 }
-            #endregion Step: Update Title Cell (Column 1) if Changed
+			#endregion Step: Update Index Cell (Column 0) if Changed
 
-            #region Step: Update PID Cell (Column 2) if Changed
-                if ($Row.Cells[2].Value -ne $ProcessId)
-                {
-                    $Row.Cells[2].Value = $ProcessId
-                }
-            #endregion Step: Update PID Cell (Column 2) if Changed
+			#region Step: Update PID Cell (Column 2) if Changed
+			if ($Row.Cells[2].Value -ne $ProcessId)
+			{
+				$Row.Cells[2].Value = $ProcessId
+			}
+			#endregion Step: Update PID Cell (Column 2) if Changed
 
             #region Step: Update Row Tag with Latest Process Object
                 $Row.Tag = $Process
             #endregion Step: Update Row Tag with Latest Process Object
-        }
+		}
     #endregion Function: Update-ExistingRow
 
     #region Function: UpdateRowIndices
@@ -681,19 +684,27 @@
                                             $script:States.Normal
                                         }
 
-                                        # Hide or show the window from Alt+Tab based on its minimized state
-                                        if ($hWnd -ne 0 -and $hWnd -ne [IntPtr]::Zero)
-                                        {
-                                            $hideMinimized = $global:DashboardConfig.Config['Options']['HideMinimizedWindows'] -eq '1'
-                                            if ($isMinimized) {
-                                                if ($hideMinimized) {
-                                                    Set-WindowToolStyle -hWnd $hWnd -Hide $true
-                                                }
-                                            }
-                                            else {
-                                                Set-WindowToolStyle -hWnd $hWnd -Hide $false
-                                            }
-                                        }
+                                         # Hide or show the window from Alt+Tab based on its minimized state and the setting
+                                         if ($hWnd -ne 0 -and $hWnd -ne [IntPtr]::Zero)
+                                         {
+                                             $hideMinimizedOption = $global:DashboardConfig.Config['Options']['HideMinimizedWindows'] -eq '1'
+                                            
+                                             if ($hideMinimizedOption) {
+                                                 # If hiding is enabled AND the window is minimized, apply tool style
+                                                 if ($isMinimized) {
+                                                     #Set-WindowToolStyle -hWnd $hWnd -Hide $true
+													 Set-WindowToolStyle -hWnd $hWnd -Hide $false
+                                                 }
+                                                 else {
+                                                     # If hiding is enabled but window is NOT minimized, ensure it's visible (user restored it)
+                                                     Set-WindowToolStyle -hWnd $hWnd -Hide $false
+                                                 }
+                                             }
+                                             else {
+                                                 # If hiding is NOT enabled, ensure it's visible regardless of minimized state
+                                                 Set-WindowToolStyle -hWnd $hWnd -Hide $false
+                                             }
+                                         }
                                     #endregion Step: Callback - Determine Window State
 
                                     #region Step: Callback - Update Row State Cell if Changed
@@ -881,16 +892,8 @@
             <#
             .SYNOPSIS
                 Hides or shows a window from the ALT+TAB task switcher by applying or removing the WS_EX_TOOLWINDOW extended style.
-            .PARAMETER hWnd
-                [IntPtr] The handle of the window to modify. (Mandatory)
-            .PARAMETER Hide
-                [bool] If $true, hides the window from ALT+TAB. If $false, shows it. (Optional, defaults to $true)
-            .OUTPUTS
-                [void]
             .NOTES
-                Uses P/Invoke to call the native Win32 API functions GetWindowLong and SetWindowLong.
-                This modification makes or unmakes the window as a "tool window."
-                Includes error handling for the P/Invoke calls.
+                Updated to use 64-bit safe P/Invoke calls and force a frame redraw.
             #>
             param(
                 [Parameter(Mandatory = $true)]
@@ -899,47 +902,53 @@
                 [bool]$Hide = $true
             )
 
-            #region Step: Define P/Invoke Signature for Window Style Manipulation
-                $source = @'
-                [DllImport("user32.dll")]
-                public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-                [DllImport("user32.dll")]
-                public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
-'@
-            #endregion Step: Define P/Invoke Signature for Window Style Manipulation
-
-            #region Step: Compile P/Invoke Helper Class
-                Add-Type -MemberDefinition $source -Name WindowUtils -Namespace User32 -ErrorAction 'SilentlyContinue'
-            #endregion Step: Compile P/Invoke Helper Class
-
             #region Step: Define Window Style Constants
                 $GWL_EXSTYLE = -20
                 $WS_EX_TOOLWINDOW = 0x00000080
+                $WS_EX_APPWINDOW = 0x00040000
             #endregion Step: Define Window Style Constants
 
             #region Step: Apply or Remove WS_EX_TOOLWINDOW Style
                 try
                 {
-                    $currentExStyle = [User32.WindowUtils]::GetWindowLong($hWnd, $GWL_EXSTYLE)
+                    # 1. Get current style using 64-bit safe method
+                    [IntPtr]$currentExStylePtr = [Custom.Native]::GetWindowLongPtr($hWnd, $GWL_EXSTYLE)
+                    [long]$currentExStyle = $currentExStylePtr.ToInt64()
+                    
                     $newExStyle = 0
 
                     $hideMinimized = $global:DashboardConfig.Config['Options']['HideMinimizedWindows'] -eq '1'
+                    
                     if ($Hide -and $hideMinimized)
                     {
-                        # Add the WS_EX_TOOLWINDOW style using a bitwise OR operation.
-                        $newExStyle = $currentExStyle -bor $WS_EX_TOOLWINDOW
+                        # Add WS_EX_TOOLWINDOW (Hide from Alt-Tab)
+                        # Remove WS_EX_APPWINDOW (Remove from Taskbar)
+                        #$newExStyle = ($currentExStyle -bor $WS_EX_TOOLWINDOW) -band (-bnot $WS_EX_APPWINDOW)
+						$newExStyle = ($currentExStyle -band (-bnot $WS_EX_TOOLWINDOW)) -bor $WS_EX_APPWINDOW
                     }
                     else
                     {
-                        # Remove the WS_EX_TOOLWINDOW style using a bitwise AND with a NOT mask.
-                        $newExStyle = $currentExStyle -band (-bnot $WS_EX_TOOLWINDOW)
+                        # Remove WS_EX_TOOLWINDOW
+                        # Add WS_EX_APPWINDOW (Force onto Taskbar)
+                        $newExStyle = ($currentExStyle -band (-bnot $WS_EX_TOOLWINDOW)) -bor $WS_EX_APPWINDOW
                     }
 
-                    # Only call SetWindowLong if the style has actually changed.
+                    # 2. Only apply if changed
                     if ($newExStyle -ne $currentExStyle)
                     {
-                        [User32.WindowUtils]::SetWindowLong($hWnd, $GWL_EXSTYLE, $newExStyle) | Out-Null
+                        # Convert back to IntPtr for the API call
+                        [IntPtr]$newExStylePtr = [IntPtr]$newExStyle
+                        [Custom.Native]::SetWindowLongPtr($hWnd, $GWL_EXSTYLE, $newExStylePtr) | Out-Null
+
+                        # 3. CRITICAL: Force Window Manager to refresh the style
+                        # SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE
+                        $flags = [Custom.Native]::SWP_NOMOVE -bor `
+                                 [Custom.Native]::SWP_NOSIZE -bor `
+                                 [Custom.Native]::SWP_NOZORDER -bor `
+                                 [Custom.Native]::SWP_FRAMECHANGED -bor `
+                                 [Custom.Native]::SWP_NOACTIVATE
+
+                        [Custom.Native]::PositionWindow($hWnd, [IntPtr]::Zero, 0, 0, 0, 0, $flags) | Out-Null
                     }
                 }
                 catch
@@ -1204,9 +1213,55 @@
     #endregion Function: Start-DataGridUpdateTimer
 #endregion Core Functions
 
+#region Function: Restore-WindowStyles
+        function Restore-WindowStyles
+        {
+            <#
+            .SYNOPSIS
+                Restores the default window style (WS_EX_APPWINDOW) for all managed client windows.
+            .DESCRIPTION
+                Iterates through all process IDs stored in the $script:ProcessCache. For each process,
+                it retrieves the main window handle and calls Set-WindowToolStyle with -Hide $false
+                to ensure the window is visible in the taskbar and Alt+Tab switcher. This function
+                is intended to be called during dashboard shutdown to clean up any modified window styles.
+            .OUTPUTS
+                [void]
+            .NOTES
+                This function does not handle cases where the process itself has terminated.
+                It relies on the cached process IDs having valid MainWindowHandles.
+            #>
+            [CmdletBinding()]
+            param()
+
+            Write-Verbose "DATAGRID: Restoring window styles for managed clients..." -ForegroundColor Yellow
+
+            # Iterate through all process IDs currently in the cache
+            foreach ($processId in $script:ProcessCache.Keys)
+            {
+                try
+                {
+                    # Attempt to get the process by ID
+                    $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+
+                    # If process exists and has a main window handle, restore its style
+                    if ($process -and $process.MainWindowHandle -ne 0 -and $process.MainWindowHandle -ne [IntPtr]::Zero)
+                    {
+                        Set-WindowToolStyle -hWnd $process.MainWindowHandle -Hide $false
+                        Write-Verbose "DATAGRID: Restored style for PID $($process.Id)."
+                    }
+                }
+                catch
+                {
+                    Write-Verbose "DATAGRID: Error restoring window style for PID $($processId). $_" -ForegroundColor Red
+                }
+            }
+            Write-Verbose "DATAGRID: Finished restoring window styles." -ForegroundColor Yellow
+        }
+#endregion Function: Restore-WindowStyles
+
 #region Module Exports
     #region Step: Export Public Functions
         # Export the functions intended for public use by other modules or scripts.
-        Export-ModuleMember -Function Start-DataGridUpdateTimer, Update-DataGrid
+        Export-ModuleMember -Function Start-DataGridUpdateTimer, Update-DataGrid, Restore-WindowStyles
     #endregion Step: Export Public Functions
 #endregion Module Exports
