@@ -164,6 +164,7 @@ function Sync-ConfigToUI
 #region Core UI Functions
 
 #region Function: Initialize-UI
+#region Function: Initialize-UI
 function Initialize-UI
 {
     [CmdletBinding()]
@@ -171,12 +172,30 @@ function Initialize-UI
 
     Write-Verbose '  UI: Initializing UI...' -ForegroundColor Cyan
 
+    $uiPropertiesToAdd = @{}
+
     #region Step: Create Main UI Elements
     $p = @{ type='Form'; visible=$false; width=470; height=440; bg=@(30, 30, 30); id='MainForm'; text='Entropia Dashboard'; startPosition='CenterScreen'; formBorderStyle=[System.Windows.Forms.FormBorderStyle]::None }
     $mainForm = Set-UIElement @p
 
-    $p = @{ type='Form'; visible=$false; width=600; height=550; bg=@(30, 30, 30); id='SettingsForm'; text='Settings'; startPosition='Manual'; formBorderStyle=[System.Windows.Forms.FormBorderStyle]::None; opacity=0; topMost=$true }
+    if (-not $global:DashboardConfig.UI) { $global:DashboardConfig | Add-Member -MemberType NoteProperty -Name UI -Value ([PSCustomObject]@{}) -Force }
+
+    # --- FIX: CREATE MAIN TOOLTIP ---
+    # This tooltip will be used for buttons on the Main Dashboard
+    $toolTipMain = New-Object System.Windows.Forms.ToolTip
+    $toolTipMain.AutoPopDelay = 5000 
+    $toolTipMain.InitialDelay = 100 
+    $toolTipMain.ReshowDelay = 10
+    $toolTipMain.ShowAlways = $true
+    
+    # Store it in the UI object so Set-UIElement can find it
+    $global:DashboardConfig.UI | Add-Member -MemberType NoteProperty -Name ToolTip -Value $toolTipMain -Force
+    # --------------------------------
+
+    #region Step: Settings Form
+    $p = @{ type='Form'; width=600; height=550; bg=@(30, 30, 30); id='SettingsForm'; text='Settings'; startPosition='CenterScreen'; formBorderStyle=[System.Windows.Forms.FormBorderStyle]::None; topMost=$true; opacity=0.0 }
     $settingsForm = Set-UIElement @p
+    #endregion
 
     if ($global:DashboardConfig.Paths.Icon -and (Test-Path $global:DashboardConfig.Paths.Icon)) {
         try {
@@ -190,24 +209,25 @@ function Initialize-UI
     $topBar = Set-UIElement @p
     $p = @{ type='Label'; width=140; height=12; top=5; left=10; fg=@(240, 240, 240); id='TitleLabel'; text='Entropia Dashboard'; font=(New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
     $titleLabelForm = Set-UIElement @p
-    $p = @{ type='Label'; width=140; height=10; top=16; left=10; fg=@(230, 230, 230); id='CopyrightLabel'; text=[char]0x00A9 + ' Immortal / Divine 2025 - v1.3.3'; font=(New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
+    $p = @{ type='Label'; width=140; height=10; top=16; left=10; fg=@(230, 230, 230); id='CopyrightLabel'; text=[char]0x00A9 + ' Immortal / Divine 2025 - v1.3.4'; font=(New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
     $copyrightLabelForm = Set-UIElement @p
-    $p = @{ type='Button'; width=30; height=30; left=410; bg=@(40, 40, 40); fg=@(240, 240, 240); id='MinForm'; text='_'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)) }
+    $p = @{ type='Button'; width=30; height=30; left=410; bg=@(40, 40, 40); fg=@(240, 240, 240); id='MinForm'; text='_'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)); tooltip='Minimize' }
     $btnMinimizeForm = Set-UIElement @p
-    $p = @{ type='Button'; width=30; height=30; left=440; bg=@(150, 20, 20); fg=@(240, 240, 240); id='CloseForm'; text=[char]0x166D; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)) }
+    $p = @{ type='Button'; width=30; height=30; left=440; bg=@(150, 20, 20); fg=@(240, 240, 240); id='CloseForm'; text=[char]0x166D; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)); tooltip='Exit' }
     $btnCloseForm = Set-UIElement @p
     #endregion
 
     #region Step: Main Form Buttons & Grids
-    $p = @{ type='Button'; width=125; height=30; top=40; left=15; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Launch'; text='Launch'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    # These calls use $toolTipMain because it is currently assigned to $global:DashboardConfig.UI.ToolTip
+    $p = @{ type='Button'; width=125; height=30; top=40; left=15; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Launch'; text='Launch'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Start Launch Process (check settings)' }
     $btnLaunch = Set-UIElement @p
-    $p = @{ type='Button'; width=125; height=30; top=40; left=150; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Login'; text='Login'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='Button'; width=125; height=30; top=40; left=150; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Login'; text='Login'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Login selected Clients (check settings)' }
     $btnLogin = Set-UIElement @p
-    $p = @{ type='Button'; width=80; height=30; top=40; left=285; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Settings'; text='Settings'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='Button'; width=80; height=30; top=40; left=285; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Settings'; text='Settings'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Edit Dashboard Settings' }
     $btnSettings = Set-UIElement @p
-    $p = @{ type='Button'; width=80; height=30; top=40; left=375; bg=@(150, 20, 20); fg=@(240, 240, 240); id='Terminate'; text='Terminate'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='Button'; width=80; height=30; top=40; left=375; bg=@(150, 20, 20); fg=@(240, 240, 240); id='Terminate'; text='Terminate'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Closes all selected Clients' }
     $btnStop = Set-UIElement @p
-    $p = @{ type='Button'; width=440; height=30; top=75; left=15; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Ftool'; text='Ftool'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='Button'; width=440; height=30; top=75; left=15; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Ftool'; text='Ftool'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Starts Ftool for selected Clients' }
     $btnFtool = Set-UIElement @p
     
     $p = @{ type='DataGridView'; visible=$false; width=155; height=320; top=115; left=5; bg=@(40, 40, 40); fg=@(240, 240, 240); id='DataGridMain'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
@@ -231,11 +251,24 @@ function Initialize-UI
     #endregion
 
     #region Step: Settings Form with Tabs
+    
+    # --- FIX: CREATE SETTINGS TOOLTIP & SWAP REFERENCE ---
+    # Create a completely separate ToolTip object for the Settings Form.
+    $toolTipSettings = New-Object System.Windows.Forms.ToolTip
+    $toolTipSettings.AutoPopDelay = 5000 
+    $toolTipSettings.InitialDelay = 100 
+    $toolTipSettings.ReshowDelay = 10
+    $toolTipSettings.ShowAlways = $true
+    
+    # Update the global UI object to point to this new tooltip. 
+    # Any Set-UIElement call made AFTER this line will use $toolTipSettings.
+    $global:DashboardConfig.UI.ToolTip = $toolTipSettings
+    # -----------------------------------------------------
+
     # USE CUSTOM DARK TAB CONTROL
     $settingsTabs = New-Object Custom.DarkTabControl
     $settingsTabs.Dock = 'Top'
     $settingsTabs.Height = 480
-    # Custom class handles appearance
     
     $tabGeneral = New-Object System.Windows.Forms.TabPage "General"
     $tabGeneral.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
@@ -249,26 +282,26 @@ function Initialize-UI
     $settingsForm.Controls.Add($settingsTabs)
 
     # --- GENERAL TAB CONTROLS ---
-    $p = @{ type='Label'; width=85; height=20; top=25; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelLauncher'; text='Launcher Path:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='Label'; width=85; height=20; top=25; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelLauncher'; text='Launcher Path:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Select your Launcher' }
     $lblLauncher = Set-UIElement @p
-    $p = @{ type='TextBox'; width=250; height=30; top=50; left=20; bg=@(40, 40, 40); fg=@(240, 240, 240); id='InputLauncher'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='TextBox'; width=250; height=30; top=50; left=20; bg=@(40, 40, 40); fg=@(240, 240, 240); id='InputLauncher'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Select your Launcher' }
     $txtLauncher = Set-UIElement @p
-    $p = @{ type='Button'; width=55; height=25; top=20; left=110; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Browse'; text='Browse'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='Button'; width=55; height=25; top=20; left=110; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Browse'; text='Browse'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Select your Launcher' }
     $btnBrowseLauncher = Set-UIElement @p
     
-    $p = @{ type='Label'; width=85; height=20; top=95; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelProcess'; text='Process Name:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='Label'; width=85; height=20; top=95; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelProcess'; text='Process Name:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Enter Process Name' }
     $lblProcessName = Set-UIElement @p
-    $p = @{ type='TextBox'; width=250; height=30; top=120; left=20; bg=@(40, 40, 40); fg=@(240, 240, 240); id='InputProcess'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='TextBox'; width=250; height=30; top=120; left=20; bg=@(40, 40, 40); fg=@(240, 240, 240); id='InputProcess'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Enter Process Name' }
     $txtProcessName = Set-UIElement @p
     
-    $p = @{ type='Label'; width=85; height=20; top=165; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelMax'; text='Max Clients:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='Label'; width=85; height=20; top=165; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelMax'; text='Max Clients:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Set maximum total amount of clients, that the client is allowed to launch' }
     $lblMaxClients = Set-UIElement @p
-    $p = @{ type='TextBox'; width=250; height=30; top=190; left=20; bg=@(40, 40, 40); fg=@(240, 240, 240); id='InputMax'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='TextBox'; width=250; height=30; top=190; left=20; bg=@(40, 40, 40); fg=@(240, 240, 240); id='InputMax'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Set maximum total amount of clients, that the client is allowed to launch' }
     $txtMaxClients = Set-UIElement @p
 
     $p = @{ type='CheckBox'; width=0; height=0; top=230; left=20; bg=@(30, 30, 30); fg=@(240, 240, 240); id='HideMinimizedWindows'; text='Hide minimized clients from Taskbar and Tab View'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
     $chkHideMinimizedWindows = Set-UIElement @p
-    $p = @{ type='CheckBox'; width=200; height=20; top=255; left=20; bg=@(30, 30, 30); fg=@(240, 240, 240); id='NeverRestartingCollectorLogin'; text='Collector Double Click'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='CheckBox'; width=200; height=20; top=255; left=20; bg=@(30, 30, 30); fg=@(240, 240, 240); id='NeverRestartingCollectorLogin'; text='Collector Double Click'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='In rare cases the Collector Button has to be clicked twice, tick this checkbox to fix this' }
     $chkNeverRestartingLogin = Set-UIElement @p
     
     $tabGeneral.Controls.AddRange(@($lblLauncher, $txtLauncher, $btnBrowseLauncher, $lblProcessName, $txtProcessName, $lblMaxClients, $txtMaxClients, $chkHideMinimizedWindows, $chkNeverRestartingLogin))
@@ -305,9 +338,9 @@ function Initialize-UI
     $p = &$AddPickerRow "Collector Start:" "CollectorStart" ($rowY+75) 2; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["CollectorStart"] = $p
     
     # Post-Login Delay Input
-    $p = @{ type='Label'; width=150; height=20; top=($rowY+110); left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); text="Post-Login Delay (s):"; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='Label'; width=150; height=20; top=($rowY+110); left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); text="Post-Login Delay (s):"; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='How many extra seconds to wait until the world is loaded (Default = 0)' }
     $lblDelay = Set-UIElement @p
-    $p = @{ type='TextBox'; width=60; height=25; top=($rowY+110); left=180; bg=@(40, 40, 40); fg=@(240, 240, 240); id="InputPostLoginDelay"; text='1'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='TextBox'; width=60; height=25; top=($rowY+110); left=180; bg=@(40, 40, 40); fg=@(240, 240, 240); id="InputPostLoginDelay"; text='1'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='How many extra seconds to wait until the world is loaded (Default = 0)' }
     $txtDelay = Set-UIElement @p
     $tabLoginSettings.Controls.AddRange(@($lblDelay, $txtDelay))
 
@@ -352,10 +385,10 @@ function Initialize-UI
     $tabLoginSettings.Controls.Add($LoginConfigGrid)
 
     # --- BOTTOM BUTTONS (Outside Tabs) ---
-    $p = @{ type='Button'; width=120; height=40; top=480; left=20; bg=@(35, 175, 75); fg=@(240, 240, 240); id='Save'; text='Save'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='Button'; width=120; height=40; top=480; left=20; bg=@(35, 175, 75); fg=@(240, 240, 240); id='Save'; text='Save'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Save all settings' }
     $btnSave = Set-UIElement @p
     
-    $p = @{ type='Button'; width=120; height=40; top=480; left=150; bg=@(210, 45, 45); fg=@(240, 240, 240); id='Cancel'; text='Cancel'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $p = @{ type='Button'; width=120; height=40; top=480; left=150; bg=@(210, 45, 45); fg=@(240, 240, 240); id='Cancel'; text='Cancel'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Close and do not save' }
     $btnCancel = Set-UIElement @p
     
     $settingsForm.Controls.AddRange(@($btnSave, $btnCancel))
@@ -391,6 +424,9 @@ function Initialize-UI
         Settings = $btnSettings
         Exit = $btnStop
         Launch = $btnLaunch
+        # Note: This toolTip property now technically points to the Settings ToolTip, 
+        # but that is fine as its main job (registering strings) is done.
+        ToolTip = $toolTipSettings 
         
         # General Tab Inputs
         InputLauncher = $txtLauncher
@@ -410,6 +446,12 @@ function Initialize-UI
         ContextMenuFront = $itmFront
         ContextMenuBack = $itmBack
         ContextMenuResizeAndCenter = $itmResizeCenter
+    }
+    # Add all properties from the $uiPropertiesToAdd hashtable to the existing $global:DashboardConfig.UI object
+    if ($null -ne $uiPropertiesToAdd) {
+        $uiPropertiesToAdd.GetEnumerator() | ForEach-Object {
+            $global:DashboardConfig.UI | Add-Member -MemberType NoteProperty -Name $_.Name -Value $_.Value -Force
+        }
     }
     #endregion
 
@@ -828,7 +870,8 @@ function Set-UIElement
 			[ValidateSet('Simple', 'DropDown', 'DropDownList')]
 			[string]$dropDownStyle = 'DropDownList',
             [ValidateSet('Blocks', 'Continuous', 'Marquee')]
-            [string]$style = 'Continuous'
+            [string]$style = 'Continuous',
+            [string]$tooltip
 		)
 
 		#region Step: Create UI Element Based on Type
@@ -994,6 +1037,11 @@ function Set-UIElement
                 }
 			}
 		#endregion
+
+        # If a tooltip was provided, apply it using the global ToolTip object
+        if ($PSBoundParameters.ContainsKey('tooltip') -and $tooltip -ne $null -and $global:DashboardConfig.UI.ToolTip) {
+            $global:DashboardConfig.UI.ToolTip.SetToolTip($el, $tooltip)
+        }
 
 		return $el
 	}

@@ -30,6 +30,8 @@
             *   The module carefully manages all created resources. When an Ftool window is closed or its target application window disappears, it automatically stops all timers, unregisters associated hotkeys, and disposes of the UI to prevent memory leaks.
 #>
 
+
+
 #region Hotkey Management
 
 # Add C# code for a hidden message window to handle hotkey messages
@@ -1061,48 +1063,142 @@ function ToggleInstanceHotkeys
 
 function Get-VirtualKeyMappings
 {
-	return @{
-		'F1' = 0x70; 'F2' = 0x71; 'F3' = 0x72; 'F4' = 0x73; 'F5' = 0x74; 'F6' = 0x75
-		'F7' = 0x76; 'F8' = 0x77; 'F9' = 0x78; 'F10' = 0x79; 'F11' = 0x7A; 'F12' = 0x7B
-		'F13' = 0x7C; 'F14' = 0x7D; 'F15' = 0x7E; 'F16' = 0x7F; 'F17' = 0x80; 'F18' = 0x81
-		'F19' = 0x82; 'F20' = 0x83; 'F21' = 0x84; 'F22' = 0x85; 'F23' = 0x86; 'F24' = 0x87
+    return @{
+        # =========================
+        # MOUSE BUTTONS
+        # =========================
+        # Windows API supports a maximum of 5 native mouse buttons.
+        'LEFT_MOUSE'    = 0x01
+        'RIGHT_MOUSE'   = 0x02
+        'CANCEL'        = 0x03 # Ctrl-Break processing
+        'MIDDLE_MOUSE'  = 0x04 # Mouse 3
+        'MOUSE_X1'      = 0x05 # Mouse 4 (Back)
+        'MOUSE_X2'      = 0x06 # Mouse 5 (Forward)
+        # Note: Mouse 6+ are custom mapped by drivers to keyboard keys (e.g., F13-F24).
 
-		'0' = 0x30; '1' = 0x31; '2' = 0x32; '3' = 0x33; '4' = 0x34
-		'5' = 0x35; '6' = 0x36; '7' = 0x37; '8' = 0x38; '9' = 0x39
+        # =========================
+        # STANDARD FUNCTION KEYS
+        # =========================
+        'F1' = 0x70; 'F2' = 0x71; 'F3' = 0x72; 'F4' = 0x73; 'F5' = 0x74; 'F6' = 0x75
+        'F7' = 0x76; 'F8' = 0x77; 'F9' = 0x78; 'F10' = 0x79; 'F11' = 0x7A; 'F12' = 0x7B
+        'F13' = 0x7C; 'F14' = 0x7D; 'F15' = 0x7E; 'F16' = 0x7F; 'F17' = 0x80; 'F18' = 0x81
+        'F19' = 0x82; 'F20' = 0x83; 'F21' = 0x84; 'F22' = 0x85; 'F23' = 0x86; 'F24' = 0x87
 
-		'A' = 0x41; 'B' = 0x42; 'C' = 0x43; 'D' = 0x44; 'E' = 0x45; 'F' = 0x46; 'G' = 0x47; 'H' = 0x48
-		'I' = 0x49; 'J' = 0x4A; 'K' = 0x4B; 'L' = 0x4C; 'M' = 0x4D; 'N' = 0x4E; 'O' = 0x4F; 'P' = 0x50
-		'Q' = 0x51; 'R' = 0x52; 'S' = 0x53; 'T' = 0x54; 'U' = 0x55; 'V' = 0x56; 'W' = 0x57; 'X' = 0x58
-		'Y' = 0x59; 'Z' = 0x5A
+        # =========================
+        # NUMBERS & LETTERS
+        # =========================
+        '0' = 0x30; '1' = 0x31; '2' = 0x32; '3' = 0x33; '4' = 0x34
+        '5' = 0x35; '6' = 0x36; '7' = 0x37; '8' = 0x38; '9' = 0x39
 
-		'SPACE' = 0x20; 'ENTER' = 0x0D; 'TAB' = 0x09; 'ESCAPE' = 0x1B; 'SHIFT' = 0x10; 'CONTROL' = 0x11; 'ALT' = 0x12
-		'UP_ARROW' = 0x26; 'DOWN_ARROW' = 0x28; 'LEFT_ARROW' = 0x25; 'RIGHT_ARROW' = 0x27; 'HOME' = 0x24; 'END' = 0x23
-		'PAGE_UP' = 0x21; 'PAGE_DOWN' = 0x22; 'INSERT' = 0x2D; 'DELETE' = 0x2E; 'BACKSPACE' = 0x08
+        'A' = 0x41; 'B' = 0x42; 'C' = 0x43; 'D' = 0x44; 'E' = 0x45; 'F' = 0x46; 'G' = 0x47; 'H' = 0x48
+        'I' = 0x49; 'J' = 0x4A; 'K' = 0x4B; 'L' = 0x4C; 'M' = 0x4D; 'N' = 0x4E; 'O' = 0x4F; 'P' = 0x50
+        'Q' = 0x51; 'R' = 0x52; 'S' = 0x53; 'T' = 0x54; 'U' = 0x55; 'V' = 0x56; 'W' = 0x57; 'X' = 0x58
+        'Y' = 0x59; 'Z' = 0x5A
 
-		'CAPS_LOCK' = 0x14; 'NUM_LOCK' = 0x90; 'SCROLL_LOCK' = 0x91; 'PRINT_SCREEN' = 0x2C; 'PAUSE_BREAK' = 0x13
-		'LEFT_WINDOWS' = 0x5B; 'RIGHT_WINDOWS' = 0x5C; 'APPLICATION' = 0x5D; 'LEFT_SHIFT' = 0xA0; 'RIGHT_SHIFT' = 0xA1
-		'LEFT_CONTROL' = 0xA2; 'RIGHT_CONTROL' = 0xA3; 'LEFT_ALT' = 0xA4; 'RIGHT_ALT' = 0xA5; 'SLEEP' = 0x5F
+        # =========================
+        # CONTROLS & NAVIGATION
+        # =========================
+        'SPACE' = 0x20; 'ENTER' = 0x0D; 'TAB' = 0x09; 'ESCAPE' = 0x1B; 
+        'SHIFT' = 0x10; 'CONTROL' = 0x11; 'ALT' = 0x12
+        'UP_ARROW' = 0x26; 'DOWN_ARROW' = 0x28; 'LEFT_ARROW' = 0x25; 'RIGHT_ARROW' = 0x27
+        'HOME' = 0x24; 'END' = 0x23; 'PAGE_UP' = 0x21; 'PAGE_DOWN' = 0x22
+        'INSERT' = 0x2D; 'DELETE' = 0x2E; 'BACKSPACE' = 0x08
 
-		'NUMPAD_0' = 0x60; 'NUMPAD_1' = 0x61; 'NUMPAD_2' = 0x62; 'NUMPAD_3' = 0x63; 'NUMPAD_4' = 0x64
-		'NUMPAD_5' = 0x65; 'NUMPAD_6' = 0x66; 'NUMPAD_7' = 0x67; 'NUMPAD_8' = 0x68; 'NUMPAD_9' = 0x69
-		'NUMPAD_MULTIPLY' = 0x6A; 'NUMPAD_ADD' = 0x6B; 'NUMPAD_SEPARATOR' = 0x6C; 'NUMPAD_SUBTRACT' = 0x6D; 'NUMPAD_DECIMAL' = 0x6E; 'NUMPAD_DIVIDE' = 0x6F
+        # =========================
+        # MODERN NAVIGATION (Added in Win10/11)
+        # =========================
+        # Used for UI navigation in modern apps/Xbox integration
+        'NAV_VIEW'    = 0x88; 'NAV_MENU'    = 0x89
+        'NAV_UP'      = 0x8A; 'NAV_DOWN'    = 0x8B
+        'NAV_LEFT'    = 0x8C; 'NAV_RIGHT'   = 0x8D
+        'NAV_ACCEPT'  = 0x8E; 'NAV_CANCEL'  = 0x8F
 
-		'SEMICOLON' = 0xBA; 'EQUALS' = 0xBB; 'COMMA' = 0xBC; 'MINUS' = 0xBD; 'PERIOD' = 0xBE
-		'FORWARD_SLASH' = 0xBF; 'BACKTICK' = 0xC0; 'LEFT_BRACKET' = 0xDB; 'BACKSLASH' = 0xDC; 'RIGHT_BRACKET' = 0xDD
-		'APOSTROPHE' = 0xDE
+        # =========================
+        # SYSTEM & LOCKS
+        # =========================
+        'CAPS_LOCK' = 0x14; 'NUM_LOCK' = 0x90; 'SCROLL_LOCK' = 0x91
+        'PRINT_SCREEN' = 0x2C; 'PAUSE_BREAK' = 0x13
+        'LEFT_WINDOWS' = 0x5B; 'RIGHT_WINDOWS' = 0x5C; 'APPLICATION' = 0x5D
+        'LEFT_SHIFT' = 0xA0; 'RIGHT_SHIFT' = 0xA1
+        'LEFT_CONTROL' = 0xA2; 'RIGHT_CONTROL' = 0xA3
+        'LEFT_ALT' = 0xA4; 'RIGHT_ALT' = 0xA5; 'SLEEP' = 0x5F
 
-		'BROWSER_BACK' = 0xA6; 'BROWSER_FORWARD' = 0xA7; 'BROWSER_REFRESH' = 0xA8; 'BROWSER_STOP' = 0xA9
-		'BROWSER_SEARCH' = 0xAA; 'BROWSER_FAVORITES' = 0xAB; 'BROWSER_HOME' = 0xAC; 'VOLUME_MUTE' = 0xAD
-		'VOLUME_DOWN' = 0xAE; 'VOLUME_UP' = 0xAF; 'MEDIA_NEXT_TRACK' = 0xB0; 'MEDIA_PREVIOUS_TRACK' = 0xB1
-		'MEDIA_STOP' = 0xB2; 'MEDIA_PLAY_PAUSE' = 0xB3; 'LAUNCH_MAIL' = 0xB4; 'LAUNCH_MEDIA_PLAYER' = 0xB5
-		'LAUNCH_MY_COMPUTER' = 0xB6; 'LAUNCH_CALCULATOR' = 0xB7
+        # =========================
+        # NUMPAD
+        # =========================
+        'NUMPAD_0' = 0x60; 'NUMPAD_1' = 0x61; 'NUMPAD_2' = 0x62; 'NUMPAD_3' = 0x63; 'NUMPAD_4' = 0x64
+        'NUMPAD_5' = 0x65; 'NUMPAD_6' = 0x66; 'NUMPAD_7' = 0x67; 'NUMPAD_8' = 0x68; 'NUMPAD_9' = 0x69
+        'NUMPAD_MULTIPLY' = 0x6A; 'NUMPAD_ADD' = 0x6B; 'NUMPAD_SEPARATOR' = 0x6C
+        'NUMPAD_SUBTRACT' = 0x6D; 'NUMPAD_DECIMAL' = 0x6E; 'NUMPAD_DIVIDE' = 0x6F
 
-		'IME_KANA_HANGUL' = 0x15; 'IME_JUNJA' = 0x17; 'IME_FINAL' = 0x18; 'IME_HANJA_KANJI' = 0x19
-		'IME_CONVERT' = 0x1C; 'IME_NONCONVERT' = 0x1D; 'IME_ACCEPT' = 0x1E; 'IME_MODE_CHANGE' = 0x1F; 'IME_PROCESS' = 0xE5
-		'SELECT' = 0x29; 'PRINT' = 0x2A; 'EXECUTE' = 0x2B; 'HELP' = 0x2F; 'CLEAR' = 0x0C
-		'ATTN' = 0xF6; 'CRSEL' = 0xF7; 'EXSEL' = 0xF8; 'ERASE_EOF' = 0xF9; 'PLAY' = 0xFA; 'ZOOM' = 0xFB
-		'PA1' = 0xFD; 'OEM_CLEAR' = 0xFE
-	}
+        # =========================
+        # PUNCTUATION & US OEM
+        # =========================
+        # Note: These names are for US Keyboards. The hex codes represent physical locations.
+        'SEMICOLON'     = 0xBA # VK_OEM_1 
+        'EQUALS'        = 0xBB # VK_OEM_PLUS
+        'COMMA'         = 0xBC # VK_OEM_COMMA
+        'MINUS'         = 0xBD # VK_OEM_MINUS
+        'PERIOD'        = 0xBE # VK_OEM_PERIOD
+        'FORWARD_SLASH' = 0xBF # VK_OEM_2
+        'BACKTICK'      = 0xC0 # VK_OEM_3
+        'LEFT_BRACKET'  = 0xDB # VK_OEM_4
+        'BACKSLASH'     = 0xDC # VK_OEM_5
+        'RIGHT_BRACKET' = 0xDD # VK_OEM_6
+        'APOSTROPHE'    = 0xDE # VK_OEM_7
+
+        # =========================
+        # INTERNATIONAL & EXTENDED OEM
+        # =========================
+        # "Angle Bracket" or "Backslash" key between Left Shift and Z on ISO (UK/DE/FR) keyboards
+        'OEM_102' = 0xE2 
+        # Miscellaneous OEM keys (vary by locale)
+        'OEM_8'   = 0xDF 
+        # Japanese Keyboard Specifics
+        'OEM_AX'  = 0xE1 
+        # Used to pass Unicode characters as if they were keystrokes
+        'PACKET'  = 0xE7 
+
+        # =========================
+        # MEDIA & BROWSER
+        # =========================
+        'BROWSER_BACK' = 0xA6; 'BROWSER_FORWARD' = 0xA7; 'BROWSER_REFRESH' = 0xA8; 'BROWSER_STOP' = 0xA9
+        'BROWSER_SEARCH' = 0xAA; 'BROWSER_FAVORITES' = 0xAB; 'BROWSER_HOME' = 0xAC; 'VOLUME_MUTE' = 0xAD
+        'VOLUME_DOWN' = 0xAE; 'VOLUME_UP' = 0xAF; 'MEDIA_NEXT_TRACK' = 0xB0; 'MEDIA_PREVIOUS_TRACK' = 0xB1
+        'MEDIA_STOP' = 0xB2; 'MEDIA_PLAY_PAUSE' = 0xB3; 'LAUNCH_MAIL' = 0xB4; 'LAUNCH_MEDIA_PLAYER' = 0xB5
+        'LAUNCH_MY_COMPUTER' = 0xB6; 'LAUNCH_CALCULATOR' = 0xB7
+
+        # =========================
+        # GAMEPAD MAPPINGS
+        # =========================
+        # Reserved for Gamepad navigation (e.g. Xbox Controller on Windows)
+        'GAMEPAD_A' = 0xC3; 'GAMEPAD_B' = 0xC4
+        'GAMEPAD_X' = 0xC5; 'GAMEPAD_Y' = 0xC6
+        'GAMEPAD_RIGHT_BUMPER' = 0xC7; 'GAMEPAD_LEFT_BUMPER' = 0xC8
+        'GAMEPAD_LEFT_TRIGGER' = 0xC9; 'GAMEPAD_RIGHT_TRIGGER' = 0xCA
+        'GAMEPAD_DPAD_UP' = 0xCB; 'GAMEPAD_DPAD_DOWN' = 0xCC
+        'GAMEPAD_DPAD_LEFT' = 0xCD; 'GAMEPAD_DPAD_RIGHT' = 0xCE
+        'GAMEPAD_MENU' = 0xCF; 'GAMEPAD_VIEW' = 0xD0
+        'GAMEPAD_LEFT_THUMB_BUTTON' = 0xD1; 'GAMEPAD_RIGHT_THUMB_BUTTON' = 0xD2
+        'GAMEPAD_LEFT_THUMB_UP' = 0xD3; 'GAMEPAD_LEFT_THUMB_DOWN' = 0xD4
+        'GAMEPAD_LEFT_THUMB_RIGHT' = 0xD5; 'GAMEPAD_LEFT_THUMB_LEFT' = 0xD6
+        'GAMEPAD_RIGHT_THUMB_UP' = 0xD7; 'GAMEPAD_RIGHT_THUMB_DOWN' = 0xD8
+        'GAMEPAD_RIGHT_THUMB_RIGHT' = 0xD9; 'GAMEPAD_RIGHT_THUMB_LEFT' = 0xDA
+
+        # =========================
+        # IME, LEGACY & MANUFACTURER
+        # =========================
+        'IME_KANA_HANGUL' = 0x15; 'IME_JUNJA' = 0x17; 'IME_FINAL' = 0x18; 'IME_HANJA_KANJI' = 0x19
+        'IME_CONVERT' = 0x1C; 'IME_NONCONVERT' = 0x1D; 'IME_ACCEPT' = 0x1E; 'IME_MODE_CHANGE' = 0x1F; 'IME_PROCESS' = 0xE5
+
+        # Fujitsu/OASYS keys
+        'OEM_FJ_JISHO' = 0x92; 'OEM_FJ_MASSHOU' = 0x93; 'OEM_FJ_TOUROKU' = 0x94; 'OEM_FJ_LOYA' = 0x95; 'OEM_FJ_ROYA' = 0x96
+        
+        # Legacy / Mainframe
+        'SELECT' = 0x29; 'PRINT' = 0x2A; 'EXECUTE' = 0x2B; 'HELP' = 0x2F; 'CLEAR' = 0x0C
+        'ATTN' = 0xF6; 'CRSEL' = 0xF7; 'EXSEL' = 0xF8; 'ERASE_EOF' = 0xF9; 'PLAY' = 0xFA; 'ZOOM' = 0xFB
+        'PA1' = 0xFD; 'OEM_CLEAR' = 0xFE
+    }
 }
 
 function NormalizeKeyString {
@@ -1834,7 +1930,7 @@ function UpdateSettings
 	}
 }
 
-function Is-WindowBelow {
+function IsWindowBelow {
     param(
         [IntPtr]$hWndTop,
         [IntPtr]$hWndToFind
@@ -1927,7 +2023,7 @@ function CreatePositionTimer
 
 								                            # INVARIANT CHECK: As an inactive window, ftool must still never be behind its linked partner.
 								                            # Check if ftool is positioned lower than (behind) its linked window in the Z-order.
-								                            if (Is-WindowBelow -hWndTop $linkedHandle -hWndToFind $ftoolHandle) {
+								                            if (IsWindowBelow -hWndTop $linkedHandle -hWndToFind $ftoolHandle) {
 								                                # CORRECTION: ftool is behind. Move it to be directly in front of the linked window.
 								                                # Get the window currently in front of the linked window.
 								                                $prevHandle = [Custom.Native]::GetWindow($linkedHandle, [Custom.Native]::GW_HWNDPREV)
@@ -2228,12 +2324,18 @@ function CleanupInstanceResources
 	
     if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId)) {
         $form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
-        if ($form -and $form.Tag -and $form.Tag.HotkeyId) {
-			try {
-				Unregister-HotkeyInstance -Id $form.Tag.HotkeyId -OwnerKey $form.Tag.InstanceId
-			} catch {
-				Write-Warning "FTOOL: Failed to unregister hotkey with ID $($form.Tag.HotkeyId) for instance $instanceId. Error: $_"
-			}
+        if ($form -and $form.Tag) {
+            # Dispose of the tool window's independent tooltip object if it exists
+            if ($form.Tag.ToolTip) {
+                $form.Tag.ToolTip.Dispose()
+            }
+            if ($form.Tag.HotkeyId) {
+			    try {
+				    Unregister-HotkeyInstance -Id $form.Tag.HotkeyId -OwnerKey $form.Tag.InstanceId
+			    } catch {
+				    Write-Warning "FTOOL: Failed to unregister hotkey with ID $($form.Tag.HotkeyId) for instance $instanceId. Error: $_"
+			    }
+            }
         }
     }
 
@@ -2442,6 +2544,7 @@ function CreateFtoolForm
 {
 	param($instanceId, $targetWindowRect, $windowTitle, $row)
 	
+	# Create the form first
 	$ftoolForm = Set-UIElement -type 'Form' -visible $true -width 250 -height 170 -top ($targetWindowRect.Top + 30) -left ($targetWindowRect.Left + 10) -bg @(30, 30, 30) -fg @(255, 255, 255) -text "FTool - $instanceId" -startPosition 'Manual' -formBorderStyle 0 -opacity 1
 	if ($global:DashboardConfig.Paths.Icon -and (Test-Path $global:DashboardConfig.Paths.Icon))
 	{
@@ -2460,69 +2563,90 @@ function CreateFtoolForm
 		Write-Verbose "FTOOL: Failed to create form for $instanceId, skipping" -ForegroundColor Red
 		return $null
 	}
-	
-	$headerPanel = Set-UIElement -type 'Panel' -visible $true -width 250 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
-	$ftoolForm.Controls.Add($headerPanel)
 
-	$btnInstanceHotkeyToggle = Set-UIElement -type 'Label' -visible $true -width 15 -height 14 -top 2 -left 118 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10))
-	$headerPanel.Controls.Add($btnInstanceHotkeyToggle)
+    # --- TOOLTIP FIX START ---
+    # Create a specific ToolTip object for this window to avoid conflicts with other windows
+    $ftoolToolTip = New-Object System.Windows.Forms.ToolTip
+    $ftoolToolTip.AutoPopDelay = 5000
+    $ftoolToolTip.InitialDelay = 100
+    $ftoolToolTip.ReshowDelay = 10
+    $ftoolToolTip.ShowAlways = $true
+    
+    # Store the previous global tooltip reference
+    $previousToolTip = $global:DashboardConfig.UI.ToolTip
+    
+    # Temporarily set the global UI tooltip to this local one so Set-UIElement uses it
+    $global:DashboardConfig.UI.ToolTip = $ftoolToolTip
+    # --- TOOLTIP FIX END ---
 
-	$labelWinTitle = Set-UIElement -type 'Label' -visible $true -width 120 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
-	$headerPanel.Controls.Add($labelWinTitle)
-	
-	$btnHotkeyToggle = Set-UIElement -type 'Toggle' -visible $true -width 30 -height 14 -top 3 -left 135 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true
-	$headerPanel.Controls.Add($btnHotkeyToggle)
+	try {
+		$headerPanel = Set-UIElement -type 'Panel' -visible $true -width 250 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
+		$ftoolForm.Controls.Add($headerPanel)
 
-	$btnAdd = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 170 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
-	$headerPanel.Controls.Add($btnAdd)
-	
-	$btnShowHide = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 185 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
-	$headerPanel.Controls.Add($btnShowHide)
-	
-	$btnClose = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 210 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11))
-	$headerPanel.Controls.Add($btnClose)
-	
-	$panelSettings = Set-UIElement -type 'Panel' -visible $true -width 190 -height 60 -top 60 -left 40 -bg @(50, 50, 50)
-	$ftoolForm.Controls.Add($panelSettings)
-	
-	$btnKeySelect = Set-UIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8))
-	$panelSettings.Controls.Add($btnKeySelect)
-	
-	$interval = Set-UIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
-	$panelSettings.Controls.Add($interval)
-	
-	$name = Set-UIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
-	$panelSettings.Controls.Add($name)
-	
-	$btnStart = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
-	$panelSettings.Controls.Add($btnStart)
-	
-	$btnStop = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
-	$btnStop.Enabled = $false
-	$btnStop.Visible = $false
-	$panelSettings.Controls.Add($btnStop)
+		$btnInstanceHotkeyToggle = Set-UIElement -type 'Label' -visible $true -width 15 -height 14 -top 2 -left 118 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip 'Set Master Hotkey'
+		$headerPanel.Controls.Add($btnInstanceHotkeyToggle)
 
-	$btnHotKey = Set-UIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6))
-	$panelSettings.Controls.Add($btnHotKey)
-	
-	$positionSliderY = New-Object System.Windows.Forms.TrackBar
-	$positionSliderY.Orientation = 'Vertical'
-	$positionSliderY.Minimum = 0
-	$positionSliderY.Maximum = 100
-	$positionSliderY.TickFrequency = 300
-	$positionSliderY.Value = 0
-	$positionSliderY.Size = New-Object System.Drawing.Size(1, 110)
-	$positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
-	$ftoolForm.Controls.Add($positionSliderY)
+		$labelWinTitle = Set-UIElement -type 'Label' -visible $true -width 120 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
+		$headerPanel.Controls.Add($labelWinTitle)
 		
-	$positionSliderX = New-Object System.Windows.Forms.TrackBar
-	$positionSliderX.Minimum = 0
-	$positionSliderX.Maximum = 100
-	$positionSliderX.TickFrequency = 300
-	$positionSliderX.Value = 0
-	$positionSliderX.Size = New-Object System.Drawing.Size(190, 1)
-	$positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
-	$ftoolForm.Controls.Add($positionSliderX)
+		$btnHotkeyToggle = Set-UIElement -type 'Toggle' -visible $true -width 30 -height 14 -top 3 -left 135 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip 'Enable/Disable Hotkeys for this Instance'
+		$headerPanel.Controls.Add($btnHotkeyToggle)
+
+		$btnAdd = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 170 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Add new Ftool Extension'
+		$headerPanel.Controls.Add($btnAdd)
+		
+		$btnShowHide = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 185 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Minimize/Expand Tool'
+		$headerPanel.Controls.Add($btnShowHide)
+		
+		$btnClose = Set-UIElement -type 'Button' -visible $true -width 16 -height 14 -top 3 -left 210 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Terminate Ftool'
+		$headerPanel.Controls.Add($btnClose)
+		
+		$panelSettings = Set-UIElement -type 'Panel' -visible $true -width 190 -height 60 -top 60 -left 40 -bg @(50, 50, 50)
+		$ftoolForm.Controls.Add($panelSettings)
+		
+		$btnKeySelect = Set-UIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip 'Click to bind Key'
+		$panelSettings.Controls.Add($btnKeySelect)
+		
+		$interval = Set-UIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Delay in milliseconds'
+		$panelSettings.Controls.Add($interval)
+		
+		$name = Set-UIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip 'Identification Name'
+		$panelSettings.Controls.Add($name)
+		
+		$btnStart = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Start Ftool'
+		$panelSettings.Controls.Add($btnStart)
+		
+		$btnStop = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Stop Ftool'
+		$btnStop.Enabled = $false
+		$btnStop.Visible = $false
+		$panelSettings.Controls.Add($btnStop)
+
+		$btnHotKey = Set-UIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip 'Assign Hotkey'
+		$panelSettings.Controls.Add($btnHotKey)
+		
+		$positionSliderY = New-Object System.Windows.Forms.TrackBar
+		$positionSliderY.Orientation = 'Vertical'
+		$positionSliderY.Minimum = 0
+		$positionSliderY.Maximum = 100
+		$positionSliderY.TickFrequency = 300
+		$positionSliderY.Value = 0
+		$positionSliderY.Size = New-Object System.Drawing.Size(1, 110)
+		$positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
+		$ftoolForm.Controls.Add($positionSliderY)
+			
+		$positionSliderX = New-Object System.Windows.Forms.TrackBar
+		$positionSliderX.Minimum = 0
+		$positionSliderX.Maximum = 100
+		$positionSliderX.TickFrequency = 300
+		$positionSliderX.Value = 0
+		$positionSliderX.Size = New-Object System.Drawing.Size(190, 1)
+		$positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
+		$ftoolForm.Controls.Add($positionSliderX)
+
+    } finally {
+        # Restore the global tooltip reference to avoid breaking other UI parts
+        $global:DashboardConfig.UI.ToolTip = $previousToolTip
+    }
 
 	$formData = [PSCustomObject]@{
 		InstanceId            = $instanceId
@@ -2541,6 +2665,7 @@ function CreateFtoolForm
 		PositionSliderX       = $positionSliderX
 		PositionSliderY       = $positionSliderY
 		Form                  = $ftoolForm
+        ToolTip               = $ftoolToolTip # Store the tooltip so it can be disposed later
 		RunningSpammer        = $null
 		WindowTitle           = $windowTitle
 		Process               = $row.Tag
@@ -2985,33 +3110,50 @@ function CreateExtensionPanel
 {
 	param($form, $currentHeight, $extNum, $instanceId, $windowHandle)
 	
-	$panelExt = Set-UIElement -type 'Panel' -visible $true -width 190 -height 60 -top 0 -left 40 -bg @(50, 50, 50)
-	$form.Controls.Add($panelExt)
-	$panelExt.BringToFront()
-	
-	$btnKeySelectExt = Set-UIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8))
-	$panelExt.Controls.Add($btnKeySelectExt)
-	
-	$intervalExt = Set-UIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9))
-	$panelExt.Controls.Add($intervalExt)
-	
-	$btnStartExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
-	$panelExt.Controls.Add($btnStartExt)
-	
-	$btnStopExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9))
-	$btnStopExt.Enabled = $false
-	$btnStopExt.Visible = $false
-	$panelExt.Controls.Add($btnStopExt)
+    # --- TOOLTIP FIX START ---
+    # Store the previous global tooltip reference
+    $previousToolTip = $global:DashboardConfig.UI.ToolTip
+    
+    # Temporarily swap to the local form's tooltip
+    if ($form.Tag -and $form.Tag.ToolTip) {
+        $global:DashboardConfig.UI.ToolTip = $form.Tag.ToolTip
+    }
+    # --- TOOLTIP FIX END ---
 
-	$btnHotKeyExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 30 -top 1 -left 146 -bg @(150, 20, 20) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6))
-	$panelExt.Controls.Add($btnHotKeyExt)
+    try {
+
+	    $panelExt = Set-UIElement -type 'Panel' -visible $true -width 190 -height 60 -top 0 -left 40 -bg @(50, 50, 50)
+	    $form.Controls.Add($panelExt)
+	    $panelExt.BringToFront()
 	
-	$nameExt = Set-UIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text "Name" -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular))
-	$panelExt.Controls.Add($nameExt)
+	    $btnKeySelectExt = Set-UIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip 'Click to bind Key'
+	    $panelExt.Controls.Add($btnKeySelectExt)
 	
-	$btnRemoveExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 20 -top 35 -left 120 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'Close' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 7))
-	$panelExt.Controls.Add($btnRemoveExt)
+	    $intervalExt = Set-UIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Delay in milliseconds'
+	    $panelExt.Controls.Add($intervalExt)
 	
+	    $btnStartExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Start Ftool'
+	    $panelExt.Controls.Add($btnStartExt)
+	
+	    $btnStopExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Stop Ftool'
+	    $btnStopExt.Enabled = $false
+	    $btnStopExt.Visible = $false
+	    $panelExt.Controls.Add($btnStopExt)
+
+	    $btnHotKeyExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip 'Assign Hotkey'
+	    $panelExt.Controls.Add($btnHotKeyExt)
+	
+	    $nameExt = Set-UIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text "Name" -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip 'Identification Name'
+	    $panelExt.Controls.Add($nameExt)
+	
+	    $btnRemoveExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 20 -top 35 -left 120 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'Close' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 7)) -tooltip 'Remove this Extension'
+	    $panelExt.Controls.Add($btnRemoveExt)
+
+    } finally {
+        # Restore the global tooltip reference
+        $global:DashboardConfig.UI.ToolTip = $previousToolTip
+    }
+
 	$extKey = "ext_${instanceId}_$extNum"
 	$instanceKey = "instance_$instanceId"
 	
