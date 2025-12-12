@@ -86,7 +86,6 @@ function Update-Progress {
         } else {
             $pb.Value = 0
         }
-        [System.Windows.Forms.Application]::DoEvents()
     }
 }
 
@@ -230,7 +229,6 @@ function Wait-UntilClientNormalState {
             Update-Progress -ProgressBarObject $ProgressBarObject -Text "Waiting for Client Normal State..." -CurrentStep $currentGlobalStep -TotalSteps $totalGlobalSteps
         }
         
-        [System.Windows.Forms.Application]::DoEvents()
         Start-Sleep -Milliseconds 250
     }
 }
@@ -348,7 +346,7 @@ function ProcessSingleClient {
     $cgswait = (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter)
     $tgswait = ($totalClients * $TOTAL_STEPS_PER_CLIENT)
     Update-Progress -ProgressBarObject $ProgressBarObject -Text "Waiting for Responsive Window..." -CurrentStep $cgswait -TotalSteps $tgswait
-    Wait-UntilClientNormalState -ProgressBarObject $ProgressBarObject -Row $Row -currentGlobalStep $cgswait -totalGlobalSteps $tgswait
+    #Wait-UntilClientNormalState -ProgressBarObject $ProgressBarObject -Row $Row -currentGlobalStep $cgswait -totalGlobalSteps $tgswait
     Set-WindowForeground -Process $process | Out-Null
     # Note: Set-WindowForeground does internal intervention checks
     $rect = New-Object Custom.Native+RECT
@@ -558,7 +556,6 @@ function LoginSelectedRow {
         $global:DashboardConfig.UI.LoginButton.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
         $global:DashboardConfig.UI.LoginButton.Text = "Login"
         # Force the message queue to process UI updates and prevent freezing.
-        [System.Windows.Forms.Application]::DoEvents()
     }
 }
 
