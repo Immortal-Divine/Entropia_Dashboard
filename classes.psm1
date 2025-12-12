@@ -543,7 +543,16 @@ namespace Custom
 
     public class TextProgressBar : ProgressBar
     {
-        public string CustomText { get; set; }
+        private string _customText;
+        public string CustomText 
+        { 
+            get { return _customText; }
+            set 
+            {
+                _customText = value;
+                this.Invalidate(); // Force redraw when text changes
+            }
+        }
         
         public TextProgressBar()
         {

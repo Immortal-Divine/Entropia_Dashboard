@@ -66,12 +66,14 @@ function Unlock-MousePosition {
 
 function Update-Progress {
     param(
+        [Parameter(Mandatory=$true)]
+        [Custom.TextProgressBar]$ProgressBarObject,
         [string]$Text,
         [int]$Value = -1, 
         [int]$CurrentStep = -1, 
         [int]$TotalSteps = -1 
     )
-    $pb = $global:DashboardConfig.UI.GlobalProgressBar
+    $pb = $ProgressBarObject
     if ($pb) {
         $pb.CustomText = $Text
         if ($CurrentStep -ne -1 -and $TotalSteps -gt 0) {
@@ -207,7 +209,9 @@ function Wait-UntilClientNormalState {
     param(
         $Row,
         [int]$currentGlobalStep, 
-        [int]$totalGlobalSteps
+        [int]$totalGlobalSteps,
+        [Parameter(Mandatory=$true)]
+        [Custom.TextProgressBar]$ProgressBarObject
     )
     if (-not $Row) { return }
 
@@ -223,7 +227,7 @@ function Wait-UntilClientNormalState {
         }
         
         if ($sw.Elapsed.Milliseconds % 2000 -lt 100) {
-            Update-Progress -Text "Waiting for Client Normal State..." -CurrentStep $currentGlobalStep -TotalSteps $totalGlobalSteps
+            Update-Progress -ProgressBarObject $ProgressBarObject -Text "Waiting for Client Normal State..." -CurrentStep $currentGlobalStep -TotalSteps $totalGlobalSteps
         }
         
         [System.Windows.Forms.Application]::DoEvents()
@@ -237,11 +241,13 @@ function Wait-ForLogEntry {
         [string[]]$SearchStrings,
         [int]$TimeoutSeconds = 60,
         [int]$currentGlobalStep,
-        [int]$totalGlobalSteps 
+        [int]$totalGlobalSteps,
+        [Parameter(Mandatory=$true)]
+        [Custom.TextProgressBar]$ProgressBarObject
     )
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    Update-Progress -Text "Watching log for: $($SearchStrings -join ', ')..." -CurrentStep $currentGlobalStep -TotalSteps $totalGlobalSteps
+    Update-Progress -ProgressBarObject $ProgressBarObject -Text "Watching log for: $($SearchStrings -join ', ')..." -CurrentStep $currentGlobalStep -TotalSteps $totalGlobalSteps
 
     while ($sw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
         # Continuous Check
@@ -267,7 +273,9 @@ function Wait-UntilWorldLoaded {
     param(
         $LogPath,
         [int]$currentGlobalStep, 
-        [int]$totalGlobalSteps
+        [int]$totalGlobalSteps,
+        [Parameter(Mandatory=$true)]
+        [Custom.TextProgressBar]$ProgressBarObject
     )
     
     $threshold = 3
@@ -282,7 +290,7 @@ function Wait-UntilWorldLoaded {
     $timeout = New-TimeSpan -Minutes 2
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     
-    Update-Progress -Text "Waiting for World Load..." -CurrentStep $currentGlobalStep -TotalSteps $totalGlobalSteps
+    Update-Progress -ProgressBarObject $ProgressBarObject -Text "Waiting for World Load..." -CurrentStep $currentGlobalStep -TotalSteps $totalGlobalSteps
 
     while ($foundCount -lt $threshold) {
         if ($sw.Elapsed -gt $timeout) { throw "World load timeout" }
@@ -308,7 +316,9 @@ function ProcessSingleClient {
         $LogFilePath,
         $LoginConfig,
         [int]$clientIndex,
-        [int]$totalClients
+        [int]$totalClients,
+        [Parameter(Mandatory=$true)]
+        [Custom.TextProgressBar]$ProgressBarObject
     )
     # Initial Check
     CheckCancel
@@ -316,7 +326,7 @@ function ProcessSingleClient {
     $process = $Row.Tag
     if (-not $process) { throw "No process attached to row" }
     $entryNumber = $Row.Cells[0].Value
-    $clientStepCounter++; Update-Progress -Text "Starting login for Client $entryNumber" -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    $clientStepCounter++; Update-Progress -ProgressBarObject $ProgressBarObject -Text "Starting login for Client $entryNumber" -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
     # --- READ CONFIGURATION ---
     $serverID = "1"; $channelID = "1"; $charSlot = "1"; $startCollector = "No"
     $settingKey = "Client${entryNumber}_Settings"
@@ -337,14 +347,14 @@ function ProcessSingleClient {
     $clientStepCounter++; 
     $cgswait = (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter)
     $tgswait = ($totalClients * $TOTAL_STEPS_PER_CLIENT)
-    Update-Progress -Text "Waiting for Responsive Window..." -CurrentStep $cgswait -TotalSteps $tgswait
-    Wait-UntilClientNormalState -Row $Row -currentGlobalStep $cgswait -totalGlobalSteps $tgswait
+    Update-Progress -ProgressBarObject $ProgressBarObject -Text "Waiting for Responsive Window..." -CurrentStep $cgswait -TotalSteps $tgswait
+    Wait-UntilClientNormalState -ProgressBarObject $ProgressBarObject -Row $Row -currentGlobalStep $cgswait -totalGlobalSteps $tgswait
     Set-WindowForeground -Process $process | Out-Null
     # Note: Set-WindowForeground does internal intervention checks
     $rect = New-Object Custom.Native+RECT
     [Custom.Native]::GetWindowRect($process.MainWindowHandle, [ref]$rect)
     # --- STEP 1: INITIAL CLICK ---
-    $clientStepCounter++; Update-Progress -Text "Selecting Client Index..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    $clientStepCounter++; Update-Progress -ProgressBarObject $ProgressBarObject -Text "Selecting Client Index..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
     $centerX = [int](($rect.Left + $rect.Right) / 2) + 25
     $centerY = [int](($rect.Top + $rect.Bottom) / 2) + 18
     $adjustedY = $centerY
@@ -368,7 +378,7 @@ function ProcessSingleClient {
     if ($LoginConfig[$coordKey]) {
         $coords = ParseCoordinates $LoginConfig[$coordKey]
         if ($coords) {
-            $clientStepCounter++; Update-Progress -Text "Clicking Server $serverID..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+            $clientStepCounter++; Update-Progress -ProgressBarObject $ProgressBarObject -Text "Clicking Server $serverID..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
             Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
             Start-Sleep -Milliseconds 50
         }
@@ -379,7 +389,7 @@ function ProcessSingleClient {
     if ($LoginConfig[$coordKey]) {
         $coords = ParseCoordinates $LoginConfig[$coordKey]
         if ($coords) {
-            $clientStepCounter++; Update-Progress -Text "Clicking Channel $channelID..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+            $clientStepCounter++; Update-Progress -ProgressBarObject $ProgressBarObject -Text "Clicking Channel $channelID..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
             Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
             Start-Sleep -Milliseconds 50
         }
@@ -390,8 +400,8 @@ function ProcessSingleClient {
     $clientStepCounter++; 
     $cgscert = (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter)
     $tgscert = ($totalClients * $TOTAL_STEPS_PER_CLIENT)
-    Update-Progress -Text "Waiting for Cert Login..." -CurrentStep $cgscert -TotalSteps $tgscert
-    $loginReady = Wait-ForLogEntry -LogPath $LogFilePath -SearchStrings @("6 - LOGIN_PLAYER_LIST") -TimeoutSeconds 25 -currentGlobalStep $cgscert -totalGlobalSteps $tgscert
+    Update-Progress -ProgressBarObject $ProgressBarObject -Text "Waiting for Cert Login..." -CurrentStep $cgscert -TotalSteps $tgscert
+    $loginReady = Wait-ForLogEntry -ProgressBarObject $ProgressBarObject -LogPath $LogFilePath -SearchStrings @("6 - LOGIN_PLAYER_LIST") -TimeoutSeconds 25 -currentGlobalStep $cgscert -totalGlobalSteps $tgscert
     if (-not $loginReady) { throw "CERT Login Timeout." }
     CheckCancel
     # --- STEP 5: CHARACTER SELECTION ---
@@ -400,7 +410,7 @@ function ProcessSingleClient {
     if ($LoginConfig[$coordKey] -and $LoginConfig[$coordKey] -ne '0,0') {
         $coords = ParseCoordinates $LoginConfig[$coordKey]
         if ($coords) {
-            $clientStepCounter++; Update-Progress -Text "Selecting Character Slot $charSlot..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+            $clientStepCounter++; Update-Progress -ProgressBarObject $ProgressBarObject -Text "Selecting Character Slot $charSlot..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
             Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
             Start-Sleep -Milliseconds 500 # Wait for selection to register
         }
@@ -414,22 +424,22 @@ function ProcessSingleClient {
     $clientStepCounter++; 
     $cgsmain = (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter)
     $tgsmain = ($totalClients * $TOTAL_STEPS_PER_CLIENT)
-    Update-Progress -Text "Entering World..." -CurrentStep $cgsmain -TotalSteps $tgsmain
+    Update-Progress -ProgressBarObject $ProgressBarObject -Text "Entering World..." -CurrentStep $cgsmain -TotalSteps $tgsmain
     Invoke-KeyPress -VirtualKeyCode 0x0D
     Start-Sleep -Milliseconds 500
     CheckCancel
-    $cacheJoin = Wait-ForLogEntry -LogPath $LogFilePath -SearchStrings @("13 - CACHE_ACK_JOIN") -TimeoutSeconds 60 -currentGlobalStep $cgsmain -totalGlobalSteps $tgsmain
+    $cacheJoin = Wait-ForLogEntry -ProgressBarObject $ProgressBarObject -LogPath $LogFilePath -SearchStrings @("13 - CACHE_ACK_JOIN") -TimeoutSeconds 60 -currentGlobalStep $cgsmain -totalGlobalSteps $tgsmain
     if (-not $cacheJoin) { throw "Main Login Timeout." }
     # --- STEP 7: WORLD LOAD ---
     $clientStepCounter++; 
     $cgsworld = (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter)
     $tgsworld = ($totalClients * $TOTAL_STEPS_PER_CLIENT)
-    Update-Progress -Text "Waiting for World Load..." -CurrentStep $cgsworld -TotalSteps $tgsworld
-    Wait-UntilWorldLoaded -LogPath $LogFilePath -currentGlobalStep $cgsworld -totalGlobalSteps $tgsworld
+    Update-Progress -ProgressBarObject $ProgressBarObject -Text "Waiting for World Load..." -CurrentStep $cgsworld -TotalSteps $tgsworld
+    Wait-UntilWorldLoaded -ProgressBarObject $ProgressBarObject -LogPath $LogFilePath -currentGlobalStep $cgsworld -totalGlobalSteps $tgsworld
     # Finalization
     $delay = 1 
     if ($LoginConfig['PostLoginDelay']) { $delay = [int]$LoginConfig['PostLoginDelay'] }
-    $clientStepCounter++; Update-Progress -Text "Optimization Delay ($delay s)..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    $clientStepCounter++; Update-Progress -ProgressBarObject $ProgressBarObject -Text "Optimization Delay ($delay s)..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
     # Sleep with check
     $swDelay = [System.Diagnostics.Stopwatch]::StartNew()
     while ($swDelay.Elapsed.TotalSeconds -lt $delay) {
@@ -440,13 +450,13 @@ function ProcessSingleClient {
     if ($startCollector -eq "Yes" -and $LoginConfig['CollectorStartCoords'] -and $LoginConfig['CollectorStartCoords'] -ne '0,0') {
         $coords = ParseCoordinates $LoginConfig['CollectorStartCoords']
         if ($coords) {
-            $clientStepCounter++; Update-Progress -Text "Starting Collector..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+            $clientStepCounter++; Update-Progress -ProgressBarObject $ProgressBarObject -Text "Starting Collector..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
             Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
             Start-Sleep -Seconds 1
         }
     }
     # Minimize
-    $clientStepCounter++; Update-Progress -Text "Minimizing..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
+    $clientStepCounter++; Update-Progress -ProgressBarObject $ProgressBarObject -Text "Minimizing..." -CurrentStep (($clientIndex - 1) * $TOTAL_STEPS_PER_CLIENT + $clientStepCounter) -TotalSteps ($totalClients * $TOTAL_STEPS_PER_CLIENT)
     CheckCancel
     if ($global:DashboardConfig.Config['Options']['HideMinimizedWindows'] -eq '1') {
         # Hide window completely (SW_HIDE = 0)
@@ -510,7 +520,7 @@ function LoginSelectedRow {
     }
     $total = $rowsToProcess.Count
     $totalGlobalSteps = $total * $TOTAL_STEPS_PER_CLIENT
-    Update-Progress -Text "Starting Login Process..." -CurrentStep 0 -TotalSteps $totalGlobalSteps
+    Update-Progress -ProgressBarObject $pb -Text "Starting Login Process..." -CurrentStep 0 -TotalSteps $totalGlobalSteps
     $current = 0
     $loginConfig = $global:DashboardConfig.Config['LoginConfig']
     if (-not $loginConfig) { $loginConfig = @{} }
@@ -525,13 +535,13 @@ function LoginSelectedRow {
             	$LogFolder = ($global:DashboardConfig.Config['LauncherPath']['LauncherPath'] -replace '\\Launcher\.exe$', '')
         		$actualLogPath = Join-Path -Path $LogFolder -ChildPath "Log\network_$(Get-Date -Format 'yyyyMMdd').log"
         	}
-            ProcessSingleClient -Row $row -LogFilePath $actualLogPath -LoginConfig $loginConfig -clientIndex $current -totalClients $total
+            ProcessSingleClient -Row $row -LogFilePath $actualLogPath -LoginConfig $loginConfig -clientIndex $current -totalClients $total -ProgressBarObject $pb
 		}
-        Update-Progress -Text "Done" -CurrentStep $totalGlobalSteps -TotalSteps $totalGlobalSteps
+        Update-Progress -ProgressBarObject $pb -Text "Done" -CurrentStep $totalGlobalSteps -TotalSteps $totalGlobalSteps
         Write-Verbose "All selected clients processed." -ForegroundColor Green
     } catch {
         # Catch the Abort/Intervention errors here
-        Update-Progress -Text "Aborted" -Value 0
+        Update-Progress -ProgressBarObject $pb -Text "Aborted" -Value 0
         Write-Verbose "Login Process Stopped: $_" -ForegroundColor Red
         # Cleanup is handled in the 'finally' block.
     } finally {
@@ -557,5 +567,5 @@ function LoginSelectedRow {
 #region Module Exports
 
 # Export module functions
-Export-ModuleMember -Function LoginSelectedRow, Restore-Window, Set-WindowForeground, Wait-ForFileAccess, Invoke-MouseClick, Invoke-KeyPress, Write-LogWithRetry
+Export-ModuleMember -Function LoginSelectedRow, Restore-Window, Set-WindowForeground, Wait-ForFileAccess, Invoke-MouseClick, Invoke-KeyPress, Write-LogWithRetry, Update-Progress
 #endregion Module Exports
