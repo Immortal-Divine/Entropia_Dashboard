@@ -33,9 +33,22 @@
 	+ Selecting one or more entrys is mandatory for other features.
 
 
++ Profiles
+
+	+ You can create a junction/copy of your main folder (250mb per Profile)
+
+	+ Every profile has it's own ingame settings
+
+	+ Every profile will be patched with a single patch
+
+	+ Selected Profile will be the default for the default Launch process
+
+
 + Launch
 
 	+ Can start the desired total amount of clients without loading errors
+
+	+ Can start one instance of a specific Profile with right-click
 
 	+ Works in the background
    

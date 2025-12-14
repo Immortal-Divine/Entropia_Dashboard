@@ -30,15 +30,15 @@
             *   The module carefully manages all created resources. When an Ftool window is closed or its target application window disappears, it automatically stops all timers, unregisters associated hotkeys, and disposes of the UI to prevent memory leaks.
 #>
 
-
-
 #region Hotkey Management
+
 
 # Add C# code for a hidden message window to handle hotkey messages
 if (-not ([System.Management.Automation.PSTypeName]'HotkeyManager').Type) {
     Add-Type -TypeDefinition @"
 	using System;
 	using System.Collections.Generic;
+	using System.Diagnostics;
 	using System.Runtime.InteropServices;
 	using System.Windows.Forms;
 
@@ -51,9 +51,53 @@ if (-not ([System.Management.Automation.PSTypeName]'HotkeyManager').Type) {
 		private static DateTime _lastHotkeyTime = DateTime.MinValue; 
 		
 		private static Dictionary<int, List<HotkeyActionEntry>> _hotkeyActions = new Dictionary<int, List<HotkeyActionEntry>>();
-		private static Dictionary<Tuple<System.UInt32, System.UInt32>, int> _hotkeyIds = new Dictionary<Tuple<System.UInt32, System.UInt32>, int>();
+		private static Dictionary<Tuple<uint, uint>, int> _hotkeyIds = new Dictionary<Tuple<uint, uint>, int>();
 		private static readonly object _hotkeyActionsLock = new object();
 		private static bool _isProcessingHotkey = false;
+
+		// Mouse Hooking
+        private const int WH_MOUSE_LL = 14;
+        private const int WM_LBUTTONDOWN = 0x0201;
+        private const int WM_RBUTTONDOWN = 0x0204;
+        private const int WM_MBUTTONDOWN = 0x0207;
+        private const int WM_XBUTTONDOWN = 0x020B;
+
+		private const uint MOD_ALT = 0x0001;
+        private const uint MOD_CONTROL = 0x0002;
+        private const uint MOD_SHIFT = 0x0004;
+        private const uint MOD_WIN = 0x0008;
+
+        private static LowLevelMouseProc _mouseProcDelegate;
+        private static IntPtr _mouseHookID = IntPtr.Zero;
+        private static int _mouseHotkeysCount = 0;
+
+		[StructLayout(LayoutKind.Sequential)]
+        private struct MSLLHOOKSTRUCT
+        {
+            public System.Drawing.Point pt;
+            public uint mouseData;
+            public uint flags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
+
+        private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+		[DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+        
+        [DllImport("user32.dll")]
+        static extern short GetAsyncKeyState(int vKey);
 
 		public enum HotkeyActionType
 		{
@@ -75,6 +119,116 @@ if (-not ([System.Management.Automation.PSTypeName]'HotkeyManager').Type) {
 		[DllImport("user32.dll", SetLastError=true)]
 		private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
+		private static bool IsMouseKey(uint virtualKey)
+        {
+            return virtualKey == 0x01 || virtualKey == 0x02 || virtualKey == 0x04 || virtualKey == 0x05 || virtualKey == 0x06;
+        }
+
+		private static void EnsureMouseHook()
+        {
+            if (_mouseHookID == IntPtr.Zero)
+            {
+                _mouseProcDelegate = MouseHookCallback;
+                using (Process curProcess = Process.GetCurrentProcess())
+                using (ProcessModule curModule = curProcess.MainModule)
+                {
+                    _mouseHookID = SetWindowsHookEx(WH_MOUSE_LL, _mouseProcDelegate, GetModuleHandle(curModule.ModuleName), 0);
+                }
+            }
+        }
+
+		private static void ReleaseMouseHook()
+        {
+            if (_mouseHookID != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(_mouseHookID);
+                _mouseHookID = IntPtr.Zero;
+            }
+        }
+
+		private static IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0 && !_isProcessingHotkey)
+            {
+                // CRITICAL FIX: Check if the event is INJECTED (by software/PostMessage)
+                // LLMHF_INJECTED bit 0 is set if injected. We ignore these to prevent self-interruption.
+                MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                
+                if ((hookStruct.flags & 0x01) == 0) 
+                {
+                    uint vkCode = 0;
+                    if ((int)wParam == WM_LBUTTONDOWN) vkCode = 0x01;
+                    else if ((int)wParam == WM_RBUTTONDOWN) vkCode = 0x02;
+                    else if ((int)wParam == WM_MBUTTONDOWN) vkCode = 0x04;
+                    else if ((int)wParam == WM_XBUTTONDOWN)
+                    {
+                        uint xButton = hookStruct.mouseData >> 16;
+                        if (xButton == 1) vkCode = 0x05; // MOUSE_X1
+                        else if (xButton == 2) vkCode = 0x06; // MOUSE_X2
+                    }
+
+                    if (vkCode != 0)
+                    {
+                        if ((DateTime.Now - _lastHotkeyTime).TotalMilliseconds < 300)
+                        {
+                            return CallNextHookEx(_mouseHookID, nCode, wParam, lParam);
+                        }
+                        
+                        uint modifiers = 0;
+                        if ((GetAsyncKeyState(0x12) & 0x8000) != 0) modifiers |= MOD_ALT;
+                        if ((GetAsyncKeyState(0x11) & 0x8000) != 0) modifiers |= MOD_CONTROL;
+                        if ((GetAsyncKeyState(0x10) & 0x8000) != 0) modifiers |= MOD_SHIFT;
+                        if (((GetAsyncKeyState(0x5B) & 0x8000) != 0) || ((GetAsyncKeyState(0x5C) & 0x8000) != 0)) modifiers |= MOD_WIN;
+
+                        var hotkeyTuple = Tuple.Create(modifiers, vkCode);
+
+                        lock (_hotkeyActionsLock)
+                        {
+                            if (_hotkeyIds.ContainsKey(hotkeyTuple))
+                            {
+                                _isProcessingHotkey = true;
+                                try
+                                {
+                                    _lastHotkeyTime = DateTime.Now;
+                                    int id = _hotkeyIds[hotkeyTuple];
+                                    if (_hotkeyActions.ContainsKey(id) && _hotkeyActions[id] != null)
+                                    {
+                                        var actionsToInvokeCopy = new List<HotkeyActionEntry>(_hotkeyActions[id]);
+                                        
+                                        var globalToggleActions = new List<HotkeyActionEntry>();
+                                        var normalActions = new List<HotkeyActionEntry>();
+
+                                        foreach (var entry in actionsToInvokeCopy)
+                                        {
+                                            if (entry.Type == HotkeyActionType.GlobalToggle) globalToggleActions.Add(entry);
+                                            else normalActions.Add(entry);
+                                        }
+
+                                        if (globalToggleActions.Count > 0)
+                                        {
+                                            if (globalToggleActions[0].ActionDelegate != null) globalToggleActions[0].ActionDelegate.Invoke();
+                                        }
+                                        else if (!AreHotkeysGloballyPaused)
+                                        {
+                                            foreach (var entry in normalActions)
+                                            {
+                                                if (entry.ActionDelegate != null) entry.ActionDelegate.Invoke();
+                                            }
+                                        }
+                                    }
+                                }
+                                finally
+                                {
+                                    _isProcessingHotkey = false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return CallNextHookEx(_mouseHookID, nCode, wParam, lParam);
+        }
+
 		public static int Register(System.UInt32 modifiers, System.UInt32 virtualKey, HotkeyActionEntry actionEntry)
 		{
 			lock (_hotkeyActionsLock)
@@ -89,9 +243,17 @@ if (-not ([System.Management.Automation.PSTypeName]'HotkeyManager').Type) {
 				}
 
 				int id = _nextId++;
-				if (!RegisterHotKey(_window.Handle, id, modifiers, virtualKey))
+				if(IsMouseKey(virtualKey))
 				{
-					throw new Exception("Failed to register hotkey. Error: " + Marshal.GetLastWin32Error());
+					EnsureMouseHook();
+					_mouseHotkeysCount++;
+				}
+				else
+				{
+					if (!RegisterHotKey(_window.Handle, id, modifiers, virtualKey))
+					{
+						throw new Exception("Failed to register hotkey. Error: " + Marshal.GetLastWin32Error());
+					}
 				}
 				_hotkeyActions[id] = new List<HotkeyActionEntry>() { actionEntry };
 				_hotkeyIds[hotkeyTuple] = id;
@@ -104,9 +266,7 @@ if (-not ([System.Management.Automation.PSTypeName]'HotkeyManager').Type) {
 			lock (_hotkeyActionsLock)
 			{
 				if (!_hotkeyActions.ContainsKey(id)) return;
-				UnregisterHotKey(_window.Handle, id);
-				_hotkeyActions.Remove(id);
-
+				
 				Tuple<uint, uint> keyToRemove = null;
 				foreach(var pair in _hotkeyIds)
 				{
@@ -118,8 +278,22 @@ if (-not ([System.Management.Automation.PSTypeName]'HotkeyManager').Type) {
 				}
 				if(keyToRemove != null)
 				{
+					if(IsMouseKey(keyToRemove.Item2))
+					{
+						_mouseHotkeysCount--;
+						if(_mouseHotkeysCount <= 0)
+						{
+							ReleaseMouseHook();
+							_mouseHotkeysCount = 0;
+						}
+					}
+					else
+					{
+						UnregisterHotKey(_window.Handle, id);
+					}
 					_hotkeyIds.Remove(keyToRemove);
 				}
+				_hotkeyActions.Remove(id);
 			}
 		}
 
@@ -132,21 +306,7 @@ if (-not ([System.Management.Automation.PSTypeName]'HotkeyManager').Type) {
 				list.RemoveAll(entry => entry.ActionDelegate == action);
 				if (list.Count == 0)
 				{
-					UnregisterHotKey(_window.Handle, id);
-					_hotkeyActions.Remove(id);
-					Tuple<uint, uint> keyToRemove = null;
-					foreach(var pair in _hotkeyIds)
-					{
-						if(pair.Value == id)
-						{
-							keyToRemove = pair.Key;
-							break;
-						}
-					}
-					if(keyToRemove != null)
-					{
-						_hotkeyIds.Remove(keyToRemove);
-					}
+					Unregister(id);
 				}
 			}
 		}
@@ -155,10 +315,15 @@ if (-not ([System.Management.Automation.PSTypeName]'HotkeyManager').Type) {
 		{
 			lock (_hotkeyActionsLock)
 			{
-				foreach (var id in new List<int>(_hotkeyActions.Keys))
+				foreach (var pair in _hotkeyIds)
 				{
-					UnregisterHotKey(_window.Handle, id);
+					if (!IsMouseKey(pair.Key.Item2))
+					{
+						UnregisterHotKey(_window.Handle, pair.Value);
+					}
 				}
+				ReleaseMouseHook();
+				_mouseHotkeysCount = 0;
 				_hotkeyActions.Clear();
 				_hotkeyIds.Clear();
 			}
@@ -256,6 +421,69 @@ if (-not ([System.Management.Automation.PSTypeName]'HotkeyManager').Type) {
 	}
 "@ -ReferencedAssemblies "System.Windows.Forms", "System.Drawing"
 }
+
+if (-not ([System.Management.Automation.PSTypeName]'Win32MouseUtils').Type) {
+    Add-Type -TypeDefinition @"
+    using System;
+    using System.Runtime.InteropServices;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Win32Point {
+        public int X;
+        public int Y;
+    }
+
+    public class Win32MouseUtils {
+        [DllImport("user32.dll")]
+        public static extern bool GetCursorPos(out Win32Point lpPoint);
+
+        [DllImport("user32.dll")]
+        public static extern bool ScreenToClient(IntPtr hWnd, ref Win32Point lpPoint);
+
+        [DllImport("user32.dll")]
+        public static extern short GetAsyncKeyState(int vKey);
+
+        public static IntPtr MakeLParam(int x, int y) {
+            return (IntPtr)((y << 16) | (x & 0xFFFF));
+        }
+
+        public static IntPtr GetCurrentInputStateWParam(int targetButtonFlag, bool isDown, int virtualKeyToExclude) {
+            int wParam = 0;
+
+            const int VK_LBUTTON  = 0x01;
+            const int VK_RBUTTON  = 0x02;
+            const int VK_MBUTTON  = 0x04;
+            const int VK_XBUTTON1 = 0x05;
+            const int VK_XBUTTON2 = 0x06;
+            const int VK_SHIFT    = 0x10;
+            const int VK_CONTROL  = 0x11;
+
+            const int MK_LBUTTON  = 0x0001;
+            const int MK_RBUTTON  = 0x0002;
+            const int MK_SHIFT    = 0x0004;
+            const int MK_CONTROL  = 0x0008;
+            const int MK_MBUTTON  = 0x0010;
+            const int MK_XBUTTON1 = 0x0020;
+            const int MK_XBUTTON2 = 0x0040;
+
+            if (virtualKeyToExclude != VK_LBUTTON && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0) wParam |= MK_LBUTTON;
+            if (virtualKeyToExclude != VK_RBUTTON && (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0) wParam |= MK_RBUTTON;
+            if (virtualKeyToExclude != VK_MBUTTON && (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0) wParam |= MK_MBUTTON;
+            if (virtualKeyToExclude != VK_XBUTTON1 && (GetAsyncKeyState(VK_XBUTTON1) & 0x8000) != 0) wParam |= MK_XBUTTON1;
+            if (virtualKeyToExclude != VK_XBUTTON2 && (GetAsyncKeyState(VK_XBUTTON2) & 0x8000) != 0) wParam |= MK_XBUTTON2;
+            
+            if ((GetAsyncKeyState(VK_SHIFT)   & 0x8000) != 0) wParam |= MK_SHIFT;
+            if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0) wParam |= MK_CONTROL;
+
+            if (isDown) wParam |= targetButtonFlag;
+            else wParam &= ~targetButtonFlag;
+
+            return (IntPtr)wParam;
+        }
+    }
+"@
+}
+
 
 # Do not overwrite existing hotkey maps if they already exist from a previous instance
 if (-not $global:RegisteredHotkeys) { $global:RegisteredHotkeys = @{} }
@@ -908,7 +1136,8 @@ function PauseHotkeysForOwner {
 		    try { if ($ks) { $global:RegisteredHotkeyByString.Remove($ks) } } catch {}
 		    try { $global:RegisteredHotkeys.Remove($id) } catch {}
 		} catch {}
-	}}
+	}
+}
 
 function Unregister-HotkeyInstance {
 	param(
@@ -1151,11 +1380,11 @@ function Get-VirtualKeyMappings
         # INTERNATIONAL & EXTENDED OEM
         # =========================
         # "Angle Bracket" or "Backslash" key between Left Shift and Z on ISO (UK/DE/FR) keyboards
-        'OEM_102' = 0xE2 
+        '<' = 0xE2 
         # Miscellaneous OEM keys (vary by locale)
         'OEM_8'   = 0xDF 
         # Japanese Keyboard Specifics
-        'OEM_AX'  = 0xE1 
+        'AX'  = 0xE1 
         # Used to pass Unicode characters as if they were keystrokes
         'PACKET'  = 0xE7 
 
@@ -1340,6 +1569,7 @@ function Show-KeyCaptureDialog
     $script:capturedModifierKeys = @()
     $script:capturedPrimaryKey = $null
 
+    # Pre-parse existing key for display
     if (-not [string]::IsNullOrEmpty($currentKey) -and $currentKey -ne "Hotkey" -and $currentKey -ne "none") {
         $parts = $currentKey.Split(' + ')
         foreach ($part in $parts) {
@@ -1354,42 +1584,139 @@ function Show-KeyCaptureDialog
     }
 
 	$captureForm = New-Object System.Windows.Forms.Form
-	$captureForm.Text = "Press a Key Combination" 
-	$captureForm.Size = New-Object System.Drawing.Size(300, 150)
+	$captureForm.Text = "Capture Input"
+	$captureForm.Size = New-Object System.Drawing.Size(340, 180)
 	$captureForm.StartPosition = 'CenterParent'
 	$captureForm.FormBorderStyle = 'FixedDialog'
 	$captureForm.MaximizeBox = $false
 	$captureForm.MinimizeBox = $false
-	$captureForm.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+	$captureForm.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 48)
 	$captureForm.ForeColor = [System.Drawing.Color]::White
-	
+	$captureForm.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+
 	$label = New-Object System.Windows.Forms.Label
-	$label.Text = "Press any key combination.`n`nPress ESC to cancel." 
-	$label.Size = New-Object System.Drawing.Size(280, 60)
+	$label.Text = "Press any key combination or click a mouse button inside this window."
+	$label.Size = New-Object System.Drawing.Size(300, 60)
 	$label.Location = New-Object System.Drawing.Point(10, 10)
 	$label.TextAlign = 'MiddleCenter'
 	$label.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+	$label.ForeColor = [System.Drawing.Color]::White
+	$label.Enabled = $false
+
+	$label.Add_Paint({
+		param($s, $e) 
+
+		# Zugriff auf das Graphics-Objekt
+		$graphics = $e.Graphics
+		$text = $this.Text
+
+		# Die gewünschten Zeichenkomponenten
+		$font = $this.Font
+		$brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+		$rect = $this.ClientRectangle
+
+		# StringFormat für Zentrierung erstellen
+		$format = New-Object System.Drawing.StringFormat
+		$format.Alignment = [System.Drawing.StringAlignment]::Center
+		$format.LineAlignment = [System.Drawing.StringAlignment]::Center
+
+		$rectF = New-Object System.Drawing.RectangleF($rect.X, $rect.Y, $rect.Width, $rect.Height)
+
+		# Rufen Sie DrawString mit dem eindeutigen RectangleF-Argument auf
+		$graphics.DrawString($text, $font, $brush, $rectF, $format)
+
+		# Brush freigeben
+		$brush.Dispose()
+
+	})
 	$captureForm.Controls.Add($label)
-	
+
+	# Panel for result
+	$resultPanel = New-Object System.Windows.Forms.Panel
+	$resultPanel.Location = New-Object System.Drawing.Point(10, 80)
+	$resultPanel.Size = New-Object System.Drawing.Size(300, 40)
+	$resultPanel.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+	$captureForm.Controls.Add($resultPanel)
+
 	$resultLabel = New-Object System.Windows.Forms.Label
-	$resultLabel.Text = (Get-KeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey) 
-	$resultLabel.Size = New-Object System.Drawing.Size(280, 25)
-	$resultLabel.Location = New-Object System.Drawing.Point(10, 75)
+	$resultLabel.Text = (Get-KeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)
+	$resultLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
 	$resultLabel.TextAlign = 'MiddleCenter'
-	$resultLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
-	$resultLabel.ForeColor = [System.Drawing.Color]::Yellow
-	$captureForm.Controls.Add($resultLabel)
+	$resultLabel.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+	$resultLabel.ForeColor = [System.Drawing.Color]::White
+	$resultLabel.Enabled = $false
+
+	# *** NEW CODE TO FORCE WHITE TEXT ***
+	$resultLabel.Add_Paint({
+
+		param($s, $e) 
+
+		# Zugriff auf das Graphics-Objekt
+		$graphics = $e.Graphics
+		$text = $this.Text
+
+		# Die gewünschten Zeichenkomponenten
+		$font = $this.Font
+		$brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+		$rect = $this.ClientRectangle
+
+		# StringFormat für Zentrierung erstellen
+		$format = New-Object System.Drawing.StringFormat
+		$format.Alignment = [System.Drawing.StringAlignment]::Center
+		$format.LineAlignment = [System.Drawing.StringAlignment]::Center
+
+		$rectF = New-Object System.Drawing.RectangleF($rect.X, $rect.Y, $rect.Width, $rect.Height)
+
+    	# Rufen Sie DrawString mit dem eindeutigen RectangleF-Argument auf
+    	$graphics.DrawString($text, $font, $brush, $rectF, $format)
+
+		# Brush freigeben
+		$brush.Dispose()
+	})
+	# *** END NEW CODE ***
+	$resultPanel.Controls.Add($resultLabel)
+
+    # --- Mouse Detection Block ---
+    $captureForm.Add_MouseDown({
+        param($s, $e)
+        
+        $formBounds = $s.Bounds
+        $cursorPos = [System.Windows.Forms.Cursor]::Position
+        if (-not $formBounds.Contains($cursorPos)) {
+            return
+        }
+
+        # 1. Identify Modifiers currently held
+        [System.Collections.ArrayList]$currentModifiers = @()
+        if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Control) { $currentModifiers.Add('Ctrl') }
+        if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Alt)     { $currentModifiers.Add('Alt') }
+        if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Shift)   { $currentModifiers.Add('Shift') }
+        # Win key is tricky in WinForms events, usually requires Key events, but valid for mouse click context generally.
+
+        # 2. Identify Button
+        $btnName = $null
+        switch ($e.Button) {
+            'Left'    { $btnName = 'LEFT_MOUSE' }
+            'Right'   { $btnName = 'RIGHT_MOUSE' }
+            'Middle'  { $btnName = 'MIDDLE_MOUSE' }
+            'XButton1'{ $btnName = 'MOUSE_X1' }
+            'XButton2'{ $btnName = 'MOUSE_X2' }
+        }
+
+        if ($btnName) {
+            $script:capturedPrimaryKey = $btnName
+            $script:capturedModifierKeys = $currentModifiers
+            
+            $resultLabel.Text = "Captured: $(Get-KeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)"
+            $resultLabel.ForeColor = [System.Drawing.Color]::Green
+            $captureForm.DialogResult = 'OK'
+            $captureForm.Close()
+        }
+    })
+    # -----------------------------
 	
 	$captureForm.Add_KeyDown({
         param($form, $e)
-
-        if ($e.KeyCode -eq 'Escape') {
-            $script:capturedPrimaryKey = $null
-            $script:capturedModifierKeys = @()
-            $captureForm.DialogResult = 'Cancel'
-            $captureForm.Close()
-            return
-        }
 
         [System.Collections.ArrayList]$currentModifiersTemp = @()
         if ($e.Control) { $currentModifiersTemp.Add('Ctrl') }
@@ -1449,7 +1776,6 @@ function Show-KeyCaptureDialog
         }
     })
 
-
 	$captureForm.KeyPreview = $true
 	$captureForm.TopMost = $true
 	
@@ -1480,6 +1806,7 @@ function Show-KeyCaptureDialog
 		}
 	}
 }
+
 
 function LoadFtoolSettings
 {
@@ -2151,59 +2478,128 @@ function RepositionExtensions
 
 function CreateSpammerTimer
 {
-	param($windowHandle, $keyValue, $instanceId, $interval, $extNum = $null, $extKey = $null)
-	
-	$spamTimer = New-Object System.Windows.Forms.Timer
-	$spamTimer.Interval = $interval
-	
-	$timerTag = @{
-		WindowHandle = $windowHandle
-		Key          = $keyValue
-		InstanceId   = $instanceId
-	}
-	
-	if ($null -ne $extNum)
-	{
-		$timerTag['ExtNum'] = $extNum
-		$timerTag['ExtKey'] = $extKey
-	}
-	
-	$spamTimer.Tag = $timerTag
-	
-	$spamTimer.Add_Tick({
-			param($s, $evt)
-			try
-			{
-				if (-not $s -or -not $s.Tag)
-				{
-					return
-				}
-				$timerData = $s.Tag
-				if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero)
-				{
-					return
-				}
-				
-				$keyMappings = Get-VirtualKeyMappings
-				$virtualKeyCode = $keyMappings[$timerData['Key']]
-				
-				if ($virtualKeyCode)
-				{
-					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], 256, $virtualKeyCode, 0)
-				}
-				else
-				{
-					Write-Verbose "FTOOL: Unknown key '$($timerData['Key'])' for $($timerData['InstanceId'])" -ForegroundColor Yellow
-				}
-			}
-			catch
-			{
-				Write-Verbose ("FTOOL: Spammer timer error: {0}" -f $_.Exception.Message) -ForegroundColor Red
-			}
-		})
-	
-	$spamTimer.Start()
-	return $spamTimer
+    param($windowHandle, $keyValue, $instanceId, $interval, $extNum = $null, $extKey = $null)
+    
+    $spamTimer = New-Object System.Windows.Forms.Timer
+    $spamTimer.Interval = $interval
+    
+    $timerTag = @{
+        WindowHandle = $windowHandle
+        Key          = $keyValue
+        InstanceId   = $instanceId
+    }
+    
+    if ($null -ne $extNum) {
+        $timerTag['ExtNum'] = $extNum
+        $timerTag['ExtKey'] = $extKey
+    }
+    
+    $spamTimer.Tag = $timerTag
+    
+    $spamTimer.Add_Tick({
+        param($s, $evt)
+        try
+        {
+            if (-not $s -or -not $s.Tag) { return }
+            $timerData = $s.Tag
+            if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
+            
+            $keyMappings = Get-VirtualKeyMappings
+            $virtualKeyCode = $keyMappings[$timerData['Key']]
+            
+            if ($virtualKeyCode)
+            {
+                $WM_KEYDOWN     = 0x0100
+                $WM_KEYUP       = 0x0101
+                $WM_LBUTTONDOWN = 0x0201
+                $WM_LBUTTONUP   = 0x0202
+                $WM_RBUTTONDOWN = 0x0204
+                $WM_RBUTTONUP   = 0x0205
+                $WM_MBUTTONDOWN = 0x0207
+                $WM_MBUTTONUP   = 0x0208
+                $WM_XBUTTONDOWN = 0x020B
+                $WM_XBUTTONUP   = 0x020C
+                
+                $MK_LBUTTON     = 0x0001
+                $MK_RBUTTON     = 0x0002
+                $MK_MBUTTON     = 0x0010
+                $MK_XBUTTON1    = 0x0020
+                $MK_XBUTTON2    = 0x0040
+
+                $point = New-Object Win32Point
+                [Win32MouseUtils]::GetCursorPos([ref]$point) | Out-Null
+                [Win32MouseUtils]::ScreenToClient($timerData['WindowHandle'], [ref]$point) | Out-Null
+                $lParam = [Win32MouseUtils]::MakeLParam($point.X, $point.Y)
+
+                $dwellTime = Get-Random -Minimum 2 -Maximum 9
+
+                if ($virtualKeyCode -eq 0x01) 
+                {
+                    $wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_LBUTTON, $true, $virtualKeyCode)
+                    $wUp   = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_LBUTTON, $false, $virtualKeyCode)
+
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_LBUTTONDOWN, $wDown, $lParam)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_LBUTTONUP, $wUp, $lParam)
+                }
+                elseif ($virtualKeyCode -eq 0x02) 
+                {
+                    $wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_RBUTTON, $true, $virtualKeyCode)
+                    $wUp   = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_RBUTTON, $false, $virtualKeyCode)
+
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_RBUTTONDOWN, $wDown, $lParam)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_RBUTTONUP, $wUp, $lParam)
+                }
+                elseif ($virtualKeyCode -eq 0x04) 
+                {
+                    $wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_MBUTTON, $true, $virtualKeyCode)
+                    $wUp   = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_MBUTTON, $false, $virtualKeyCode)
+
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_MBUTTONDOWN, $wDown, $lParam)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_MBUTTONUP, $wUp, $lParam)
+                }
+                elseif ($virtualKeyCode -eq 0x05) 
+                {
+                    $wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON1, $true, $virtualKeyCode)
+                    $wUp   = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON1, $false, $virtualKeyCode)
+                    
+                    $wDown = $wDown.ToInt64() -bor 0x00010000
+                    $wUp   = $wUp.ToInt64()   -bor 0x00010000
+
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONDOWN, [IntPtr]$wDown, $lParam)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONUP, [IntPtr]$wUp, $lParam)
+                }
+                elseif ($virtualKeyCode -eq 0x06) 
+                {
+                    $wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON2, $true, $virtualKeyCode)
+                    $wUp   = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON2, $false, $virtualKeyCode)
+
+                    $wDown = $wDown.ToInt64() -bor 0x00020000
+                    $wUp   = $wUp.ToInt64()   -bor 0x00020000
+
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONDOWN, [IntPtr]$wDown, $lParam)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONUP, [IntPtr]$wUp, $lParam)
+                }
+                else
+                {
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $virtualKeyCode, 0)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $virtualKeyCode, 0xC0000000) 
+                }
+            }
+        }
+        catch
+        {
+            Write-Verbose ("FTOOL: Spammer Error: {0}" -f $_.Exception.Message)
+        }
+    })
+    
+    $spamTimer.Start()
+    return $spamTimer
 }
 
 function ToggleButtonState

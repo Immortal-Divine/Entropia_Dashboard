@@ -530,7 +530,8 @@ function LoginSelectedRow {
             # Logic to find log path if not provided
             $actualLogPath = $LogFilePath
             if ([string]::IsNullOrEmpty($actualLogPath)) {
-            	$LogFolder = ($global:DashboardConfig.Config['LauncherPath']['LauncherPath'] -replace '\\Launcher\.exe$', '')
+                $launcherPath = $global:DashboardConfig.Config['LauncherPath']['LauncherPath']
+                $LogFolder = Split-Path -Path $launcherPath -Parent
         		$actualLogPath = Join-Path -Path $LogFolder -ChildPath "Log\network_$(Get-Date -Format 'yyyyMMdd').log"
         	}
             ProcessSingleClient -Row $row -LogFilePath $actualLogPath -LoginConfig $loginConfig -clientIndex $current -totalClients $total -ProgressBarObject $pb
@@ -564,5 +565,5 @@ function LoginSelectedRow {
 #region Module Exports
 
 # Export module functions
-Export-ModuleMember -Function LoginSelectedRow, Restore-Window, Set-WindowForeground, Wait-ForFileAccess, Invoke-MouseClick, Invoke-KeyPress, Write-LogWithRetry, Update-Progress
+Export-ModuleMember -Function LoginSelectedRow, Restore-Window, Set-WindowForeground, Wait-ForFileAccess, Invoke-MouseClick, Invoke-KeyPress, Write-LogWithRetry, Update-Progress, ParseCoordinates, Wait-ForLogEntry
 #endregion Module Exports

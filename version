@@ -1,10 +1,14 @@
 Author: Immortal / Divine
-Version: 1.3.4
+Version: 1.4
 Requires: PowerShell 5.1+, .NET Framework 4.5+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 
 [Changelogs]
-- Added new keyboard and mouse keys to be able to be set as hotkey
-- Added Tooltips to most UI elements
-- Added Changelog system to updater
-- Added fully automatic updater
+- Added new main feature:
+  - You can now set Profiles to have individually saved ingame settings for your clients
+  - These can be selected for the default Launch or you can start one Client with right click ignoring max limit
+- Fixed feature to hide minimized clients
+- Fixed login bug if Launcher.exe had different name, Launcher can have any name now too.
+- Enabled Mouse Keys for Ftool and Hotkeys, this includes every Mouse Key.
+- Added log file to %AppData%\Entropia_Dashboard
+- Added Disconnect Check (wip)

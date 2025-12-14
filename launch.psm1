@@ -48,102 +48,150 @@ $script:ProcessConfig = @{
 
 function Start-ClientLaunch
 {
-	<#
-	.SYNOPSIS
-	Initializes and starts the client launch process.
-	
-	.DESCRIPTION
-	Prepares and starts the asynchronous launch operation for Entropia clients.
-	#>
-	[CmdletBinding()]
-	param()
-	
-	# Prevent multiple launches
-	if ($global:DashboardConfig.State.LaunchActive)
-	{
-		[System.Windows.Forms.MessageBox]::Show('Launch operation already in progress', 'Information',
-			[System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
-		return
-	}
-	
-	$global:DashboardConfig.State.LaunchActive = $true
-	
-	# Create a new ordered dictionary for settings
-	$settingsDict = [ordered]@{}
-	
-	# Copy settings from global config
-	foreach ($section in $global:DashboardConfig.Config.Keys)
-	{
-		$settingsDict[$section] = [ordered]@{}
-		foreach ($key in $global:DashboardConfig.Config[$section].Keys)
-		{
-			$settingsDict[$section][$key] = $global:DashboardConfig.Config[$section][$key]
-		}
-	}
-	
-	# Ensure latest config is loaded
-	Read-Config
-	
-	# Get required settings
-	$neuzName = $settingsDict['ProcessName']['ProcessName']
-	$launcherPath = $settingsDict['LauncherPath']['LauncherPath']
-	
-	Write-Verbose "LAUNCH: Using ProcessName: $neuzName" -ForegroundColor DarkGray
-	Write-Verbose "LAUNCH: Using LauncherPath: $launcherPath" -ForegroundColor DarkGray
-	
-	# Validate settings
-	if ([string]::IsNullOrEmpty($neuzName) -or [string]::IsNullOrEmpty($launcherPath) -or -not (Test-Path $launcherPath))
-	{
-		Write-Verbose 'LAUNCH: Invalid launch settings' -ForegroundColor Yellow
-		$global:DashboardConfig.State.LaunchActive = $false
-		return
-	}
-	
-	# Get max clients setting
-	$maxClients = 1
-	if ($settingsDict['MaxClients'].Contains('MaxClients') -and -not [string]::IsNullOrEmpty($settingsDict['MaxClients']['MaxClients']))
-	{
-		$maxClients = [int]($settingsDict['MaxClients']['MaxClients'])
-	}
-	
-	# Prepare runspace for background processing
-	$localRunspace = $null
-	try
-	{
-		# Create a runspace with ApartmentState.STA to ensure proper UI interaction
-		$localRunspace = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, 1)
-		$localRunspace.ApartmentState = [System.Threading.ApartmentState]::STA
-		$localRunspace.ThreadOptions = [System.Management.Automation.Runspaces.PSThreadOptions]::ReuseThread
-		$localRunspace.Open()
-	}
-	catch
-	{
-		Write-Verbose "LAUNCH: Error creating runspace: $_" -ForegroundColor Red
-		$global:DashboardConfig.State.LaunchActive = $false
-		return
-	}
-	
-	$launchPS = [PowerShell]::Create()
-	$launchPS.RunspacePool = $localRunspace
-	
-	# Store references globally for cleanup
-	$global:LaunchResources = @{
-		PowerShellInstance  = $launchPS
-		Runspace            = $localRunspace
-		EventSubscriptionId = $null
-		EventSubscriber     = $null
-		AsyncResult         = $null
-		StartTime           = [DateTime]::Now
-	}
-	
-	$launchPS.AddScript({
-			param(
-				$Settings,
-				$LauncherPath,
-				$NeuzName,
-				$MaxClients,
-				$IniPath
-			)
+    <#
+    .SYNOPSIS
+    Initializes and starts the client launch process.
+    
+    .DESCRIPTION
+    Prepares and starts the asynchronous launch operation for Entropia clients.
+    Accepts overrides for Context Menu quick-launching.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [string]$ProfileNameOverride,
+
+        [Parameter(Mandatory=$false)]
+        [switch]$OneClientOnly
+    )
+    
+    # Prevent multiple launches
+    if ($global:DashboardConfig.State.LaunchActive)
+    {
+        [System.Windows.Forms.MessageBox]::Show('Launch operation already in progress', 'Information',
+            [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+        return
+    }
+    
+    $global:DashboardConfig.State.LaunchActive = $true
+    
+    # Create a new ordered dictionary for settings
+    $settingsDict = [ordered]@{}
+    
+    # Copy settings from global config
+    foreach ($section in $global:DashboardConfig.Config.Keys)
+    {
+        $settingsDict[$section] = [ordered]@{}
+        foreach ($key in $global:DashboardConfig.Config[$section].Keys)
+        {
+            $settingsDict[$section][$key] = $global:DashboardConfig.Config[$section][$key]
+        }
+    }
+    
+    # Ensure latest config is loaded
+    if (Get-Command Read-Config -ErrorAction SilentlyContinue) { Read-Config }
+    
+    # Get required settings
+    $neuzName = $settingsDict['ProcessName']['ProcessName']
+    $launcherPath = $settingsDict['LauncherPath']['LauncherPath']
+    
+    # -------------------------------------------------------------------------
+    # PROFILE SUPPORT LOGIC
+    # -------------------------------------------------------------------------
+    $profileToUse = $null
+
+    if (-not [string]::IsNullOrEmpty($ProfileNameOverride)) {
+        $profileToUse = $ProfileNameOverride
+        Write-Verbose "LAUNCH: Overriding profile with '$profileToUse'" -ForegroundColor Cyan
+    }
+    elseif ($settingsDict['Options'] -and $settingsDict['Options']['SelectedProfile']) {
+        $profileToUse = $settingsDict['Options']['SelectedProfile']
+    }
+
+    if ($profileToUse) {
+        if ($settingsDict['Profiles'] -and $settingsDict['Profiles'][$profileToUse]) {
+            $profilePath = $settingsDict['Profiles'][$profileToUse]
+            
+            if (Test-Path $profilePath) {
+                # Extract the executable name
+                $exeName = [System.IO.Path]::GetFileName($launcherPath)
+                $profileLauncherPath = Join-Path $profilePath $exeName
+                
+                if (Test-Path $profileLauncherPath) {
+                    $launcherPath = $profileLauncherPath
+                    Write-Verbose "LAUNCH: Using Profile '$profileToUse'" -ForegroundColor Cyan
+                } else {
+                    Write-Verbose "LAUNCH: Profile executable not found at '$profileLauncherPath'. Falling back to default." -ForegroundColor Yellow
+                }
+            }
+        }
+    }
+
+    Write-Verbose "LAUNCH: Using ProcessName: $neuzName" -ForegroundColor DarkGray
+    Write-Verbose "LAUNCH: Using LauncherPath: $launcherPath" -ForegroundColor DarkGray
+    
+    # Validate settings
+    if ([string]::IsNullOrEmpty($neuzName) -or [string]::IsNullOrEmpty($launcherPath) -or -not (Test-Path $launcherPath))
+    {
+        Write-Verbose 'LAUNCH: Invalid launch settings' -ForegroundColor Yellow
+        $global:DashboardConfig.State.LaunchActive = $false
+        return
+    }
+    
+    # Get max clients setting
+    $maxClients = 1
+    if ($settingsDict['MaxClients'].Contains('MaxClients') -and -not [string]::IsNullOrEmpty($settingsDict['MaxClients']['MaxClients']))
+    {
+        $maxClients = [int]($settingsDict['MaxClients']['MaxClients'])
+    }
+
+    # -------------------------------------------------------------------------
+    # ONE CLIENT ONLY OVERRIDE
+    # -------------------------------------------------------------------------
+    if ($OneClientOnly) {
+        $currentCount = (Get-Process -Name $neuzName -ErrorAction SilentlyContinue).Count
+        $maxClients = $currentCount + 1
+        Write-Verbose "LAUNCH: OneClientOnly override active. Target total: $maxClients" -ForegroundColor Cyan
+    }
+    
+    # Prepare runspace for background processing
+    $localRunspace = $null
+    try
+    {
+        $localRunspace = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, 1)
+        $localRunspace.ApartmentState = [System.Threading.ApartmentState]::STA
+        $localRunspace.ThreadOptions = [System.Management.Automation.Runspaces.PSThreadOptions]::ReuseThread
+        $localRunspace.Open()
+    }
+    catch
+    {
+        Write-Verbose "LAUNCH: Error creating runspace: $_" -ForegroundColor Red
+        $global:DashboardConfig.State.LaunchActive = $false
+        return
+    }
+    
+    $launchPS = [PowerShell]::Create()
+    $launchPS.RunspacePool = $localRunspace
+    
+    # Store references globally for cleanup
+    $global:LaunchResources = @{
+        PowerShellInstance  = $launchPS
+        Runspace            = $localRunspace
+        EventSubscriptionId = $null
+        EventSubscriber     = $null
+        AsyncResult         = $null
+        StartTime           = [DateTime]::Now
+    }
+    
+    # --- ASYNC SCRIPT BLOCK (Unchanged content, just ensuring correct context) ---
+    $launchPS.AddScript({
+            param(
+                $Settings,
+                $LauncherPath,
+                $NeuzName,
+                $MaxClients,
+                $IniPath
+            )
 		
 			try
 			{
@@ -547,132 +595,78 @@ function Start-ClientLaunch
 				
 					Start-Sleep -Seconds 2
 				}
-			
-			}
-			catch
-			{
-				Write-Verbose "LAUNCH: $($_.Exception.Message)" -ForegroundColor Red
-			}
-			finally
-			{
-			
-				# Clear any remaining references to processes
-				$existingPIDs = $null
-				[System.GC]::Collect()
-			}
-		}).AddArgument($settingsDict).AddArgument($launcherPath).AddArgument($neuzName).AddArgument($maxClients).AddArgument($global:DashboardConfig.Paths.Ini)
-	
-	# Event registration and cleanup section
-	try
-	{
-		# First, define the completion action that will be called when the operation completes
-		$completionScriptBlock = {
-			Write-Verbose 'LAUNCH: Launch operation completed, processing messages' -ForegroundColor Green
-			
-			# Call cleanup function
-			Write-Verbose 'LAUNCH: Calling Stop-ClientLaunch' -ForegroundColor Cyan
-			Stop-ClientLaunch
-		}
-		
-		# Store the completion action in a script-level variable
-		$script:LaunchCompletionAction = $completionScriptBlock
-		
-		# Create a unique event name
-		$eventName = 'LaunchOperation_' + [Guid]::NewGuid().ToString('N')
-		Write-Verbose "LAUNCH: Creating event with name: $eventName" -ForegroundColor DarkGray
-		
-		# Create a simple scriptblock for the event that doesn"t reference any variables
-		$simpleEventAction = {
-			param($src, $e)
-			
-			# Only process completed, failed, or stopped states
-			$state = $e.InvocationStateInfo.State
-			if ($state -eq 'Completed' -or $state -eq 'Failed' -or $state -eq 'Stopped')
-			{
-				Write-Verbose "LAUNCH: PowerShell operation state changed to: $state" -ForegroundColor DarkGray
-				
-				# Call cleanup directly - don"t reference any global variables
-				if (Get-Command -Name Stop-ClientLaunch -ErrorAction SilentlyContinue)
-				{
-					Write-Verbose 'LAUNCH: Calling Stop-ClientLaunch from event handler' -ForegroundColor Cyan
-					Stop-ClientLaunch
-				}
-				else
-				{
-					Write-Verbose 'LAUNCH: Stop-ClientLaunch function not found' -ForegroundColor Red
-				}
-			}
-		}
-		
-		# Register the event with minimal dependencies
-		Write-Verbose 'LAUNCH: Registering event handler' -ForegroundColor Cyan
-		$eventSub = Register-ObjectEvent -InputObject $launchPS -EventName InvocationStateChanged -SourceIdentifier $eventName -Action $simpleEventAction
-		
-		# Verify event registration
-		if ($null -eq $eventSub)
-		{
-			throw 'Failed to register event subscriber'
-		}
-		
-		# Store event information
-		$global:LaunchResources.EventSubscriptionId = $eventName
-		$global:LaunchResources.EventSubscriber = $eventSub
-		
-		# Set up a safety timer
-		Write-Verbose 'LAUNCH: Setting up safety timer' -ForegroundColor DarkGray
-		$safetyTimer = New-Object System.Timers.Timer
-		$safetyTimer.Interval = 300000  # 5 minutes
-		$safetyTimer.AutoReset = $false
-		
-		# Create a simple timer elapsed handler
-		$safetyTimer.Add_Elapsed({
-				Write-Verbose 'LAUNCH: Safety timer elapsed' -ForegroundColor DarkGray
-			
-				# Call cleanup directly - don"t reference any global variables
-				if (Get-Command -Name Stop-ClientLaunch -ErrorAction SilentlyContinue)
-				{
-					Write-Verbose 'LAUNCH: Calling Stop-ClientLaunch from safety timer' -ForegroundColor DarkGray
-					Stop-ClientLaunch
-				}
-				else
-				{
-					Write-Verbose 'LAUNCH: Stop-ClientLaunch function not found' -ForegroundColor Red
-				}
-			})
-		
-		# Start the timer
-		$safetyTimer.Start()
-		$global:DashboardConfig.Resources.Timers['launchSafetyTimer'] = $safetyTimer
-		
-		# Start the async operation
-		Write-Verbose 'LAUNCH: Starting async operation' -ForegroundColor Cyan
-		$asyncResult = $launchPS.BeginInvoke()
-		
-		# Verify async operation
-		if ($null -eq $asyncResult)
-		{
-			throw 'Failed to start async operation'
-		}
-		
-		# Store the async result
-		$global:LaunchResources.AsyncResult = $asyncResult
+            
+            }
+            catch
+            {
+                Write-Verbose "LAUNCH: $($_.Exception.Message)" -ForegroundColor Red
+            }
+            finally
+            {
+                [System.GC]::Collect()
+            }
+        }).AddArgument($settingsDict).AddArgument($launcherPath).AddArgument($neuzName).AddArgument($maxClients).AddArgument($global:DashboardConfig.Paths.Ini)
+    
+    # Event registration and cleanup section
+    try
+    {
+        $completionScriptBlock = {
+            Write-Verbose 'LAUNCH: Launch operation completed, processing messages' -ForegroundColor Green
+            Stop-ClientLaunch
+        }
+        
+        $script:LaunchCompletionAction = $completionScriptBlock
+        $eventName = 'LaunchOperation_' + [Guid]::NewGuid().ToString('N')
+        Write-Verbose "LAUNCH: Creating event with name: $eventName" -ForegroundColor DarkGray
+        
+        $simpleEventAction = {
+            param($src, $e)
+            $state = $e.InvocationStateInfo.State
+            if ($state -eq 'Completed' -or $state -eq 'Failed' -or $state -eq 'Stopped')
+            {
+                Write-Verbose "LAUNCH: PowerShell operation state changed to: $state" -ForegroundColor DarkGray
+                if (Get-Command -Name Stop-ClientLaunch -ErrorAction SilentlyContinue)
+                {
+                    Stop-ClientLaunch
+                }
+            }
+        }
+        
+        $eventSub = Register-ObjectEvent -InputObject $launchPS -EventName InvocationStateChanged -SourceIdentifier $eventName -Action $simpleEventAction
+        
+        if ($null -eq $eventSub) { throw 'Failed to register event subscriber' }
+        
+        $global:LaunchResources.EventSubscriptionId = $eventName
+        $global:LaunchResources.EventSubscriber = $eventSub
+        
+        $safetyTimer = New-Object System.Timers.Timer
+        $safetyTimer.Interval = 300000 
+        $safetyTimer.AutoReset = $false
+        
+        $safetyTimer.Add_Elapsed({
+                Write-Verbose 'LAUNCH: Safety timer elapsed' -ForegroundColor DarkGray
+                if (Get-Command -Name Stop-ClientLaunch -ErrorAction SilentlyContinue) { Stop-ClientLaunch }
+            })
+        
+        $safetyTimer.Start()
+        $global:DashboardConfig.Resources.Timers['launchSafetyTimer'] = $safetyTimer
+        
+        $asyncResult = $launchPS.BeginInvoke()
+        if ($null -eq $asyncResult) { throw 'Failed to start async operation' }
+        
+        $global:LaunchResources.AsyncResult = $asyncResult
 
-		# Simple property change handler that updates button appearance
-		if ($global:DashboardConfig.State.LaunchActive) {
-			$global:DashboardConfig.UI.Launch.FlatStyle = 'Popup'
-		} else {
-			$global:DashboardConfig.UI.Launch.FlatStyle = 'Flat'
-		}
-		
-		Write-Verbose 'LAUNCH: Launch operation started successfully' -ForegroundColor Green
-	}
-	catch
-	{
-		Write-Verbose "LAUNCH: Error in launch setup: $_" -ForegroundColor Red
-		
-		# Call cleanup
-		Stop-ClientLaunch
-	}
+        if ($global:DashboardConfig.State.LaunchActive) {
+            $global:DashboardConfig.UI.Launch.FlatStyle = 'Popup'
+        }
+        
+        Write-Verbose 'LAUNCH: Launch operation started successfully' -ForegroundColor Green
+    }
+    catch
+    {
+        Write-Verbose "LAUNCH: Error in launch setup: $_" -ForegroundColor Red
+        Stop-ClientLaunch
+    }
 }
 
 function Stop-ClientLaunch

@@ -5,29 +5,91 @@
 
     .DESCRIPTION
         This PowerShell module is exclusively responsible for the application's user interface. It dynamically builds all visual components, registers event handlers for user interactions, and manages the synchronization of settings between the UI and the application's configuration state. The UI is built using Windows Forms, but heavily customized with owner-drawn controls from `classes.psm1` to create a consistent dark-mode aesthetic.
-
-        The module's architecture and key functions include:
-
-        1.  **UI Construction (`Initialize-UI` & `Set-UIElement`):**
-            *   **`Initialize-UI`:** The main function that orchestrates the creation of all windows and controls. It builds the `MainForm` (the primary dashboard) and a `SettingsForm` for configuration.
-            *   **`Set-UIElement`:** A centralized factory function that creates and applies a standard dark theme to all UI components, from basic buttons and labels to complex `DataGridViews` and the custom controls (`DarkTabControl`, `Toggle`, etc.). This ensures a consistent look and feel.
-            *   All created UI elements are stored in the `$global:DashboardConfig.UI` object for easy access from other modules.
-
-        2.  **Event and Interaction Logic (`Register-UIEventHandlers`):**
-            *   This function brings the UI to life by attaching script blocks to user events (e.g., clicks, double-clicks, form loading).
-            *   It wires up the main dashboard buttons (`Launch`, `Login`, `Ftool`, `Terminate`) to trigger core application logic defined in other modules (e.g., `launch.psm1`, `login.psm1`).
-            *   It implements the custom draggable title bar and the logic for the coordinate picker tools in the settings menu.
-
-        3.  **Configuration and Data Binding (`Sync-UIToConfig` & `Sync-ConfigToUI`):**
-            *   These two functions provide two-way data binding between the UI controls and the in-memory configuration (`$global:DashboardConfig.Config`).
-            *   `Sync-ConfigToUI` populates the form with saved settings when it is displayed.
-            *   `Sync-UIToConfig` gathers the user's changes from the form fields before they are saved to the `config.ini` file.
-
-        4.  **Animated Transitions (`Show-SettingsForm` & `Hide-SettingsForm`):**
-            *   These functions enhance the user experience by providing a simple fade-in/fade-out animation for the settings dialog, which is achieved by manipulating the form's opacity with a timer.
 #>
 
 #region Helper Functions
+
+#region Function: Show-InputBox
+function Show-InputBox
+{
+    param(
+        [string]$Title,
+        [string]$Prompt,
+        [string]$DefaultText
+    )
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = $Title
+    $form.Size = New-Object System.Drawing.Size(300, 150)
+    $form.StartPosition = 'CenterParent'
+    $form.FormBorderStyle = 'FixedDialog'
+    $form.MaximizeBox = $false
+    $form.MinimizeBox = $false
+    $form.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+    $form.ForeColor = [System.Drawing.Color]::FromArgb(240, 240, 240)
+    
+    # FIX: Ensure this dialog stays on top of the TopMost SettingsForm
+    $form.TopMost = $true
+
+    # Try to set icon if available
+    if ($global:DashboardConfig.Paths.Icon -and (Test-Path $global:DashboardConfig.Paths.Icon)) {
+        try { $form.Icon = New-Object System.Drawing.Icon($global:DashboardConfig.Paths.Icon) } catch {}
+    }
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Location = New-Object System.Drawing.Point(10, 10)
+    $label.Size = New-Object System.Drawing.Size(260, 20)
+    $label.Text = $Prompt
+    $label.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    $form.Controls.Add($label)
+
+    $textBox = New-Object System.Windows.Forms.TextBox
+    $textBox.Location = New-Object System.Drawing.Point(10, 40)
+    $textBox.Size = New-Object System.Drawing.Size(260, 25)
+    $textBox.Text = $DefaultText
+    $textBox.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 50)
+    $textBox.ForeColor = [System.Drawing.Color]::FromArgb(240, 240, 240)
+    $textBox.BorderStyle = 'FixedSingle'
+    $form.Controls.Add($textBox)
+
+    $okButton = New-Object System.Windows.Forms.Button
+    $okButton.Location = New-Object System.Drawing.Point(110, 80)
+    $okButton.Size = New-Object System.Drawing.Size(75, 25)
+    $okButton.Text = 'OK'
+    $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $okButton.FlatStyle = 'Flat'
+    $okButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(60,60,60)
+    $okButton.BackColor = [System.Drawing.Color]::FromArgb(40,40,40)
+    $form.Controls.Add($okButton)
+
+    $cancelButton = New-Object System.Windows.Forms.Button
+    $cancelButton.Location = New-Object System.Drawing.Point(195, 80)
+    $cancelButton.Size = New-Object System.Drawing.Size(75, 25)
+    $cancelButton.Text = 'Cancel'
+    $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $cancelButton.FlatStyle = 'Flat'
+    $cancelButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(60,60,60)
+    $cancelButton.BackColor = [System.Drawing.Color]::FromArgb(40,40,40)
+    $form.Controls.Add($cancelButton)
+
+    $form.AcceptButton = $okButton
+    $form.CancelButton = $cancelButton
+
+    # FIX: Pass the SettingsForm as the owner if it exists, ensuring correct Z-order
+    if ($global:DashboardConfig.UI.SettingsForm) {
+        $result = $form.ShowDialog($global:DashboardConfig.UI.SettingsForm)
+    } else {
+        $result = $form.ShowDialog()
+    }
+
+    if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+        return $textBox.Text
+    } else {
+        return $null
+    }
+}
+#endregion Function: Show-InputBox
+
 #region Function: Sync-UIToConfig
 function Sync-UIToConfig
 {
@@ -42,7 +104,8 @@ function Sync-UIToConfig
         if (-not ($UI -and $global:DashboardConfig.Config)) { return $false }
 
         # Ensure Sections
-        @('LauncherPath', 'ProcessName', 'MaxClients', 'Login', 'LoginConfig') | ForEach-Object {
+        @('LauncherPath', 'ProcessName', 'MaxClients', 'Login', 'LoginConfig', 'Options', 'Paths', 'Profiles') |
+        ForEach-Object { 
             if (-not $global:DashboardConfig.Config.Contains($_)) {
                 $global:DashboardConfig.Config[$_] = [ordered]@{}
             }
@@ -52,10 +115,35 @@ function Sync-UIToConfig
         $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] = $UI.InputLauncher.Text
         $global:DashboardConfig.Config['ProcessName']['ProcessName'] = $UI.InputProcess.Text
         $global:DashboardConfig.Config['MaxClients']['MaxClients'] = $UI.InputMax.Text
-        
+        $global:DashboardConfig.Config['Paths']['JunctionTarget'] = $UI.InputJunction.Text
+
         # Checkboxes
         $global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin'] = if ($UI.NeverRestartingCollectorLogin.Checked) { '1' } else { '0' }
-        $global:DashboardConfig.Config['Options']['HideMinimizedWindows'] = if ($UI.HideMinimizedWindows.Checked) { '0' } else { '0' }
+        $global:DashboardConfig.Config['Options']['HideMinimizedWindows'] = if ($UI.HideMinimizedWindows.Checked) { '1' } else { '0' } 
+        $global:DashboardConfig.Config['Options']['AutoReconnect'] = if ($UI.AutoReconnect.Checked) { '1' } else { '0' }
+
+        # Profiles (New Grid)
+        $global:DashboardConfig.Config['Profiles'].Clear()
+        foreach ($row in $UI.ProfileGrid.Rows) {
+            if ($row.Cells[0].Value -and $row.Cells[1].Value) {
+                # Key: Profile Name, Value: Path
+                $key = $row.Cells[0].Value.ToString()
+                $val = $row.Cells[1].Value.ToString()
+                $global:DashboardConfig.Config['Profiles'][$key] = $val
+            }
+        }
+        
+        # Save Selected Profile to Options so it persists
+        if ($UI.ProfileGrid.SelectedRows.Count -gt 0) {
+            $val = $UI.ProfileGrid.SelectedRows[0].Cells[0].Value
+            if ($val) {
+                $global:DashboardConfig.Config['Options']['SelectedProfile'] = $val.ToString()
+            } else {
+                $global:DashboardConfig.Config['Options']['SelectedProfile'] = ""
+            }
+        } else {
+            $global:DashboardConfig.Config['Options']['SelectedProfile'] = ""
+        }
 
         # Login Config (Coords)
         foreach ($key in $UI.LoginPickers.Keys) {
@@ -63,7 +151,7 @@ function Sync-UIToConfig
         }
         $global:DashboardConfig.Config['LoginConfig']['PostLoginDelay'] = $UI.InputPostLoginDelay.Text
         
-        # Login Config (Grid) - CRITICAL FIX: Ensure values are strings
+        # Login Config (Grid)
         $grid = $UI.LoginConfigGrid
         foreach ($row in $grid.Rows) {
             $clientNum = $row.Cells[0].Value
@@ -98,6 +186,7 @@ function Sync-ConfigToUI
 
     try
     {
+     
         Write-Verbose '  UI: Syncing config to UI' -ForegroundColor Cyan
         $UI = $global:DashboardConfig.UI
         if (-not ($UI -and $global:DashboardConfig.Config)) { return $false }
@@ -106,10 +195,46 @@ function Sync-ConfigToUI
         if ($global:DashboardConfig.Config['LauncherPath']['LauncherPath']) { $UI.InputLauncher.Text = $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] }
         if ($global:DashboardConfig.Config['ProcessName']['ProcessName']) { $UI.InputProcess.Text = $global:DashboardConfig.Config['ProcessName']['ProcessName'] }
         if ($global:DashboardConfig.Config['MaxClients']['MaxClients']) { $UI.InputMax.Text = $global:DashboardConfig.Config['MaxClients']['MaxClients'] }
+        if ($global:DashboardConfig.Config['Paths']['JunctionTarget']) { $UI.InputJunction.Text = $global:DashboardConfig.Config['Paths']['JunctionTarget'] }
 
         # Checkboxes
         if ($global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin']) { $UI.NeverRestartingCollectorLogin.Checked = ([int]$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin']) -eq 1 }
         if ($global:DashboardConfig.Config['Options']['HideMinimizedWindows']) { $UI.HideMinimizedWindows.Checked = ([int]$global:DashboardConfig.Config['Options']['HideMinimizedWindows']) -eq 1 }
+        if ($global:DashboardConfig.Config['Options']['AutoReconnect']) { $UI.AutoReconnect.Checked = ([int]$global:DashboardConfig.Config['Options']['AutoReconnect']) -eq 1 }
+
+        # Profiles
+        $UI.ProfileGrid.Rows.Clear()
+        if ($global:DashboardConfig.Config['Profiles']) {
+            $profiles = $global:DashboardConfig.Config['Profiles']
+            foreach ($key in $profiles.Keys) {
+                $path = $profiles[$key]
+                if (Test-Path $path) {
+                    $UI.ProfileGrid.Rows.Add($key, $path) | Out-Null
+                }
+            }
+        }
+        
+        # Restore Selected Profile
+        $selectedProfileName = $null
+        if ($global:DashboardConfig.Config['Options'] -and $global:DashboardConfig.Config['Options']['SelectedProfile']) {
+            $selectedProfileName = $global:DashboardConfig.Config['Options']['SelectedProfile'].ToString()
+        }
+        
+        if (-not [string]::IsNullOrEmpty($selectedProfileName)) {
+            $UI.ProfileGrid.ClearSelection()
+            $found = $false
+            foreach ($row in $UI.ProfileGrid.Rows) {
+                if ($row.Cells[0].Value.ToString() -eq $selectedProfileName) {
+                    $row.Selected = $true
+                    $UI.ProfileGrid.CurrentCell = $row.Cells[0]
+                    $found = $true
+                    break
+                }
+            }
+            if (-not $found) { $UI.ProfileGrid.ClearSelection() }
+        } else {
+             $UI.ProfileGrid.ClearSelection()
+        }
 
         # Login Config
         if ($global:DashboardConfig.Config['LoginConfig']) {
@@ -124,7 +249,7 @@ function Sync-ConfigToUI
             }
             if ($lc['PostLoginDelay']) { $UI.InputPostLoginDelay.Text = $lc['PostLoginDelay'] }
             
-            # Grid - CRITICAL FIX: Robust parsing
+            # Grid
             $grid = $UI.LoginConfigGrid
             foreach ($row in $grid.Rows) {
                 $clientNum = $row.Cells[0].Value
@@ -159,11 +284,11 @@ function Sync-ConfigToUI
     }
 }
 #endregion Function: Sync-ConfigToUI
+
 #endregion Helper Functions
 
 #region Core UI Functions
 
-#region Function: Initialize-UI
 #region Function: Initialize-UI
 function Initialize-UI
 {
@@ -180,17 +305,13 @@ function Initialize-UI
 
     if (-not $global:DashboardConfig.UI) { $global:DashboardConfig | Add-Member -MemberType NoteProperty -Name UI -Value ([PSCustomObject]@{}) -Force }
 
-    # --- FIX: CREATE MAIN TOOLTIP ---
-    # This tooltip will be used for buttons on the Main Dashboard
     $toolTipMain = New-Object System.Windows.Forms.ToolTip
     $toolTipMain.AutoPopDelay = 5000 
     $toolTipMain.InitialDelay = 100 
     $toolTipMain.ReshowDelay = 10
     $toolTipMain.ShowAlways = $true
     
-    # Store it in the UI object so Set-UIElement can find it
     $global:DashboardConfig.UI | Add-Member -MemberType NoteProperty -Name ToolTip -Value $toolTipMain -Force
-    # --------------------------------
 
     #region Step: Settings Form
     $p = @{ type='Form'; width=600; height=550; bg=@(30, 30, 30); id='SettingsForm'; text='Settings'; startPosition='CenterScreen'; formBorderStyle=[System.Windows.Forms.FormBorderStyle]::None; topMost=$true; opacity=0.0 }
@@ -209,7 +330,7 @@ function Initialize-UI
     $topBar = Set-UIElement @p
     $p = @{ type='Label'; width=140; height=12; top=5; left=10; fg=@(240, 240, 240); id='TitleLabel'; text='Entropia Dashboard'; font=(New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
     $titleLabelForm = Set-UIElement @p
-    $p = @{ type='Label'; width=140; height=10; top=16; left=10; fg=@(230, 230, 230); id='CopyrightLabel'; text=[char]0x00A9 + ' Immortal / Divine 2025 - v1.3.4'; font=(New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
+    $p = @{ type='Label'; width=140; height=10; top=16; left=10; fg=@(230, 230, 230); id='CopyrightLabel'; text=[char]0x00A9 + ' Immortal / Divine 2025 - v1.4'; font=(New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
     $copyrightLabelForm = Set-UIElement @p
     $p = @{ type='Button'; width=30; height=30; left=410; bg=@(40, 40, 40); fg=@(240, 240, 240); id='MinForm'; text='_'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)); tooltip='Minimize' }
     $btnMinimizeForm = Set-UIElement @p
@@ -218,16 +339,24 @@ function Initialize-UI
     #endregion
 
     #region Step: Main Form Buttons & Grids
-    # These calls use $toolTipMain because it is currently assigned to $global:DashboardConfig.UI.ToolTip
-    $p = @{ type='Button'; width=125; height=30; top=40; left=15; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Launch'; text='Launch'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Start Launch Process (check settings)' }
+    $p = @{ type='Button'; width=125; height=30; top=40; left=15; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Launch'; text='Launch'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Start Launch Process / Right Click for single Client (check settings)' }
     $btnLaunch = Set-UIElement @p
-    $p = @{ type='Button'; width=125; height=30; top=40; left=150; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Login'; text='Login'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Login selected Clients (check settings)' }
+    
+    # --- CONTEXT MENU CREATION (FIXED) ---
+    $LaunchContextMenu = New-Object System.Windows.Forms.ContextMenuStrip
+    $LaunchContextMenu.Name = 'LaunchContextMenu'
+    # Add dummy item so menu is not empty on first click
+    $LaunchContextMenu.Items.Add("Loading...") | Out-Null
+    $btnLaunch.ContextMenuStrip = $LaunchContextMenu
+    # -------------------------------------
+
+    $p = @{ type='Button'; width=125; height=30; top=40; left=150; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Login'; text='Login'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Login selected Clients (check settings) / Nickname List with 10 nicknames and 1024x768 mandatory' }
     $btnLogin = Set-UIElement @p
     $p = @{ type='Button'; width=80; height=30; top=40; left=285; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Settings'; text='Settings'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Edit Dashboard Settings' }
     $btnSettings = Set-UIElement @p
     $p = @{ type='Button'; width=80; height=30; top=40; left=375; bg=@(150, 20, 20); fg=@(240, 240, 240); id='Terminate'; text='Terminate'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Closes all selected Clients' }
     $btnStop = Set-UIElement @p
-    $p = @{ type='Button'; width=440; height=30; top=75; left=15; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Ftool'; text='Ftool'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Starts Ftool for selected Clients' }
+    $p = @{ type='Button'; width=440; height=30; top=75; left=15; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Ftool'; text='Ftool'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Start Ftool for selected Clients' }
     $btnFtool = Set-UIElement @p
     
     $p = @{ type='DataGridView'; visible=$false; width=155; height=320; top=115; left=5; bg=@(40, 40, 40); fg=@(240, 240, 240); id='DataGridMain'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
@@ -252,7 +381,6 @@ function Initialize-UI
 
     #region Step: Settings Form with Tabs
     
-    # --- FIX: CREATE SETTINGS TOOLTIP & SWAP REFERENCE ---
     # Create a completely separate ToolTip object for the Settings Form.
     $toolTipSettings = New-Object System.Windows.Forms.ToolTip
     $toolTipSettings.AutoPopDelay = 5000 
@@ -261,14 +389,13 @@ function Initialize-UI
     $toolTipSettings.ShowAlways = $true
     
     # Update the global UI object to point to this new tooltip. 
-    # Any Set-UIElement call made AFTER this line will use $toolTipSettings.
     $global:DashboardConfig.UI.ToolTip = $toolTipSettings
     # -----------------------------------------------------
 
     # USE CUSTOM DARK TAB CONTROL
     $settingsTabs = New-Object Custom.DarkTabControl
     $settingsTabs.Dock = 'Top'
-    $settingsTabs.Height = 480
+    $settingsTabs.Height = 505
     
     $tabGeneral = New-Object System.Windows.Forms.TabPage "General"
     $tabGeneral.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
@@ -281,12 +408,12 @@ function Initialize-UI
     $settingsTabs.TabPages.Add($tabLoginSettings)
     $settingsForm.Controls.Add($settingsTabs)
 
-    # --- GENERAL TAB CONTROLS ---
-    $p = @{ type='Label'; width=85; height=20; top=25; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelLauncher'; text='Launcher Path:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Select your Launcher' }
+    # --- GENERAL TAB CONTROLS (Left Side) ---
+    $p = @{ type='Label'; width=125; height=20; top=25; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelLauncher'; text='Select Main Launcher Path:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Select your Main Launcher, recommended as Collector Client' }
     $lblLauncher = Set-UIElement @p
-    $p = @{ type='TextBox'; width=250; height=30; top=50; left=20; bg=@(40, 40, 40); fg=@(240, 240, 240); id='InputLauncher'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Select your Launcher' }
+    $p = @{ type='TextBox'; width=250; height=30; top=50; left=20; bg=@(40, 40, 40); fg=@(240, 240, 240); id='InputLauncher'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Selected folder of your Main Launcher' }
     $txtLauncher = Set-UIElement @p
-    $p = @{ type='Button'; width=55; height=25; top=20; left=110; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Browse'; text='Browse'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Select your Launcher' }
+    $p = @{ type='Button'; width=55; height=25; top=20; left=150; bg=@(40, 40, 40); fg=@(240, 240, 240); id='Browse'; text='Browse'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Select your Main Launcher' }
     $btnBrowseLauncher = Set-UIElement @p
     
     $p = @{ type='Label'; width=85; height=20; top=95; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelProcess'; text='Process Name:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Enter Process Name' }
@@ -294,17 +421,61 @@ function Initialize-UI
     $p = @{ type='TextBox'; width=250; height=30; top=120; left=20; bg=@(40, 40, 40); fg=@(240, 240, 240); id='InputProcess'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Enter Process Name' }
     $txtProcessName = Set-UIElement @p
     
-    $p = @{ type='Label'; width=85; height=20; top=165; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelMax'; text='Max Clients:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Set maximum total amount of clients, that the client is allowed to launch' }
+    $p = @{ type='Label'; width=250; height=20; top=165; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelMax'; text='Max Total Clients For Default Launch:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Set maximum total amount of clients, that the client is allowed to launch' }
     $lblMaxClients = Set-UIElement @p
     $p = @{ type='TextBox'; width=250; height=30; top=190; left=20; bg=@(40, 40, 40); fg=@(240, 240, 240); id='InputMax'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Set maximum total amount of clients, that the client is allowed to launch' }
     $txtMaxClients = Set-UIElement @p
 
-    $p = @{ type='CheckBox'; width=0; height=0; top=230; left=20; bg=@(30, 30, 30); fg=@(240, 240, 240); id='HideMinimizedWindows'; text='Hide minimized clients from Taskbar and Tab View'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
-    $chkHideMinimizedWindows = Set-UIElement @p
-    $p = @{ type='CheckBox'; width=200; height=20; top=255; left=20; bg=@(30, 30, 30); fg=@(240, 240, 240); id='NeverRestartingCollectorLogin'; text='Collector Double Click'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='In rare cases the Collector Button has to be clicked twice, tick this checkbox to fix this' }
-    $chkNeverRestartingLogin = Set-UIElement @p
+    # --- CLIENT JUNCTION CONTROLS ---
+    $p = @{ type='Label'; width=125; height=20; top=235; left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelJunction'; text='Select Profiles Folder:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Folder to create Junctions/Copy' }
+    $lblJunction = Set-UIElement @p
+    $p = @{ type='TextBox'; width=250; height=30; top=260; left=20; bg=@(40, 40, 40); fg=@(240, 240, 240); id='InputJunction'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Selected folder to create Junctions/Copy' }
+    $txtJunction = Set-UIElement @p
     
-    $tabGeneral.Controls.AddRange(@($lblLauncher, $txtLauncher, $btnBrowseLauncher, $lblProcessName, $txtProcessName, $lblMaxClients, $txtMaxClients, $chkHideMinimizedWindows, $chkNeverRestartingLogin))
+    $p = @{ type='Button'; width=55; height=25; top=230; left=145; bg=@(40, 40, 40); fg=@(240, 240, 240); id='BrowseJunction'; text='Browse'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Select Target Folder' }
+    $btnBrowseJunction = Set-UIElement @p
+    
+    $p = @{ type='Button'; width=55; height=25; top=230; left=215; bg=@(35, 175, 75); fg=@(240, 240, 240); id='StartJunction'; text='Create'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Create a lightweight copy of your main client with separate Client settings ' }
+    $btnStartJunction = Set-UIElement @p
+    
+    # Checkboxes
+    $p = @{ type='CheckBox'; width=250; height=20; top=300; left=0; bg=@(30, 30, 30); fg=@(240, 240, 240); id='HideMinimizedWindows'; text='Hide minimized clients'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Hides from Taskbar and Alt+Tab View.' }
+    $chkHideMinimizedWindows = Set-UIElement @p
+    $p = @{ type='CheckBox'; width=200; height=20; top=325; left=0; bg=@(30, 30, 30); fg=@(240, 240, 240); id='NeverRestartingCollectorLogin'; text='Collector Double Click'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='In rare cases the Collector Button has to be clicked twice, tick this checkbox to fix this' }
+    $chkNeverRestartingLogin = Set-UIElement @p
+    $p = @{ type='CheckBox'; width=320; height=20; top=350; left=0; bg=@(30, 30, 30); fg=@(240, 240, 240); id='AutoReconnect'; text='Enable Auto Reconnect (requires auditing) - WIP'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Run the login sequence when a client disconnects. Requires Windows Auditing.' }
+    $chkAutoReconnect = Set-UIElement @p
+
+    # --- GENERAL TAB (Right Side) - Profiles Grid ---
+    $p = @{ type='Label'; width=220; height=20; top=25; left=300; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); id='LabelProfiles'; text='Select Client Profile for Launch:'; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $lblProfiles = Set-UIElement @p
+
+    $p = @{ type='DataGridView'; width=260; height=230; top=50; left=300; bg=@(40, 40, 40); fg=@(240, 240, 240); id='ProfileGrid'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='List of available Client Profiles (Folders)' }
+    $ProfileGrid = Set-UIElement @p
+    $ProfileGrid.AllowUserToAddRows = $false
+    $ProfileGrid.RowHeadersVisible = $false
+    $ProfileGrid.EditMode = 'EditProgrammatically'
+    $ProfileGrid.SelectionMode = 'FullRowSelect'
+    $ProfileGrid.AutoSizeColumnsMode = 'Fill'
+    $ProfileGrid.ColumnHeadersHeight = 30
+    $ProfileGrid.RowTemplate.Height = 25
+    $ProfileGrid.MultiSelect = $false
+
+    $colProfName = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+    $colProfName.HeaderText = "Name"; $colProfName.FillWeight = 35; $colProfName.ReadOnly = $true
+    $colProfPath = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+    $colProfPath.HeaderText = "Path"; $colProfPath.FillWeight = 65; $colProfPath.ReadOnly = $true
+    
+    $ProfileGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]@($colProfName, $colProfPath))
+
+    $p = @{ type='Button'; width=80; height=25; top=290; left=300; bg=@(40, 40, 40); fg=@(240, 240, 240); id='AddProfile'; text='Add'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Manually add an existing folder as a profile' }
+    $btnAddProfile = Set-UIElement @p
+    $p = @{ type='Button'; width=80; height=25; top=290; left=390; bg=@(40, 40, 40); fg=@(240, 240, 240); id='RenameProfile'; text='Rename'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Rename selected profile' }
+    $btnRenameProfile = Set-UIElement @p
+    $p = @{ type='Button'; width=80; height=25; top=290; left=480; bg=@(40, 40, 40); fg=@(240, 240, 240); id='RemoveProfile'; text='Remove'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Remove selected profile from list' }
+    $btnRemoveProfile = Set-UIElement @p
+
+    $tabGeneral.Controls.AddRange(@($lblLauncher, $txtLauncher, $btnBrowseLauncher, $lblProcessName, $txtProcessName, $lblMaxClients, $txtMaxClients, $lblJunction, $txtJunction, $btnBrowseJunction, $btnStartJunction, $chkHideMinimizedWindows, $chkNeverRestartingLogin, $chkAutoReconnect, $lblProfiles, $ProfileGrid, $btnAddProfile, $btnRenameProfile, $btnRemoveProfile))
 
     # --- LOGIN SETTINGS TAB CONTROLS ---
     $Pickers = @{}
@@ -334,19 +505,23 @@ function Initialize-UI
     $p = &$AddPickerRow "Char Slot 2:" "Char2" ($rowY+25) 2; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["Char2"] = $p
     $p = &$AddPickerRow "Char Slot 3:" "Char3" ($rowY+50) 2; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["Char3"] = $p
 
-    # Collector Start (Right Column)
-    $p = &$AddPickerRow "Collector Start:" "CollectorStart" ($rowY+75) 2; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["CollectorStart"] = $p
-    
+    $p = &$AddPickerRow "Collector Start:" "CollectorStart" ($rowY+75) 2; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["CollectorStart"] = $p 
+
+    # Disconnect OK
+    $p = &$AddPickerRow "Disconnect OK:" "DisconnectOK" ($rowY+110) 2; 
+    $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["DisconnectOK"] = $p
+
     # Post-Login Delay Input
-    $p = @{ type='Label'; width=150; height=20; top=($rowY+110); left=20; bg=@(30, 30, 30, 0); fg=@(240, 240, 240); text="Post-Login Delay (s):"; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='How many extra seconds to wait until the world is loaded (Default = 0)' }
-    $lblDelay = Set-UIElement @p
-    $p = @{ type='TextBox'; width=60; height=25; top=($rowY+110); left=180; bg=@(40, 40, 40); fg=@(240, 240, 240); id="InputPostLoginDelay"; text='1'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='How many extra seconds to wait until the world is loaded (Default = 0)' }
-    $txtDelay = Set-UIElement @p
-    $tabLoginSettings.Controls.AddRange(@($lblDelay, $txtDelay))
+    $p = @{ type='Label'; width=150; height=20; top=($rowY+135); left=10;
+    bg=@(30, 30, 30, 0); fg=@(240, 240, 240); text="Post-Login Delay (s):"; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
+    $lblPostLoginDelay = Set-UIElement @p
+    $p = @{ type='TextBox'; width=80; height=20; top=($rowY+135); left=160; bg=@(40, 40, 40); fg=@(240, 240, 240); id='txtPostLoginDelayInput'; text='5'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Post login delay in seconds' }
+    $txtPostLoginDelay = Set-UIElement @p
+    $tabLoginSettings.Controls.AddRange(@($lblPostLoginDelay, $txtPostLoginDelay))
 
     # 2. Client Configuration Grid
-    $gridTop = $rowY + 140
-    $gridHeight = 290
+    $gridTop = $rowY + 165
+    $gridHeight = 285
     
     $p = @{ type='DataGridView'; width=560; height=$gridHeight; top=$gridTop; left=10; bg=@(40, 40, 40); fg=@(240, 240, 240); id='LoginConfigGrid'; text=''; font=(New-Object System.Drawing.Font('Segoe UI', 9)) }
     $LoginConfigGrid = Set-UIElement @p
@@ -385,10 +560,10 @@ function Initialize-UI
     $tabLoginSettings.Controls.Add($LoginConfigGrid)
 
     # --- BOTTOM BUTTONS (Outside Tabs) ---
-    $p = @{ type='Button'; width=120; height=40; top=480; left=20; bg=@(35, 175, 75); fg=@(240, 240, 240); id='Save'; text='Save'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Save all settings' }
+    $p = @{ type='Button'; width=120; height=40; top=500; left=20; bg=@(35, 175, 75); fg=@(240, 240, 240); id='Save'; text='Save'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Save all settings' }
     $btnSave = Set-UIElement @p
     
-    $p = @{ type='Button'; width=120; height=40; top=480; left=150; bg=@(210, 45, 45); fg=@(240, 240, 240); id='Cancel'; text='Cancel'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Close and do not save' }
+    $p = @{ type='Button'; width=120; height=40; top=500; left=150; bg=@(210, 45, 45); fg=@(240, 240, 240); id='Cancel'; text='Cancel'; fs='Flat'; font=(New-Object System.Drawing.Font('Segoe UI', 9)); tooltip='Close and do not save' }
     $btnCancel = Set-UIElement @p
     
     $settingsForm.Controls.AddRange(@($btnSave, $btnCancel))
@@ -403,7 +578,8 @@ function Initialize-UI
     $itmFront = New-Object System.Windows.Forms.ToolStripMenuItem('Show')
     $itmBack = New-Object System.Windows.Forms.ToolStripMenuItem('Minimize')
     $itmResizeCenter = New-Object System.Windows.Forms.ToolStripMenuItem('Resize')
-    $ctxMenu.Items.AddRange(@($itmFront, $itmBack, $itmResizeCenter))
+    $itmRelog = New-Object System.Windows.Forms.ToolStripMenuItem('Relog after Disconnect (wip)')
+    $ctxMenu.Items.AddRange(@($itmFront, $itmBack, $itmResizeCenter, $itmRelog))
     $DataGridMain.ContextMenuStrip = $ctxMenu
     $DataGridFiller.ContextMenuStrip = $ctxMenu
 
@@ -424,30 +600,38 @@ function Initialize-UI
         Settings = $btnSettings
         Exit = $btnStop
         Launch = $btnLaunch
-        # Note: This toolTip property now technically points to the Settings ToolTip, 
-        # but that is fine as its main job (registering strings) is done.
+        LaunchContextMenu = $LaunchContextMenu # ADDED: Required for Event Handler
         ToolTip = $toolTipSettings 
         
         # General Tab Inputs
         InputLauncher = $txtLauncher
+        InputJunction = $txtJunction
+        StartJunction = $btnStartJunction
         InputProcess = $txtProcessName
         InputMax = $txtMaxClients
         Browse = $btnBrowseLauncher
+        BrowseJunction = $btnBrowseJunction
         NeverRestartingCollectorLogin = $chkNeverRestartingLogin
         HideMinimizedWindows = $chkHideMinimizedWindows
+        AutoReconnect = $chkAutoReconnect
+        ProfileGrid = $ProfileGrid
+        AddProfile = $btnAddProfile
+        RenameProfile = $btnRenameProfile
+        RemoveProfile = $btnRemoveProfile
         
         # Login Settings Tab Inputs
         LoginConfigGrid = $LoginConfigGrid
         LoginPickers = $Pickers
-        InputPostLoginDelay = $txtDelay
+        InputPostLoginDelay = $txtPostLoginDelay
         
         Save = $btnSave
         Cancel = $btnCancel
         ContextMenuFront = $itmFront
         ContextMenuBack = $itmBack
         ContextMenuResizeAndCenter = $itmResizeCenter
+        Relog = $itmRelog
     }
-    # Add all properties from the $uiPropertiesToAdd hashtable to the existing $global:DashboardConfig.UI object
+    
     if ($null -ne $uiPropertiesToAdd) {
         $uiPropertiesToAdd.GetEnumerator() | ForEach-Object {
             $global:DashboardConfig.UI | Add-Member -MemberType NoteProperty -Name $_.Name -Value $_.Value -Force
@@ -516,8 +700,6 @@ function Register-UIEventHandlers
 						}
 					FormClosing = {
 							param($src, $e)
-                            # Restore window styles before closing to prevent orphaned windows
-                            if (Get-Command Restore-WindowStyles -ErrorAction SilentlyContinue) { Restore-WindowStyles }
                             if (Get-Command Stop-Dashboard -ErrorAction SilentlyContinue) { Stop-Dashboard }
 						}
 					Resize      = {
@@ -574,6 +756,42 @@ function Register-UIEventHandlers
                         elseif ($colIndex -eq 4) { $row.Cells[4].Value = if ($row.Cells[4].Value -eq "Yes") { "No" } else { "Yes" } }
                     }
                 }
+				LaunchContextMenu = @{
+					Opening = {
+						param($sender, $e)
+						$sender.Items.Clear()
+						
+						# Header
+						$header = $sender.Items.Add("Quick Launch (1 Client)")
+						$header.Enabled = $false
+						$sender.Items.Add("-")
+						
+						# 1. Add Default Profile Option
+						$defaultItem = $sender.Items.Add("Default / Selected")
+						# FIX: Removed '$true'
+						$defaultItem.add_Click({ 
+							Start-ClientLaunch -OneClientOnly 
+						})
+						
+						# 2. Add Specific Profiles
+						if ($global:DashboardConfig.Config['Profiles']) {
+							$profiles = $global:DashboardConfig.Config['Profiles']
+							if ($profiles.Count -gt 0) {
+								$sender.Items.Add("-")
+								foreach ($key in $profiles.Keys) {
+									$item = $sender.Items.Add($key)
+									$item.Tag = $key 
+									# FIX: Removed '$true'
+									$item.add_Click({ 
+										param($s, $ev)
+										$profName = $s.Tag
+										Start-ClientLaunch -ProfileNameOverride $profName -OneClientOnly
+									})
+								}
+							}
+						}
+					}
+				}
 
                 SettingsForm = @{ Load = { Sync-ConfigToUI } }
 				MinForm = @{ Click = { $global:DashboardConfig.UI.MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Minimized } }
@@ -583,7 +801,154 @@ function Register-UIEventHandlers
 				Save = @{ Click = { Sync-UIToConfig; Write-Config; Hide-SettingsForm } }
 				Cancel = @{ Click = { Hide-SettingsForm } }
 				Browse = @{ Click = { $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Filter = 'Executable Files (*.exe)|*.exe|All Files (*.*)|*.*'; if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $global:DashboardConfig.UI.InputLauncher.Text = $d.FileName } } }
-                DataGridFiller = @{
+                BrowseJunction = @{ 
+                    Click = { 
+                        $d = New-Object System.Windows.Forms.OpenFileDialog
+                        $d.Title = "Select the destination folder for the Client Copy"
+                        $d.ValidateNames = $false
+                        $d.CheckFileExists = $false
+                        $d.CheckPathExists = $true
+                        $d.FileName = "Select Folder"
+                        $d.Filter = "Folders|`n"
+                        if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { 
+                            $global:DashboardConfig.UI.InputJunction.Text = [System.IO.Path]::GetDirectoryName($d.FileName)
+                        } 
+                    } 
+                }
+                StartJunction = @{
+                    Click = {
+                        $srcExe = $global:DashboardConfig.UI.InputLauncher.Text
+                        $baseParentDir = $global:DashboardConfig.UI.InputJunction.Text
+
+                        if ([string]::IsNullOrWhiteSpace($srcExe) -or -not (Test-Path $srcExe)) {
+                            [System.Windows.Forms.MessageBox]::Show("Please select a valid Launcher executable first.", "Error", "OK", "Error")
+                            return
+                        }
+                        if ([string]::IsNullOrWhiteSpace($baseParentDir)) {
+                            [System.Windows.Forms.MessageBox]::Show("Please select a destination folder.", "Error", "OK", "Error")
+                            return
+                        }
+
+                        $sourceDir = Split-Path $srcExe -Parent
+                        
+                        # Calculate folder name from source
+                        $folderName = Split-Path $sourceDir -Leaf
+                        if ($folderName -in @('bin32', 'bin64')) {
+                             # Go up one level to find the actual client folder name
+                             $parentOfBin = Split-Path $sourceDir -Parent
+                             $folderName = Split-Path $parentOfBin -Leaf
+                        }
+                        
+                        if ([string]::IsNullOrWhiteSpace($folderName)) { $folderName = "Client" }
+
+                        # Check for uniqueness and append number if necessary
+                        $baseName = "${folderName}_Copy"
+                        $destDir = Join-Path $baseParentDir $baseName
+                        
+                        $counter = 1
+                        while (Test-Path $destDir) {
+                            $destDir = Join-Path $baseParentDir "${baseName}_${counter}"
+                            $counter++
+                        }
+
+                        $confirm = [System.Windows.Forms.MessageBox]::Show("This will create Junctions for 'bin32', 'bin64', 'Data', 'Effect' and copy all other files from the launcher parent directory to:`n$destDir`n`nProceed?", "Confirm Junction & Copy", "YesNo", "Question")
+                        
+                        if ($confirm -eq 'Yes') {
+                            try {
+                                if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+
+                                $junctionFolders = @('bin32', 'bin64', 'Data', 'Effect')
+                                
+                                # Disable UI briefly
+                                $global:DashboardConfig.UI.SettingsForm.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+
+                                Get-ChildItem -Path $sourceDir | ForEach-Object {
+                                    $itemName = $_.Name
+                                    $sourcePath = $_.FullName
+                                    $targetPath = Join-Path $destDir $itemName
+
+                                    if ($itemName -in $junctionFolders) {
+                                        # Create Junction (mklink /J)
+                                        # Note: mklink is a CMD internal command, requires shell execution
+                                        if (Test-Path $targetPath) {
+                                            # Skip if exists
+                                        } else {
+                                            $cmdArgs = "/c mklink /J `"$targetPath`" `"$sourcePath`""
+                                            Start-Process -FilePath "cmd.exe" -ArgumentList $cmdArgs -WindowStyle Hidden -Wait
+                                        }
+                                    } else {
+                                        # Normal Copy
+                                        Copy-Item -Path $sourcePath -Destination $targetPath -Recurse -Force
+                                    }
+                                }
+                                
+                                $global:DashboardConfig.UI.SettingsForm.Cursor = [System.Windows.Forms.Cursors]::Default
+                                
+                                # ADD TO PROFILE GRID AUTOMATICALLY WITH NAME PROMPT
+                                $defaultName = Split-Path $destDir -Leaf
+                                $profName = Show-InputBox -Title "Profile Name" -Prompt "Enter a name for the new profile:" -DefaultText $defaultName
+                                
+                                if ([string]::IsNullOrWhiteSpace($profName)) {
+                                    $profName = $defaultName
+                                }
+                                
+                                $global:DashboardConfig.UI.ProfileGrid.Rows.Add($profName, $destDir) | Out-Null
+                                [System.Windows.Forms.MessageBox]::Show("Junctions created and Profile '$profName' added successfully.", "Success", "OK", "Information")
+
+                            } catch {
+                                $global:DashboardConfig.UI.SettingsForm.Cursor = [System.Windows.Forms.Cursors]::Default
+                                [System.Windows.Forms.MessageBox]::Show("An error occurred:`n$($_.Exception.Message)`n`nNote: Creating Junctions may require running the Dashboard as Administrator.", "Error", "OK", "Error")
+                            }
+                        }
+                    }
+                }
+                AddProfile = @{
+                    Click = {
+                        $d = New-Object System.Windows.Forms.OpenFileDialog
+                        $d.Title = "Select an existing Client folder"
+                        $d.ValidateNames = $false
+                        $d.CheckFileExists = $false
+                        $d.CheckPathExists = $true
+                        $d.FileName = "Select Folder"
+                        $d.Filter = "Folders|`n"
+                        
+                        if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                            $path = [System.IO.Path]::GetDirectoryName($d.FileName)
+                            $defaultName = Split-Path $path -Leaf
+                            
+                            $profName = Show-InputBox -Title "Profile Name" -Prompt "Enter a name for this profile:" -DefaultText $defaultName
+                            
+                            if (-not [string]::IsNullOrWhiteSpace($profName)) {
+                                $global:DashboardConfig.UI.ProfileGrid.Rows.Add($profName, $path) | Out-Null
+                            }
+                        }
+                    }
+                }
+                RenameProfile = @{
+                    Click = {
+                        if ($global:DashboardConfig.UI.ProfileGrid.SelectedRows.Count -gt 0) {
+                            $row = $global:DashboardConfig.UI.ProfileGrid.SelectedRows[0]
+                            $oldName = $row.Cells[0].Value
+                            
+                            $newName = Show-InputBox -Title "Rename Profile" -Prompt "Enter new profile name:" -DefaultText $oldName
+                            
+                            if (-not [string]::IsNullOrWhiteSpace($newName)) {
+                                $row.Cells[0].Value = $newName
+                            }
+                        } else {
+                            [System.Windows.Forms.MessageBox]::Show("Please select a profile to rename.", "Rename Profile", "OK", "Warning")
+                        }
+                    }
+                }
+                RemoveProfile = @{
+                    Click = {
+                        $rows = $global:DashboardConfig.UI.ProfileGrid.SelectedRows
+                        foreach ($row in $rows) {
+                            $global:DashboardConfig.UI.ProfileGrid.Rows.Remove($row)
+                        }
+                    }
+                }
+				DataGridFiller = @{
                     DoubleClick = { param($s,$e); $h=$s.HitTest($e.X,$e.Y); if($h.RowIndex -ge 0 -and $s.Rows[$h.RowIndex].Tag) { [Custom.Native]::BringToFront($s.Rows[$h.RowIndex].Tag.MainWindowHandle) } }
                     MouseDown = {
                         param($s,$e)
@@ -601,7 +966,6 @@ function Register-UIEventHandlers
                 ContextMenuFront = @{ Click = { $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { [Custom.Native]::BringToFront($_.Tag.MainWindowHandle) } } }
                 ContextMenuBack = @{ Click = { $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { [Custom.Native]::SendToBack($_.Tag.MainWindowHandle) } } }
                 ContextMenuResizeAndCenter = @{ Click = { $scr=[System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { [Custom.Native]::PositionWindow($_.Tag.MainWindowHandle, [Custom.Native]::TopWindowHandle, [int](($scr.Width-1040)/2), [int](($scr.Height-807)/2), 1040, 807, 0x0010) } } }
-                
                 # LAUNCH BUTTON LOGIC
                 Launch = @{ 
                     Click = { 
@@ -623,7 +987,7 @@ function Register-UIEventHandlers
                             $loginCommand = Get-Command LoginSelectedRow -ErrorAction Stop
                             
                             # Construct the log file path
-                            $logFilePath = ($global:DashboardConfig.Config['LauncherPath']['LauncherPath'] -replace '\\Launcher\.exe$','') + "\Log\network_$(Get-Date -f 'yyyyMMdd').log"
+                            $logFilePath = Join-Path -Path (Split-Path -Path $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] -Parent) -ChildPath "Log\network_$(Get-Date -f 'yyyyMMdd').log"
                             
                             # Execute the login command
                             & $loginCommand -LogFilePath $logFilePath
@@ -1048,11 +1412,12 @@ function Set-UIElement
 
 #endregion Function: Set-UIElement
 
+
 #endregion Core UI Functions
 
 #region Module Exports
 #region Step: Export Public Functions
 	# Export the functions intended for use by other modules or the main script.
-	Export-ModuleMember -Function Initialize-UI, Set-UIElement, Show-SettingsForm, Hide-SettingsForm, Sync-ConfigToUI, Sync-UIToConfig, Register-UIEventHandlers
+	Export-ModuleMember -Function Initialize-UI, Set-UIElement, Show-SettingsForm, Hide-SettingsForm, Sync-ConfigToUI, Sync-UIToConfig, Register-UIEventHandlers, Show-InputBox
 #endregion Step: Export Public Functions
 #endregion Module Exports

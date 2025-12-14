@@ -1,40 +1,11 @@
-<# datagrid.psm1
-    .SYNOPSIS
-        Manages the real-time process monitoring grid in the main dashboard UI. 
-		It tracks and displays the state of target application instances using a timer-driven, asynchronous update loop.
-
-    .DESCRIPTION
-        This "Important" module is the engine behind the dashboard's main process grid. Its sole responsibility is to keep the `DataGridView` perfectly synchronized with the state of all running target application instances (e.g., game clients). It uses a combination of efficient data structures, asynchronous operations, and direct Windows API calls to provide real-time information without freezing the UI.
-
-        The module's key responsibilities are:
-
-        1.  **Continuous Process Monitoring (`Update-DataGrid`):**
-            *   The module is driven by a high-frequency timer (`Start-DataGridUpdateTimer`) that repeatedly calls the `Update-DataGrid` function.
-            *   This central function orchestrates the entire refresh cycle: it gets the latest process list, removes terminated processes from the grid, updates existing entries, and adds new ones.
-
-        2.  **Intelligent Process Tracking:**
-            *   It uses a process cache to track seen processes, even those that might temporarily lack a main window during startup. This prevents visual flickering and ensures processes are added to the grid reliably.
-            *   Grid updates are optimized using a lookup dictionary (hashtable) to find rows by Process ID instantly, avoiding slow, iterative searches.
-
-        3.  **Asynchronous State Checking (`Start-WindowStateCheck`):**
-            *   To determine if a client window is `Normal`, `Minimized`, or `Loading` (unresponsive), it initiates a non-blocking, asynchronous check for each process.
-            *   This prevents the entire dashboard from freezing while waiting for a potentially hung application window to respond.
-            *   Once the check completes on a background thread, the result is safely passed back to the UI thread to update the grid's 'State' column.
-
-        4.  **Window Style Management (`Set-WindowToolStyle`):**
-            *   If the user enables the "Hide minimized clients" option, this module is responsible for modifying the window style of minimized clients.
-            *   It applies the `WS_EX_TOOLWINDOW` style to hide the client from the Windows taskbar and Alt+Tab switcher, reducing clutter.
-            *   A corresponding `Restore-WindowStyles` function ensures all window styles are returned to normal when the dashboard application exits.
-#>
+<# datagrid.psm1 #>
 
 #region Global Configuration
     #region Step: Define Update Interval
-        # $script:UpdateInterval: Interval in milliseconds for refreshing the process grid.
         $script:UpdateInterval = 100
     #endregion Step: Define Update Interval
 
     #region Step: Define Process Window States
-        # $script:States: Hashtable mapping internal state keys to display strings used in the grid.
         $script:States = @{
             Checking  = 'Checking...'
             Loading   = 'Loading...'
@@ -44,14 +15,10 @@
     #endregion Step: Define Process Window States
 
     #region Step: Initialize Process Cache
-        # $script:ProcessCache: Hashtable to track seen processes (Key: ProcessID, Value: @{LastSeen=[DateTime]; HasWindow=[bool]})
-        # Used to prevent duplicate entries and manage state updates intelligently.
         $script:ProcessCache = @{}
     #endregion Step: Initialize Process Cache
 
     #region Step: Initialize Last Log Message Cache
-        # $script:LastLogMessages: Hashtable to store the last logged message for specific keys to avoid redundant logging.
-        # Currently unused in this version but kept for potential future use.
         $script:LastLogMessages = @{}
     #endregion Step: Initialize Last Log Message Cache
 #endregion Global Configuration
@@ -60,17 +27,6 @@
     #region Function: Test-ValidParameters
         function Test-ValidParameters
         {
-            <#
-            .SYNOPSIS
-                Validates input parameters and global configuration required for DataGrid operations.
-            .PARAMETER Grid
-                [System.Windows.Forms.DataGridView] The DataGridView control to validate. (Mandatory)
-            .OUTPUTS
-                [bool] Returns $true if the grid exists and required global configuration ($global:DashboardConfig) is present and correctly populated, $false otherwise.
-            .NOTES
-                Checks for the existence of the Grid object and essential keys within the $global:DashboardConfig hashtable.
-                Logs an error message if validation fails.
-            #>
             [CmdletBinding()]
             [OutputType([bool])]
             param(
@@ -110,18 +66,6 @@
     #region Function: Get-ProcessList
         function Get-ProcessList
         {
-            <#
-            .SYNOPSIS
-                Retrieves target processes based on configuration, prioritizing those with active windows.
-            .OUTPUTS
-                [System.Diagnostics.Process[]] An array of Process objects matching the configured name.
-                Filters out terminated processes and attempts to sort by StartTime.
-                Prioritizes processes with MainWindowHandles, but falls back to all valid processes if none have windows.
-                Returns an empty array on error or if no matching processes are found.
-            .NOTES
-                Uses Get-Process with error suppression. Includes robust filtering for valid (non-exited) processes
-                and safe sorting by StartTime, handling potential access errors.
-            #>
             [CmdletBinding()]
             [OutputType([System.Diagnostics.Process[]])]
             param()
@@ -235,20 +179,6 @@
     #region Function: Remove-TerminatedProcesses
         function Remove-TerminatedProcesses
         {
-            <#
-            .SYNOPSIS
-                Removes rows from the DataGrid for processes that are no longer running.
-            .PARAMETER Grid
-                [System.Windows.Forms.DataGridView] The DataGridView control from which to remove rows. (Mandatory)
-            .PARAMETER CurrentProcesses
-                [System.Diagnostics.Process[]] An array of currently running Process objects. Rows in the grid whose associated Process ID is not in this list will be removed. (Optional, defaults to empty array)
-            .OUTPUTS
-                [void]
-            .NOTES
-                Uses an efficient lookup dictionary based on CurrentProcesses for quick checking.
-                Removes corresponding entries from the $script:ProcessCache as well.
-                Iterates backwards when removing rows to avoid index issues.
-            #>
             [CmdletBinding()]
             param(
                 [Parameter(Mandatory = $true)]
@@ -322,17 +252,6 @@
     #region Function: New-RowLookupDictionary
         function New-RowLookupDictionary
         {
-            <#
-            .SYNOPSIS
-                Creates a fast lookup dictionary (hashtable) for grid rows indexed by process ID.
-            .PARAMETER Grid
-                [System.Windows.Forms.DataGridView] The DataGridView whose rows need to be indexed. (Mandatory)
-            .OUTPUTS
-                [hashtable] A hashtable where keys are Process IDs (obtained from the row's Tag property) and values are the corresponding DataGridViewRow objects.
-            .NOTES
-                Provides O(1) average time complexity for looking up a row by process ID, improving performance compared to iterating through rows.
-                Only includes rows with valid process data stored in their Tag property.
-            #>
             [CmdletBinding()]
             [OutputType([hashtable])]
             param(
@@ -364,25 +283,6 @@
     #region Function: Update-ExistingRow
         function Update-ExistingRow
 		{
-			<#
-            .SYNOPSIS
-                Updates the cell values and Tag property of an existing DataGridViewRow with current process information.
-            .PARAMETER Row
-                [System.Windows.Forms.DataGridViewRow] The specific grid row to update. (Mandatory)
-            .PARAMETER Index
-                [int] The sequential index number (starting from 1) to display in the first column ('#'). (Mandatory)
-            .PARAMETER ProcessTitle
-                [string] The current window title (or process name if title is empty) to display. (Mandatory)
-            .PARAMETER ProcessId
-                [int] The process ID to display. (Mandatory)
-            .PARAMETER Process
-                [System.Diagnostics.Process] The up-to-date Process object associated with this row. This is stored in the row's Tag property. (Mandatory)
-            .OUTPUTS
-                [void]
-            .NOTES
-                Updates cell values only if they have actually changed to minimize unnecessary UI refreshes.
-                Updates the row's Tag property with the latest Process object reference.
-            #>
             [CmdletBinding()]
             param(
                 [Parameter(Mandatory = $true)]
@@ -431,20 +331,6 @@
     #region Function: UpdateRowIndices
         function UpdateRowIndices
         {
-            <#
-            .SYNOPSIS
-                Updates the index column ('#', column 0) for all rows in the DataGrid to ensure they are sequential (1, 2, 3,...).
-            .DESCRIPTION
-                Iterates through all rows currently in the grid and sets the value of the first cell (index 0)
-                to the row's current position plus one (to start numbering from 1). This is necessary after rows
-                have been added or removed to maintain correct visual numbering.
-            .PARAMETER Grid
-                [System.Windows.Forms.DataGridView] The DataGridView whose row indices need updating. (Mandatory)
-            .OUTPUTS
-                [void]
-            .NOTES
-                Includes basic error handling for the update process. Only updates the cell if the value needs changing.
-            #>
             [CmdletBinding()]
             param(
                 [Parameter(Mandatory = $true)]
@@ -488,25 +374,6 @@
     #region Function: Add-NewProcessRow
         function Add-NewProcessRow
         {
-            <#
-            .SYNOPSIS
-                Adds a new row to the DataGrid for a newly detected process.
-            .PARAMETER Grid
-                [System.Windows.Forms.DataGridView] The DataGridView control to add the row to. (Mandatory)
-            .PARAMETER Process
-                [System.Diagnostics.Process] The Process object representing the process to add. (Mandatory)
-            .PARAMETER Index
-                [int] The sequential index number (starting from 1) to display in the first column. (Mandatory)
-            .PARAMETER ProcessTitle
-                [string] The title (window title or process name) to display for the process. (Mandatory)
-            .OUTPUTS
-                [System.Windows.Forms.DataGridViewRow] The newly added DataGridViewRow object, or $null if an error occurred during addition.
-            .NOTES
-                Sets the initial state in the 'State' column to 'Checking...'.
-                Stores the Process object in the new row's Tag property for later reference.
-                Adds the process ID to the $script:ProcessCache.
-                Includes error handling for the row addition process.
-            #>
             [CmdletBinding()]
             [OutputType([System.Windows.Forms.DataGridViewRow])]
             param(
@@ -562,24 +429,6 @@
     #region Function: Start-WindowStateCheck
         function Start-WindowStateCheck
         {
-            <#
-            .SYNOPSIS
-                Initiates an asynchronous check for the window state (Normal, Minimized, Loading/Unresponsive) of a given process.
-            .PARAMETER Process
-                [System.Diagnostics.Process] The process whose window state needs checking. (Mandatory)
-            .PARAMETER Row
-                [System.Windows.Forms.DataGridViewRow] The grid row associated with the process, which will be updated with the state. (Mandatory)
-            .PARAMETER Grid
-                [System.Windows.Forms.DataGridView] The grid containing the row (used for context in the callback). (Mandatory)
-            .OUTPUTS
-                [void]
-            .NOTES
-                Uses the custom [Custom.Native]::ResponsiveAsync method for a non-blocking responsiveness check.
-                If the process has no main window, it defaults the state to 'Normal'.
-                Uses Task.ContinueWith and TaskScheduler.FromCurrentSynchronizationContext() to ensure the UI update
-                (setting the row's state cell value) happens safely on the UI thread after the async check completes.
-                Includes error handling for both the async task initiation and the UI update callback.
-            #>
             [CmdletBinding()]
             param(
                 [Parameter(Mandatory = $true)]
@@ -692,8 +541,7 @@
                                              if ($hideMinimizedOption) {
                                                  # If hiding is enabled AND the window is minimized, apply tool style
                                                  if ($isMinimized) {
-                                                     #Set-WindowToolStyle -hWnd $hWnd -Hide $true
-													 Set-WindowToolStyle -hWnd $hWnd -Hide $false
+                                                     Set-WindowToolStyle -hWnd $hWnd -Hide $true
                                                  }
                                                  else {
                                                      # If hiding is enabled but window is NOT minimized, ensure it's visible (user restored it)
@@ -752,23 +600,6 @@
     #region Function: Find-TargetRow
         function Find-TargetRow
         {
-            <#
-            .SYNOPSIS
-                Efficiently finds a specific DataGridViewRow based primarily on Process ID, using the RowIndex as a hint.
-            .PARAMETER Grid
-                [System.Windows.Forms.DataGridView] The DataGridView control to search within. (Mandatory)
-            .PARAMETER ProcessId
-                [int] The ID of the process whose corresponding row is being sought. (Mandatory)
-            .PARAMETER RowIndex
-                [int] The expected index of the row. This is checked first for efficiency. If -1, skips direct index check. (Mandatory)
-            .PARAMETER WindowHandle
-                [IntPtr] An optional window handle. If provided, the function verifies that the found row's associated process matches this handle. (Optional, defaults to Zero)
-            .OUTPUTS
-                [System.Windows.Forms.DataGridViewRow] The found DataGridViewRow object, or $null if no matching row is found or if the optional WindowHandle verification fails.
-            .NOTES
-                Optimized by first checking the provided RowIndex. If that fails or is skipped, it falls back to a linear search through all rows, matching by ProcessId stored in the row's Tag property.
-                Includes optional verification against a WindowHandle.
-            #>
             [CmdletBinding()]
             [OutputType([System.Windows.Forms.DataGridViewRow])]
             param(
@@ -830,16 +661,6 @@
     #region Function: Clear-OldProcessCache
         function Clear-OldProcessCache
         {
-            <#
-            .SYNOPSIS
-                Cleans up entries from the $script:ProcessCache that haven't been seen recently.
-            .OUTPUTS
-                [void]
-            .NOTES
-                Iterates through the process cache and removes entries whose 'LastSeen' timestamp
-                is older than a predefined threshold (currently 5 minutes). This prevents the cache
-                from growing indefinitely with stale data from processes that terminated long ago.
-            #>
             [CmdletBinding()]
             param()
 
@@ -887,76 +708,93 @@
     #endregion Function: Clear-OldProcessCache
 
     #region Function: Set-WindowToolStyle
-        function Set-WindowToolStyle
-        {
-            <#
-            .SYNOPSIS
-                Hides or shows a window from the ALT+TAB task switcher by applying or removing the WS_EX_TOOLWINDOW extended style.
-            .NOTES
-                Updated to use 64-bit safe P/Invoke calls and force a frame redraw.
-            #>
-            param(
-                [Parameter(Mandatory = $true)]
-                [IntPtr]$hWnd,
-                [Parameter(Mandatory = $false)]
-                [bool]$Hide = $true
-            )
+	function Set-WindowToolStyle
+	{
+		<#
+		.SYNOPSIS
+			Hides/Shows window from Alt-Tab (via Style) and Taskbar (via ITaskbarList) with Fallback.
+		#>
+		param(
+			[Parameter(Mandatory = $true)]
+			[IntPtr]$hWnd,
+			[Parameter(Mandatory = $false)]
+			[bool]$Hide = $true
+		)
 
-            #region Step: Define Window Style Constants
-                $GWL_EXSTYLE = -20
-                $WS_EX_TOOLWINDOW = 0x00000080
-                $WS_EX_APPWINDOW = 0x00040000
-            #endregion Step: Define Window Style Constants
+		#region Step: Define Constants
+		$GWL_EXSTYLE      = -20
+		$WS_EX_TOOLWINDOW = 0x00000080
+		$WS_EX_APPWINDOW  = 0x00040000
+		#endregion
 
-            #region Step: Apply or Remove WS_EX_TOOLWINDOW Style
-                try
-                {
-                    # 1. Get current style using 64-bit safe method
-                    [IntPtr]$currentExStylePtr = [Custom.Native]::GetWindowLongPtr($hWnd, $GWL_EXSTYLE)
-                    [long]$currentExStyle = $currentExStylePtr.ToInt64()
-                    
-                    $newExStyle = 0
+		#region Step: Apply Logic
+		try
+		{
+			# 1. Primary Method: ITaskbarList (COM)
+			# We try this first. If it succeeds, $comSuccess is $true. 
+			# If it fails (Class not registered/32-bit issue), $comSuccess is $false.
+			$comSuccess = $false
+			
+            # Check for "Custom.TaskbarTool" (correct namespace)
+			if ("Custom.TaskbarTool" -as [Type]) {
+				# Inverted Logic: If $Hide is true, Visible is false (-not $Hide)
+				$comSuccess = [Custom.TaskbarTool]::SetTaskbarState($hWnd, -not $Hide)
+			}
 
-                    $hideMinimized = $global:DashboardConfig.Config['Options']['HideMinimizedWindows'] -eq '1'
-                    
-                    if ($Hide -and $hideMinimized)
-                    {
-                        # Add WS_EX_TOOLWINDOW (Hide from Alt-Tab)
-                        # Remove WS_EX_APPWINDOW (Remove from Taskbar)
-                        #$newExStyle = ($currentExStyle -bor $WS_EX_TOOLWINDOW) -band (-bnot $WS_EX_APPWINDOW)
-						$newExStyle = ($currentExStyle -band (-bnot $WS_EX_TOOLWINDOW)) -bor $WS_EX_APPWINDOW
-                    }
-                    else
-                    {
-                        # Remove WS_EX_TOOLWINDOW
-                        # Add WS_EX_APPWINDOW (Force onto Taskbar)
-                        $newExStyle = ($currentExStyle -band (-bnot $WS_EX_TOOLWINDOW)) -bor $WS_EX_APPWINDOW
-                    }
+			# 2. Logic for Window Styles (Alt-Tab & Fallback)
+			[IntPtr]$currentExStylePtr = [Custom.Native]::GetWindowLongPtr($hWnd, $GWL_EXSTYLE)
+			[long]$currentExStyle = $currentExStylePtr.ToInt64()
+			$newExStyle = $currentExStyle
 
-                    # 2. Only apply if changed
-                    if ($newExStyle -ne $currentExStyle)
-                    {
-                        # Convert back to IntPtr for the API call
-                        [IntPtr]$newExStylePtr = [IntPtr]$newExStyle
-                        [Custom.Native]::SetWindowLongPtr($hWnd, $GWL_EXSTYLE, $newExStylePtr) | Out-Null
+			$hideMinimized = $global:DashboardConfig.Config['Options']['HideMinimizedWindows'] -eq '1'
 
-                        # 3. CRITICAL: Force Window Manager to refresh the style
-                        # SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE
-                        $flags = [Custom.Native]::SWP_NOMOVE -bor `
-                                 [Custom.Native]::SWP_NOSIZE -bor `
-                                 [Custom.Native]::SWP_NOZORDER -bor `
-                                 [Custom.Native]::SWP_FRAMECHANGED -bor `
-                                 [Custom.Native]::SWP_NOACTIVATE
+			# FALLBACK LOGIC:
+			# If COM failed ($comSuccess -eq $false) AND we want to Hide ($Hide -eq $true),
+			# we MUST force the TOOLWINDOW style, otherwise the window remains visible in the Taskbar.
+			# We effectively override '$hideMinimized' only if the primary method broke.
+			$shouldUseToolWindow = ($Hide -and $hideMinimized) -or ($Hide -and -not $comSuccess)
 
-                        [Custom.Native]::PositionWindow($hWnd, [IntPtr]::Zero, 0, 0, 0, 0, $flags) | Out-Null
-                    }
+			if ($shouldUseToolWindow)
+			{
+				# Add TOOLWINDOW (Hides from Alt-Tab + Taskbar Fallback), Remove APPWINDOW
+				$newExStyle = ($currentExStyle -bor $WS_EX_TOOLWINDOW) -band (-bnot $WS_EX_APPWINDOW)
+			}
+			else
+			{
+				# Remove TOOLWINDOW, Add APPWINDOW
+				$newExStyle = ($currentExStyle -band (-bnot $WS_EX_TOOLWINDOW)) -bor $WS_EX_APPWINDOW
+			}
+
+			# 3. Apply Style Update if needed
+			if ($newExStyle -ne $currentExStyle)
+			{
+                # Check state BEFORE hiding
+                $isMinimized = [Custom.Native]::IsMinimized($hWnd)
+
+                # 1. Hide the window to force Taskbar update
+                [Custom.Native]::ShowWindow($hWnd, [Custom.Native]::SW_HIDE)
+                
+                # 2. Apply the new style
+				[IntPtr]$newExStylePtr = [IntPtr]$newExStyle
+				[Custom.Native]::SetWindowLongPtr($hWnd, $GWL_EXSTYLE, $newExStylePtr) | Out-Null
+				
+                # 3. Show Back (Conditional on State)
+                if ($isMinimized) {
+                    # If it was minimized, keep it minimized without activating or restoring.
+                    # This prevents the "resize/down movement" glitch.
+                    [Custom.Native]::ShowWindow($hWnd, [Custom.Native]::SW_SHOWMINNOACTIVE)
+                } else {
+                    # If it was normal, show it in current state without activating.
+                    [Custom.Native]::ShowWindow($hWnd, [Custom.Native]::SW_SHOWNA)
                 }
-                catch
-                {
-                    Write-Verbose "DATAGRID: Failed to set window tool style for handle $hWnd. $_" -ForegroundColor Red
-                }
-            #endregion Step: Apply or Remove WS_EX_TOOLWINDOW Style
-        }
+			}
+		}
+		catch
+		{
+			Write-Warning "DATAGRID: Failed to set window tool style for handle $hWnd. $($_.Exception.Message)"
+		}
+		#endregion
+	}
     #endregion Function: Set-WindowToolStyle
 #endregion Helper Functions
 
@@ -964,30 +802,6 @@
     #region Function: Update-DataGrid
         function Update-DataGrid
         {
-            <#
-            .SYNOPSIS
-                Core function to refresh the DataGrid with current process information.
-            .DESCRIPTION
-                Orchestrates the entire update cycle for the process monitoring grid:
-                1. Validates parameters and configuration.
-                2. Gets the list of currently running target processes.
-                3. Removes rows corresponding to terminated processes.
-                4. Iterates through current processes:
-                    - Updates existing rows.
-                    - Adds new rows for newly detected processes (using cache logic).
-                    - Initiates asynchronous window state checks for each process row.
-                5. Updates all row indices to ensure sequential numbering.
-                6. Periodically cleans up the old process cache entries.
-            .PARAMETER Grid
-                [System.Windows.Forms.DataGridView] The DataGridView control to be updated. (Mandatory)
-            .OUTPUTS
-                [void]
-            .NOTES
-                This function is typically called repeatedly by a timer. It relies on helper functions
-                for specific tasks like process retrieval, row management, and state checking.
-                Uses a process cache ($script:ProcessCache) to avoid adding duplicate rows for processes
-                that might temporarily lose their main window handle.
-            #>
             [CmdletBinding()]
             param(
                 [Parameter(Mandatory = $true)]
@@ -1122,21 +936,6 @@
     #region Function: Start-DataGridUpdateTimer
         function Start-DataGridUpdateTimer
         {
-            <#
-            .SYNOPSIS
-                Creates and starts a System.Windows.Forms.Timer to periodically update the DataGrid.
-            .DESCRIPTION
-                Initializes or replaces a timer responsible for automatically calling the Update-DataGrid function
-                at the interval specified by $script:UpdateInterval. Ensures that updates are performed
-                asynchronously on the UI thread using BeginInvoke to prevent freezing.
-            .OUTPUTS
-                [void]
-            .NOTES
-                Stops and disposes any existing timer with the same name ('dataGridUpdateTimer') before creating a new one.
-                Stores the timer object in the global configuration ($global:DashboardConfig.Resources.Timers) for potential management elsewhere.
-                Includes checks to ensure the UI and DataGrid exist and are not disposed before attempting an update.
-                Uses BeginInvoke for thread safety when calling Update-DataGrid from the timer's Tick event.
-            #>
             [CmdletBinding()]
             param()
 
@@ -1216,20 +1015,6 @@
 #region Function: Restore-WindowStyles
         function Restore-WindowStyles
         {
-            <#
-            .SYNOPSIS
-                Restores the default window style (WS_EX_APPWINDOW) for all managed client windows.
-            .DESCRIPTION
-                Iterates through all process IDs stored in the $script:ProcessCache. For each process,
-                it retrieves the main window handle and calls Set-WindowToolStyle with -Hide $false
-                to ensure the window is visible in the taskbar and Alt+Tab switcher. This function
-                is intended to be called during dashboard shutdown to clean up any modified window styles.
-            .OUTPUTS
-                [void]
-            .NOTES
-                This function does not handle cases where the process itself has terminated.
-                It relies on the cached process IDs having valid MainWindowHandles.
-            #>
             [CmdletBinding()]
             param()
 
