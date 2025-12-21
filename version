@@ -1,14 +1,9 @@
 Author: Immortal / Divine
-<<<<<<< HEAD
 Version: 2.1
-=======
-Version: 1.4
->>>>>>> 3eec147044b4becb2e7f4cb4103c9b9f3cad4329
 Requires: PowerShell 5.1+, .NET Framework 4.5+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 
 [Changelogs]
-<<<<<<< HEAD
 - Added:
   - All features except for Ftool got reworked
    - Full multi profile support for Clients with non-shared settings
@@ -17,13 +12,3 @@ Requires: PowerShell 5.1+, .NET Framework 4.5+, Administrator privileges, Bypass
    - One-Click Start and Login Configuration
    - Notification support for hidden clients
    - Multiple bug fixes in all areas (Report in Discord or Github)
-=======
-- Added new main feature:
-  - You can now set Profiles to have individually saved ingame settings for your clients
-  - These can be selected for the default Launch or you can start one Client with right click ignoring max limit
-- Fixed feature to hide minimized clients
-- Fixed login bug if Launcher.exe had different name, Launcher can have any name now too.
-- Enabled Mouse Keys for Ftool and Hotkeys, this includes every Mouse Key.
-- Added log file to %AppData%\Entropia_Dashboard
-- Added Disconnect Check (wip)
->>>>>>> 3eec147044b4becb2e7f4cb4103c9b9f3cad4329
