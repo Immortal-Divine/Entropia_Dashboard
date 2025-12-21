@@ -335,6 +335,7 @@ function Sync-ConfigToUI
 
     try
     {
+     
         Write-Verbose '  UI: Syncing config to UI' -ForegroundColor Cyan
         $UI = $global:DashboardConfig.UI
         if (-not ($UI -and $global:DashboardConfig.Config)) { return $false }
@@ -630,7 +631,6 @@ public class FolderBrowser
     $p = @{ type='TextProgressBar'; width=450; height=18; top=415; left=10; id='GlobalProgressBar'; style='Continuous'; visible=$false }
     $GlobalProgressBar = Set-UIElement @p
 
-
     $toolTipSettings = New-Object System.Windows.Forms.ToolTip
     $toolTipSettings.AutoPopDelay = 5000
     $toolTipSettings.InitialDelay = 100
@@ -871,7 +871,8 @@ public class FolderBrowser
     $itmFront = New-Object System.Windows.Forms.ToolStripMenuItem('Show')
     $itmBack = New-Object System.Windows.Forms.ToolStripMenuItem('Minimize')
     $itmResizeCenter = New-Object System.Windows.Forms.ToolStripMenuItem('Resize')
-    $ctxMenu.Items.AddRange(@($itmFront, $itmBack, $itmResizeCenter))
+    $itmRelog = New-Object System.Windows.Forms.ToolStripMenuItem('Relog after Disconnect (wip)')
+    $ctxMenu.Items.AddRange(@($itmFront, $itmBack, $itmResizeCenter, $itmRelog))
     $DataGridMain.ContextMenuStrip = $ctxMenu
     $DataGridFiller.ContextMenuStrip = $ctxMenu
 
@@ -923,7 +924,6 @@ public class FolderBrowser
         ContextMenuResizeAndCenter = $itmResizeCenter
         Relog = $itmRelog
     }
-
     if ($null -ne $uiPropertiesToAdd) {
         $uiPropertiesToAdd.GetEnumerator() | ForEach-Object {
             $global:DashboardConfig.UI | Add-Member -MemberType NoteProperty -Name $_.Name -Value $_.Value -Force

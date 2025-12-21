@@ -502,7 +502,6 @@ if (-not ([System.Management.Automation.PSTypeName]'Win32MouseUtils').Type) {
 }
 
 
-
 if (-not $global:RegisteredHotkeys) { $global:RegisteredHotkeys = @{} }
 if (-not $global:RegisteredHotkeyByString) { $global:RegisteredHotkeyByString = @{} }
 

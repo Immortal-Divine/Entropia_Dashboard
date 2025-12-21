@@ -59,6 +59,8 @@
 
 	+ Can start the desired total amount of clients without loading errors.
 
+	+ Can start one instance of a specific Profile with right-click
+
 	+ Works in the background
 
 	+ Saved One-Click Setup can be applied to start and login your final Setup.
