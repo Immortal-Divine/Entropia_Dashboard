@@ -1,28 +1,4 @@
-<# classes.psm1
-    .SYNOPSIS
-        Provides a library of custom C# classes compiled in-memory for use within the Entropia Dashboard application. 
-		These classes offer low-level system integration, INI file handling, and custom-themed UI controls.
-
-    .DESCRIPTION
-        This PowerShell module serves as a foundational library by defining and compiling a suite of custom C# classes directly into the PowerShell session using `Add-Type`. These classes provide essential low-level functionalities and custom UI elements that are not natively available in PowerShell or .NET, enabling the rest of the application to perform advanced tasks.
-
-        The provided classes fall into several categories:
-
-        1.  **Low-Level System Integration (`Custom.Native`, `Custom.MouseHookManager`):**
-            *   **`Native`:** A comprehensive static utility class that exposes a wide array of Windows API functions through P/Invoke (`DllImport`). Its capabilities include advanced window management (moving, resizing, changing Z-order), checking window states (minimized, responsive), simulating user input (mouse and keyboard events), and providing the necessary components for an efficient, low-CPU UI message loop.
-            *   **`MouseHookManager`:** Provides a simple interface to install and remove a system-wide low-level mouse hook, allowing the application to intercept and react to mouse events globally.
-
-        2.  **Configuration Management (`Custom.IniFile`):**
-            *   A self-contained class for parsing and generating INI-formatted files. It reads INI files into structured `OrderedDictionary` objects and can write them back to disk, forming the core of the application's configuration persistence mechanism.
-
-        3.  **External Library Integration (`Custom.Ftool`):**
-            *   A specialized class that acts as a bridge to an external `ftool.dll` library. It uses P/Invoke to call a specific function within the DLL, demonstrating how the application integrates with pre-compiled native components.
-
-        4.  **Custom "Dark Mode" UI Controls:**
-            *   A collection of owner-drawn Windows Forms controls designed to give the application a consistent, modern, dark-themed appearance. By overriding the `OnPaint` method, these classes take full control of their rendering.
-            *   Includes `DarkComboBox`, `DarkTabControl`, a `Toggle` switch (based on `CheckBox`), and a `TextProgressBar`.
-
-        Upon import, the module immediately compiles this C# source code, making these classes available for instantiation and use by other application modules.
+<# classes.psm1 
 #>
 
 #region Global Configuration
@@ -37,7 +13,7 @@
         ReferencedAssemblies = $script:ReferencedAssemblies
         WarningAction        = 'SilentlyContinue' 
     }
-#endregion Global Configuration
+#endregion 
 
 #region C# Class Definitions
     $classes = @"
@@ -59,7 +35,7 @@ namespace Custom
 {
     public static class MouseHookManager {
         public delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
-        private static HookProc hookDelegate; // GC protector
+        private static HookProc hookDelegate;
         public static IntPtr HookId = IntPtr.Zero;
 
         public static void Start(HookProc proc) {
@@ -90,9 +66,7 @@ namespace Custom
 
     public static class Native
     {
-        // ---------------------------------------------------------
-        // Original Source A Imports
-        // ---------------------------------------------------------
+
         [DllImport("user32.dll", EntryPoint = "SetWindowPos", SetLastError = true)]
         public static extern bool PositionWindow(IntPtr windowHandle, IntPtr insertAfterHandle, int X, int Y, int width, int height, uint flags);
 
@@ -166,9 +140,6 @@ namespace Custom
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
-        // ---------------------------------------------------------
-        // ADDED: Missing Window Manipulation from Source B
-        // ---------------------------------------------------------
         [DllImport("user32.dll", EntryPoint = "GetActiveWindow")]
         public static extern IntPtr GetActiveWindowHandle();
 
@@ -186,7 +157,6 @@ namespace Custom
 
         public static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
         {
-            // Check if running on 64-bit (8 bytes) or 32-bit (4 bytes)
             return IntPtr.Size == 8 ? GetWindowLongPtr64(hWnd, nIndex) : GetWindowLong32(hWnd, nIndex);
         }
 
@@ -200,8 +170,14 @@ namespace Custom
         {
             return IntPtr.Size == 8 ? SetWindowLongPtr64(hWnd, nIndex, dwNewLong) : SetWindowLong32(hWnd, nIndex, dwNewLong);
         }
-        // ---------------------------------------------------------
+        
+        
+        [DllImport("user32.dll")]
+        public static extern bool RedrawWindow(IntPtr hWnd, IntPtr lprcUpdate, IntPtr hrgnUpdate, uint flags);
 
+        
+        
+        
         public static IntPtr GetWindowHandle(object windowIdentifier)
         {
             if (windowIdentifier is IntPtr) return (IntPtr)windowIdentifier;
@@ -268,50 +244,213 @@ namespace Custom
         public static readonly IntPtr TopWindowHandle = new IntPtr(0);
         public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+        
         public const uint WM_NULL = 0x0000;
         public const uint SMTO_ABORTIFHUNG = 0x0002;
+        public const int WM_SETREDRAW = 0x000B; 
         
-        // GetWindow commands
         public const uint GW_HWNDNEXT = 2;
         public const uint GW_HWNDPREV = 3;
 
-        // Window States
-        public const int SW_HIDE = 0;       // Added from B
-        public const int SW_SHOW = 5;       // Added from B
-        public const int SW_MAXIMIZE = 3;   // Added from B
+        
+        public const int SW_HIDE = 0;
+        public const int SW_SHOW = 5;
+        public const int SW_MAXIMIZE = 3;
         public const int SW_MINIMIZE = 6;
+        public const int SW_SHOWMINNOACTIVE = 7; 
+        public const int SW_SHOWNA = 8;
         public const int SW_RESTORE = 9;
 
         public const uint QS_ALLINPUT = 0x04FF;
         public const uint PM_REMOVE = 0x0001;
         
-        // Positioning Flags
         public const uint SWP_NOSIZE = 0x0001;      
         public const uint SWP_NOMOVE = 0x0002;      
         public const uint SWP_NOZORDER = 0x0004;    
         public const uint SWP_NOACTIVATE = 0x0010;
-        public const uint SWP_FRAMECHANGED = 0x0020; // <--- ADD THIS
+        public const uint SWP_FRAMECHANGED = 0x0020;
         public const int SWP_SHOWWINDOW = 0x0040;   
         
-        // Other constants added from B
         public const int ERROR_TIMEOUT = 1460;
         public const uint WAIT_TIMEOUT = 258;
+        
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr OpenProcess(
+            uint dwDesiredAccess,
+            bool bInheritHandle,
+            int dwProcessId
+        );
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        public static extern bool QueryFullProcessImageName(
+            IntPtr hProcess,
+            uint dwFlags,
+            StringBuilder lpExeName,
+            ref uint lpdwSize
+        );
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        
+        public const uint PROCESS_QUERY_INFORMATION = 0x0400;
+        public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+        
+        
+        
+        
+        
+        public static string GetProcessPathById(int processId)
+        {
+            IntPtr hProcess = IntPtr.Zero;
+            try
+            {
+                
+                hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+                if (hProcess == IntPtr.Zero)
+                {
+                    
+                    hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, false, processId);
+                }
+
+                if (hProcess == IntPtr.Zero)
+                {
+                    
+                    return null;
+                }
+
+                uint capacity = 260; 
+                StringBuilder sb = new StringBuilder((int)capacity);
+                
+                
+                if (!QueryFullProcessImageName(hProcess, 0, sb, ref capacity))
+                {
+                    
+                    if (Marshal.GetLastWin32Error() == 122) 
+                    {
+                        sb.Capacity = (int)capacity; 
+                        if (!QueryFullProcessImageName(hProcess, 0, sb, ref capacity))
+                        {
+                            return null; 
+                        }
+                    }
+                    else
+                    {
+                        return null; 
+                    }
+                }
+                return sb.ToString();
+            }
+            catch
+            {
+                
+                return null;
+            }
+            finally
+            {
+                
+                if (hProcess != IntPtr.Zero)
+                {
+                    CloseHandle(hProcess);
+                }
+            }
+        }
+        
         public const int GWL_EXSTYLE = -20;
         public const uint WS_EX_TOPMOST = 0x00000008;
 
         public const byte VK_MENU = 0x12; 
         public const uint KEYEVENTF_EXTENDEDKEY = 0x0001; 
         public const uint KEYEVENTF_KEYUP = 0x0002; 
+        
+        
+        public const uint RDW_INVALIDATE = 0x0001;
+        public const uint RDW_ALLCHILDREN = 0x0080;
+        public const uint RDW_UPDATENOW = 0x0100;
+        public const uint RDW_FRAME = 0x0400;
 
         [Flags]
         public enum WindowPositionOptions : uint 
         { 
-            NoZOrderChange = SWP_NOZORDER,   // Added from B
+            NoZOrderChange = SWP_NOZORDER,
             DoNotActivate = SWP_NOACTIVATE,
-            MakeVisible = SWP_SHOWWINDOW     // Added from B
+            MakeVisible = SWP_SHOWWINDOW
         }
     }
 
+    public static class TaskbarTool
+    {
+        
+        [ComImport]
+        [Guid("56FDF344-FD6D-11d0-958D-006097C9A090")]
+        [ClassInterface(ClassInterfaceType.None)]
+        private class TaskbarList { }
+
+        
+        [ComImport]
+        [Guid("602D4995-B13A-429b-A66E-1935E44F4317")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ITaskbarList2
+        {
+            void HrInit();
+            void AddTab(IntPtr hwnd);
+            void DeleteTab(IntPtr hwnd);
+            void ActivateTab(IntPtr hwnd);
+            void SetActiveAlt(IntPtr hwnd);
+            void MarkFullscreenWindow(IntPtr hwnd, bool fFullscreen);
+        }
+
+        public static bool SetTaskbarState(IntPtr hwnd, bool visible)
+        {
+            bool result = false;
+            
+            if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
+            {
+                Thread t = new Thread(() => { result = SafeSetTaskbarState(hwnd, visible); });
+                t.SetApartmentState(ApartmentState.STA);
+                t.Start();
+                t.Join();
+            }
+            else
+            {
+                result = SafeSetTaskbarState(hwnd, visible);
+            }
+            return result;
+        }
+
+        private static bool SafeSetTaskbarState(IntPtr hwnd, bool visible)
+        {
+            ITaskbarList2 taskbar = null;
+            try
+            {
+                object obj = new TaskbarList();
+                taskbar = (ITaskbarList2)obj;
+                taskbar.HrInit();
+
+                if (visible)
+                    taskbar.AddTab(hwnd);
+                else
+                    taskbar.DeleteTab(hwnd);
+                    
+                return true; 
+            }
+            catch
+            {
+                
+                return false; 
+            }
+            finally
+            {
+                if (taskbar != null && Marshal.IsComObject(taskbar))
+                {
+                    Marshal.ReleaseComObject(taskbar);
+                }
+            }
+        }
+    }
+    
     public static class Ftool
     {
         [DllImport(@"$($global:DashboardConfig.Paths.FtoolDLL)", EntryPoint = "fnPostMessage", CallingConvention = CallingConvention.StdCall)]
@@ -452,7 +591,7 @@ namespace Custom
             this.SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             this.DrawMode = TabDrawMode.OwnerDrawFixed;
             this.SizeMode = TabSizeMode.Fixed;
-            this.ItemSize = new Size(120, 30);
+            this.ItemSize = new Size(298, 30);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -550,7 +689,7 @@ namespace Custom
             set 
             {
                 _customText = value;
-                this.Invalidate(); // Force redraw when text changes
+                this.Invalidate(); 
             }
         }
         
@@ -571,7 +710,7 @@ namespace Custom
             {
                 Rectangle clip = new Rectangle(rect.X, rect.Y, (int)Math.Round(((float)this.Value / this.Maximum) * rect.Width), rect.Height);
                 
-                // Draw default chunks manually to control color better or use renderer
+                
                 using (SolidBrush b = new SolidBrush(Color.FromArgb(0, 120, 215)))
                 {
                     g.FillRectangle(b, clip);
@@ -584,16 +723,16 @@ namespace Custom
                 SizeF len = g.MeasureString(text, f);
                 Point location = new Point((int)((rect.Width / 2) - (len.Width / 2)), (int)((rect.Height / 2) - (len.Height / 2)));
                 
-                // Draw text shadow
+                
                 g.DrawString(text, f, Brushes.Black, location.X + 1, location.Y + 1);
-                // Draw text
+                
                 g.DrawString(text, f, Brushes.White, location);
             }
         }
     }
 }
 "@ 
-#endregion Step: Define C# Class String
+#endregion
 
 #region Module Initialization
         function Initialize-ClassesModule
@@ -621,8 +760,8 @@ namespace Custom
             }
         }
     Initialize-ClassesModule
-#endregion Module Initialization
+#endregion 
 
 #region Module Exports
-        Export-ModuleMember -Function Initialize-ClassesModule
-#endregion Module Exports
+Export-ModuleMember -Function *
+#endregion 

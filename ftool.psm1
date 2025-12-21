@@ -1,263 +1,508 @@
 <# ftool.psm1 
-    .SYNOPSIS
-        Provides an in-game automation tool ("Ftool") that attaches a floating UI to a target application window. 
-		This UI allows users to configure and run multiple, hotkey-driven, automated key-presses for that specific application instance.
-
-    .DESCRIPTION
-        This module implements the "Ftool," an advanced automation utility for the Entropia Dashboard. When triggered for a selected application, it launches a small, independent tool window that docks to the target application's window. This tool window serves as a control panel for creating and managing multiple automated key-press macros, often called "spammers." The module features a sophisticated hotkey system, dynamic UI generation, and persistent, profile-based configuration.
-
-        Its primary features are:
-
-        1.  **The Ftool Window:**
-            *   A floating UI that attaches to and moves with a target application window.
-            *   Allows the user to configure a "main" key-presser and dynamically add/remove multiple "extension" key-pressers.
-            *   Each key-presser can be configured with a specific key, an execution interval in milliseconds, and a descriptive name.
-            *   Key presses are sent directly to the target window using `PostMessage` via the `ftool.dll`, a method often used for effective automation in games.
-
-        2.  **Advanced Hotkey Engine:**
-            *   Implements a robust, system-wide hotkey manager that runs in the background.
-            *   Allows users to assign a unique hotkey to toggle the start/stop state of the main spammer and each individual extension.
-            *   Includes a master hotkey to enable/disable all hotkeys for a given Ftool instance.
-            *   Features a user-friendly "Key Capture" dialog (`Show-KeyCaptureDialog`) for easy hotkey assignment.
-            *   Supports pausing, resuming, and conflict detection for all registered hotkeys.
-
-        3.  **Dynamic and Persistent UI:**
-            *   The Ftool window can be expanded to add new key-presser extensions on the fly and collapsed to a minimal title bar.
-            *   All settings, including configured keys, intervals, hotkeys, and even the relative position of the Ftool window to its target, are saved to the main `config.ini`.
-            *   It uses a profile system based on the target window's title to maintain separate configurations for different application instances.
-
-        4.  **Lifecycle Management:**
-            *   The module carefully manages all created resources. When an Ftool window is closed or its target application window disappears, it automatically stops all timers, unregisters associated hotkeys, and disposes of the UI to prevent memory leaks.
 #>
-
-
 
 #region Hotkey Management
 
-# Add C# code for a hidden message window to handle hotkey messages
-if (-not ([System.Management.Automation.PSTypeName]'HotkeyManager').Type) {
+if (-not ([System.Management.Automation.PSTypeName]'Custom.FtoolFormWindow').Type) {
     Add-Type -TypeDefinition @"
-	using System;
-	using System.Collections.Generic;
-	using System.Runtime.InteropServices;
-	using System.Windows.Forms;
+    using System;
+    using System.Windows.Forms;
+    using System.Drawing; // Required for Color
+    using System.Runtime.InteropServices;
 
-	public class HotkeyManager : IDisposable
-	{
-		public const int WM_HOTKEY = 0x0312;
-		private static int _nextId = 1;
-		private static readonly MessageWindow _window = new MessageWindow();
-		
-		private static DateTime _lastHotkeyTime = DateTime.MinValue; 
-		
-		private static Dictionary<int, List<HotkeyActionEntry>> _hotkeyActions = new Dictionary<int, List<HotkeyActionEntry>>();
-		private static Dictionary<Tuple<System.UInt32, System.UInt32>, int> _hotkeyIds = new Dictionary<Tuple<System.UInt32, System.UInt32>, int>();
-		private static readonly object _hotkeyActionsLock = new object();
-		private static bool _isProcessingHotkey = false;
+    namespace Custom {
+        public class FtoolFormWindow : Form {
+            // Extended window style constant to hide from Alt+Tab and Taskbar
+            private const int WS_EX_TOOLWINDOW = 0x00000080;
+            // Extended window style constant for an application window (which we want to remove)
+            private const int WS_EX_APPWINDOW = 0x00040000;
+            // Style constant for a caption (title bar)
+            private const int WS_CAPTION = 0x00C00000;
+            // Style constant for a resizeable border
+            private const int WS_SIZEBOX = 0x00040000;
 
-		public enum HotkeyActionType
-		{
-			Normal,
-			GlobalToggle
-		}
+            public FtoolFormWindow() {
+                // Ensure default FormBorderStyle is None, matching your original setup
+                this.FormBorderStyle = FormBorderStyle.None;
+                // Explicitly set ShowInTaskbar to false for good measure,
+                // although WS_EX_TOOLWINDOW primarily controls this behavior.
+                this.ShowInTaskbar = false;
+            }
 
-		public struct HotkeyActionEntry
-		{
-			public Action ActionDelegate;
-			public HotkeyActionType Type;
-		}
-        
-        public static bool AreHotkeysGloballyPaused { get; set; }
+            protected override CreateParams CreateParams {
+                get {
+                    CreateParams cp = base.CreateParams;
 
-		[DllImport("user32.dll", SetLastError=true)]
-		private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+                    // Add the WS_EX_TOOLWINDOW style.
+                    // This style ensures the window does not appear in the taskbar or Alt+Tab switcher.
+                    cp.ExStyle |= WS_EX_TOOLWINDOW;
 
-		[DllImport("user32.dll", SetLastError=true)]
-		private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+                    // Remove the standard application window style if it's implicitly set.
+                    // WS_EX_APPWINDOW typically implies a taskbar button and Alt+Tab presence.
+                    cp.ExStyle &= ~WS_EX_APPWINDOW;
 
-		public static int Register(System.UInt32 modifiers, System.UInt32 virtualKey, HotkeyActionEntry actionEntry)
-		{
-			lock (_hotkeyActionsLock)
-			{
-				var hotkeyTuple = Tuple.Create(modifiers, virtualKey);
-				if (_hotkeyIds.ContainsKey(hotkeyTuple))
-				{
-					int existingId = _hotkeyIds[hotkeyTuple];
-					if (!_hotkeyActions.ContainsKey(existingId)) _hotkeyActions[existingId] = new List<HotkeyActionEntry>();
-					_hotkeyActions[existingId].Add(actionEntry);
-					return existingId;
-				}
+                    // Additionally, ensure no caption or resizable border styles are present,
+                    // matching the FormBorderStyle.None intent.
+                    cp.Style &= ~WS_CAPTION;
+                    cp.Style &= ~WS_SIZEBOX;
 
-				int id = _nextId++;
-				if (!RegisterHotKey(_window.Handle, id, modifiers, virtualKey))
-				{
-					throw new Exception("Failed to register hotkey. Error: " + Marshal.GetLastWin32Error());
-				}
-				_hotkeyActions[id] = new List<HotkeyActionEntry>() { actionEntry };
-				_hotkeyIds[hotkeyTuple] = id;
-				return id;
-			}
-		}
-
-		public static void Unregister(int id)
-		{
-			lock (_hotkeyActionsLock)
-			{
-				if (!_hotkeyActions.ContainsKey(id)) return;
-				UnregisterHotKey(_window.Handle, id);
-				_hotkeyActions.Remove(id);
-
-				Tuple<uint, uint> keyToRemove = null;
-				foreach(var pair in _hotkeyIds)
-				{
-					if(pair.Value == id)
-					{
-						keyToRemove = pair.Key;
-						break;
-					}
-				}
-				if(keyToRemove != null)
-				{
-					_hotkeyIds.Remove(keyToRemove);
-				}
-			}
-		}
-
-		public static void UnregisterAction(int id, Action action)
-		{
-			lock (_hotkeyActionsLock)
-			{
-				if (!_hotkeyActions.ContainsKey(id)) return;
-				var list = _hotkeyActions[id];
-				list.RemoveAll(entry => entry.ActionDelegate == action);
-				if (list.Count == 0)
-				{
-					UnregisterHotKey(_window.Handle, id);
-					_hotkeyActions.Remove(id);
-					Tuple<uint, uint> keyToRemove = null;
-					foreach(var pair in _hotkeyIds)
-					{
-						if(pair.Value == id)
-						{
-							keyToRemove = pair.Key;
-							break;
-						}
-					}
-					if(keyToRemove != null)
-					{
-						_hotkeyIds.Remove(keyToRemove);
-					}
-				}
-			}
-		}
-
-		public static void UnregisterAll()
-		{
-			lock (_hotkeyActionsLock)
-			{
-				foreach (var id in new List<int>(_hotkeyActions.Keys))
-				{
-					UnregisterHotKey(_window.Handle, id);
-				}
-				_hotkeyActions.Clear();
-				_hotkeyIds.Clear();
-			}
-		}
-
-		public void Dispose()
-		{
-			UnregisterAll();
-			_window.Dispose();
-		}
-
-		private class MessageWindow : Form
-		{
-			protected override CreateParams CreateParams
-			{
-				get
-				{
-					var cp = base.CreateParams;
-					cp.Parent = (IntPtr)(-3); // HWND_MESSAGE
-					return cp;
-				}
-			}
-
-			protected override void WndProc(ref Message m)
-			{
-				if (m.Msg == WM_HOTKEY)
-				{
-					if ((DateTime.Now - HotkeyManager._lastHotkeyTime).TotalMilliseconds < 300) 
-					{
-						return;
-					}
-
-					if (_isProcessingHotkey) {
-						return;
-					}
-
-					try
-					{
-						_isProcessingHotkey = true;
-						HotkeyManager._lastHotkeyTime = DateTime.Now;
-
-						int id = m.WParam.ToInt32();
-						if (_hotkeyActions.ContainsKey(id) && _hotkeyActions[id] != null)
-						{
-							List<HotkeyActionEntry> actionsToInvokeCopy;
-							lock (_hotkeyActionsLock)
-							{
-								if (!_hotkeyActions.ContainsKey(id)) return;
-								actionsToInvokeCopy = new List<HotkeyActionEntry>(_hotkeyActions[id]);
-							}
-							
-							List<HotkeyActionEntry> globalToggleActions = new List<HotkeyActionEntry>();
-							List<HotkeyActionEntry> normalActions = new List<HotkeyActionEntry>();
-
-							foreach (var entry in actionsToInvokeCopy)
-							{
-								if (entry.Type == HotkeyActionType.GlobalToggle)
-									globalToggleActions.Add(entry);
-								else
-									normalActions.Add(entry);
-							}
-
-							if (globalToggleActions.Count > 0)
-							{
-								try 
-								{
-									if (globalToggleActions[0].ActionDelegate != null) 
-									{
-										globalToggleActions[0].ActionDelegate.Invoke();
-									}
-								} 
-								catch { }
-								return; 
-							}
-							
-							if (HotkeyManager.AreHotkeysGloballyPaused) 
-							{
-								return; 
-							}
-
-							foreach (var entry in normalActions)
-							{
-								try { if (entry.ActionDelegate != null) { entry.ActionDelegate.Invoke(); } } catch {}
-							}
-						}
-					}
-					finally
-					{
-						_isProcessingHotkey = false;
-					}
-				}
-				base.WndProc(ref m);
-			}
-		}
-	}
+                    return cp;
+                }
+            }
+        }
+    }
 "@ -ReferencedAssemblies "System.Windows.Forms", "System.Drawing"
 }
 
-# Do not overwrite existing hotkey maps if they already exist from a previous instance
+if (-not ([System.Management.Automation.PSTypeName]'HotkeyManager').Type) {
+    Add-Type -TypeDefinition @"
+    using System;
+    using System.Collections.Generic;
+    using System.Diagnostics;
+    using System.Runtime.InteropServices;
+    using System.Windows.Forms;
+
+    public class HotkeyManager : IDisposable
+    {
+        public const int WM_HOTKEY = 0x0312;
+        private static int _nextId = 1;
+        private static readonly MessageWindow _window = new MessageWindow();
+        
+        private static DateTime _lastHotkeyTime = DateTime.MinValue; 
+        
+        private static Dictionary<int, List<HotkeyActionEntry>> _hotkeyActions = new Dictionary<int, List<HotkeyActionEntry>>();
+        private static Dictionary<Tuple<uint, uint>, int> _hotkeyIds = new Dictionary<Tuple<uint, uint>, int>();
+        private static readonly object _hotkeyActionsLock = new object();
+        private static bool _isProcessingHotkey = false;
+
+        private const int WH_MOUSE_LL = 14;
+        private const int WM_LBUTTONDOWN = 0x0201;
+        private const int WM_RBUTTONDOWN = 0x0204;
+        private const int WM_MBUTTONDOWN = 0x0207;
+        private const int WM_XBUTTONDOWN = 0x020B;
+
+        private const uint MOD_ALT = 0x0001;
+        private const uint MOD_CONTROL = 0x0002;
+        private const uint MOD_SHIFT = 0x0004;
+        private const uint MOD_WIN = 0x0008;
+
+        private static LowLevelMouseProc _mouseProcDelegate;
+        private static IntPtr _mouseHookID = IntPtr.Zero;
+        private static int _mouseHotkeysCount = 0;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MSLLHOOKSTRUCT
+        {
+            public System.Drawing.Point pt;
+            public uint mouseData;
+            public uint flags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
+
+        private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+        
+        [DllImport("user32.dll")]
+        static extern short GetAsyncKeyState(int vKey);
+
+        public enum HotkeyActionType
+        {
+            Normal,
+            GlobalToggle
+        }
+
+        public struct HotkeyActionEntry
+        {
+            public Action ActionDelegate;
+            public HotkeyActionType Type;
+        }
+        
+        public static bool AreHotkeysGloballyPaused { get; set; }
+
+        [DllImport("user32.dll", SetLastError=true)]
+        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+        [DllImport("user32.dll", SetLastError=true)]
+        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+        private static bool IsMouseKey(uint virtualKey)
+        {
+            return virtualKey == 0x01 || virtualKey == 0x02 || virtualKey == 0x04 || virtualKey == 0x05 || virtualKey == 0x06;
+        }
+
+        private static void EnsureMouseHook()
+        {
+            if (_mouseHookID == IntPtr.Zero)
+            {
+                _mouseProcDelegate = MouseHookCallback;
+                using (Process curProcess = Process.GetCurrentProcess())
+                using (ProcessModule curModule = curProcess.MainModule)
+                {
+                    _mouseHookID = SetWindowsHookEx(WH_MOUSE_LL, _mouseProcDelegate, GetModuleHandle(curModule.ModuleName), 0);
+                }
+            }
+        }
+
+        private static void ReleaseMouseHook()
+        {
+            if (_mouseHookID != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(_mouseHookID);
+                _mouseHookID = IntPtr.Zero;
+            }
+        }
+
+        private static IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0 && !_isProcessingHotkey)
+            {
+                MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                
+                if ((hookStruct.flags & 0x01) == 0) 
+                {
+                    uint vkCode = 0;
+                    if ((int)wParam == WM_LBUTTONDOWN) vkCode = 0x01;
+                    else if ((int)wParam == WM_RBUTTONDOWN) vkCode = 0x02;
+                    else if ((int)wParam == WM_MBUTTONDOWN) vkCode = 0x04;
+                    else if ((int)wParam == WM_XBUTTONDOWN)
+                    {
+                        uint xButton = hookStruct.mouseData >> 16;
+                        if (xButton == 1) vkCode = 0x05; 
+                        else if (xButton == 2) vkCode = 0x06; 
+                    }
+
+                    if (vkCode != 0)
+                    {
+                        if ((DateTime.Now - _lastHotkeyTime).TotalMilliseconds < 300)
+                        {
+                            return CallNextHookEx(_mouseHookID, nCode, wParam, lParam);
+                        }
+                        
+                        uint modifiers = 0;
+                        if ((GetAsyncKeyState(0x12) & 0x8000) != 0) modifiers |= MOD_ALT;
+                        if ((GetAsyncKeyState(0x11) & 0x8000) != 0) modifiers |= MOD_CONTROL;
+                        if ((GetAsyncKeyState(0x10) & 0x8000) != 0) modifiers |= MOD_SHIFT;
+                        if (((GetAsyncKeyState(0x5B) & 0x8000) != 0) || ((GetAsyncKeyState(0x5C) & 0x8000) != 0)) modifiers |= MOD_WIN;
+
+                        var hotkeyTuple = Tuple.Create(modifiers, vkCode);
+
+                        lock (_hotkeyActionsLock)
+                        {
+                            if (_hotkeyIds.ContainsKey(hotkeyTuple))
+                            {
+                                _isProcessingHotkey = true;
+                                try
+                                {
+                                    _lastHotkeyTime = DateTime.Now;
+                                    int id = _hotkeyIds[hotkeyTuple];
+                                    if (_hotkeyActions.ContainsKey(id) && _hotkeyActions[id] != null)
+                                    {
+                                        var actionsToInvokeCopy = new List<HotkeyActionEntry>(_hotkeyActions[id]);
+                                        
+                                        var globalToggleActions = new List<HotkeyActionEntry>();
+                                        var normalActions = new List<HotkeyActionEntry>();
+
+                                        foreach (var entry in actionsToInvokeCopy)
+                                        {
+                                            if (entry.Type == HotkeyActionType.GlobalToggle) globalToggleActions.Add(entry);
+                                            else normalActions.Add(entry);
+                                        }
+
+                                        if (globalToggleActions.Count > 0)
+                                        {
+                                            if (globalToggleActions[0].ActionDelegate != null) globalToggleActions[0].ActionDelegate.Invoke();
+                                        }
+                                        else if (!AreHotkeysGloballyPaused)
+                                        {
+                                            foreach (var entry in normalActions)
+                                            {
+                                                if (entry.ActionDelegate != null) entry.ActionDelegate.Invoke();
+                                            }
+                                        }
+                                    }
+                                }
+                                finally
+                                {
+                                    _isProcessingHotkey = false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return CallNextHookEx(_mouseHookID, nCode, wParam, lParam);
+        }
+
+        public static int Register(System.UInt32 modifiers, System.UInt32 virtualKey, HotkeyActionEntry actionEntry)
+        {
+            lock (_hotkeyActionsLock)
+            {
+                var hotkeyTuple = Tuple.Create(modifiers, virtualKey);
+                if (_hotkeyIds.ContainsKey(hotkeyTuple))
+                {
+                    int existingId = _hotkeyIds[hotkeyTuple];
+                    if (!_hotkeyActions.ContainsKey(existingId)) _hotkeyActions[existingId] = new List<HotkeyActionEntry>();
+                    _hotkeyActions[existingId].Add(actionEntry);
+                    return existingId;
+                }
+
+                int id = _nextId++;
+                if(IsMouseKey(virtualKey))
+                {
+                    EnsureMouseHook();
+                    _mouseHotkeysCount++;
+                }
+                else
+                {
+                    if (!RegisterHotKey(_window.Handle, id, modifiers, virtualKey))
+                    {
+                        throw new Exception("Failed to register hotkey. Error: " + Marshal.GetLastWin32Error());
+                    }
+                }
+                _hotkeyActions[id] = new List<HotkeyActionEntry>() { actionEntry };
+                _hotkeyIds[hotkeyTuple] = id;
+                return id;
+            }
+        }
+
+        public static void Unregister(int id)
+        {
+            lock (_hotkeyActionsLock)
+            {
+                if (!_hotkeyActions.ContainsKey(id)) return;
+                
+                Tuple<uint, uint> keyToRemove = null;
+                foreach(var pair in _hotkeyIds)
+                {
+                    if(pair.Value == id)
+                    {
+                        keyToRemove = pair.Key;
+                        break;
+                    }
+                }
+                if(keyToRemove != null)
+                {
+                    if(IsMouseKey(keyToRemove.Item2))
+                    {
+                        _mouseHotkeysCount--;
+                        if(_mouseHotkeysCount <= 0)
+                        {
+                            ReleaseMouseHook();
+                            _mouseHotkeysCount = 0;
+                        }
+                    }
+                    else
+                    {
+                        UnregisterHotKey(_window.Handle, id);
+                    }
+                    _hotkeyIds.Remove(keyToRemove);
+                }
+                _hotkeyActions.Remove(id);
+            }
+        }
+
+        public static void UnregisterAction(int id, Action action)
+        {
+            lock (_hotkeyActionsLock)
+            {
+                if (!_hotkeyActions.ContainsKey(id)) return;
+                var list = _hotkeyActions[id];
+                list.RemoveAll(entry => entry.ActionDelegate == action);
+                if (list.Count == 0)
+                {
+                    Unregister(id);
+                }
+            }
+        }
+
+        public static void UnregisterAll()
+        {
+            lock (_hotkeyActionsLock)
+            {
+                foreach (var pair in _hotkeyIds)
+                {
+                    if (!IsMouseKey(pair.Key.Item2))
+                    {
+                        UnregisterHotKey(_window.Handle, pair.Value);
+                    }
+                }
+                ReleaseMouseHook();
+                _mouseHotkeysCount = 0;
+                _hotkeyActions.Clear();
+                _hotkeyIds.Clear();
+            }
+        }
+
+        public void Dispose()
+        {
+            UnregisterAll();
+            _window.Dispose();
+        }
+
+        private class MessageWindow : Form
+        {
+            protected override CreateParams CreateParams
+            {
+                get
+                {
+                    var cp = base.CreateParams;
+                    cp.Parent = (IntPtr)(-3); 
+                    return cp;
+                }
+            }
+
+            protected override void WndProc(ref Message m)
+            {
+                if (m.Msg == WM_HOTKEY)
+                {
+                    if ((DateTime.Now - HotkeyManager._lastHotkeyTime).TotalMilliseconds < 300) 
+                    {
+                        return;
+                    }
+
+                    if (_isProcessingHotkey) {
+                        return;
+                    }
+
+                    try
+                    {
+                        _isProcessingHotkey = true;
+                        HotkeyManager._lastHotkeyTime = DateTime.Now;
+
+                        int id = m.WParam.ToInt32();
+                        if (_hotkeyActions.ContainsKey(id) && _hotkeyActions[id] != null)
+                        {
+                            List<HotkeyActionEntry> actionsToInvokeCopy;
+                            lock (_hotkeyActionsLock)
+                            {
+                                if (!_hotkeyActions.ContainsKey(id)) return;
+                                actionsToInvokeCopy = new List<HotkeyActionEntry>(_hotkeyActions[id]);
+                            }
+                            
+                            List<HotkeyActionEntry> globalToggleActions = new List<HotkeyActionEntry>();
+                            List<HotkeyActionEntry> normalActions = new List<HotkeyActionEntry>();
+
+                            foreach (var entry in actionsToInvokeCopy)
+                            {
+                                if (entry.Type == HotkeyActionType.GlobalToggle)
+                                    globalToggleActions.Add(entry);
+                                else
+                                    normalActions.Add(entry);
+                            }
+
+                            if (globalToggleActions.Count > 0)
+                            {
+                                try 
+                                {
+                                    if (globalToggleActions[0].ActionDelegate != null) 
+                                    {
+                                        globalToggleActions[0].ActionDelegate.Invoke();
+                                    }
+                                } 
+                                catch { }
+                                return; 
+                            }
+                            
+                            if (HotkeyManager.AreHotkeysGloballyPaused) 
+                            {
+                                return; 
+                            }
+
+                            foreach (var entry in normalActions)
+                            {
+                                try { if (entry.ActionDelegate != null) { entry.ActionDelegate.Invoke(); } } catch {}
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        _isProcessingHotkey = false;
+                    }
+                }
+                base.WndProc(ref m);
+            }
+        }
+    }
+"@ -ReferencedAssemblies "System.Windows.Forms", "System.Drawing"
+}
+
+if (-not ([System.Management.Automation.PSTypeName]'Win32MouseUtils').Type) {
+    Add-Type -TypeDefinition @"
+    using System;
+    using System.Runtime.InteropServices;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Win32Point {
+        public int X;
+        public int Y;
+    }
+
+    public class Win32MouseUtils {
+        [DllImport("user32.dll")]
+        public static extern bool GetCursorPos(out Win32Point lpPoint);
+
+        [DllImport("user32.dll")]
+        public static extern bool ScreenToClient(IntPtr hWnd, ref Win32Point lpPoint);
+
+        [DllImport("user32.dll")]
+        public static extern short GetAsyncKeyState(int vKey);
+
+        public static IntPtr MakeLParam(int x, int y) {
+            return (IntPtr)((y << 16) | (x & 0xFFFF));
+        }
+
+        public static IntPtr GetCurrentInputStateWParam(int targetButtonFlag, bool isDown, int virtualKeyToExclude) {
+            int wParam = 0;
+
+            const int VK_LBUTTON  = 0x01;
+            const int VK_RBUTTON  = 0x02;
+            const int VK_MBUTTON  = 0x04;
+            const int VK_XBUTTON1 = 0x05;
+            const int VK_XBUTTON2 = 0x06;
+            const int VK_SHIFT    = 0x10;
+            const int VK_CONTROL  = 0x11;
+
+            const int MK_LBUTTON  = 0x0001;
+            const int MK_RBUTTON  = 0x0002;
+            const int MK_SHIFT    = 0x0004;
+            const int MK_CONTROL  = 0x0008;
+            const int MK_MBUTTON  = 0x0010;
+            const int MK_XBUTTON1 = 0x0020;
+            const int MK_XBUTTON2 = 0x0040;
+
+            if (virtualKeyToExclude != VK_LBUTTON && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0) wParam |= MK_LBUTTON;
+            if (virtualKeyToExclude != VK_RBUTTON && (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0) wParam |= MK_RBUTTON;
+            if (virtualKeyToExclude != VK_MBUTTON && (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0) wParam |= MK_MBUTTON;
+            if (virtualKeyToExclude != VK_XBUTTON1 && (GetAsyncKeyState(VK_XBUTTON1) & 0x8000) != 0) wParam |= MK_XBUTTON1;
+            if (virtualKeyToExclude != VK_XBUTTON2 && (GetAsyncKeyState(VK_XBUTTON2) & 0x8000) != 0) wParam |= MK_XBUTTON2;
+            
+            if ((GetAsyncKeyState(VK_SHIFT)   & 0x8000) != 0) wParam |= MK_SHIFT;
+            if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0) wParam |= MK_CONTROL;
+
+            if (isDown) wParam |= targetButtonFlag;
+            else wParam &= ~targetButtonFlag;
+
+            return (IntPtr)wParam;
+        }
+    }
+"@
+}
+
+
+
 if (-not $global:RegisteredHotkeys) { $global:RegisteredHotkeys = @{} }
 if (-not $global:RegisteredHotkeyByString) { $global:RegisteredHotkeyByString = @{} }
 
@@ -268,13 +513,13 @@ function Set-Hotkey
         [string]$KeyCombinationString,
         [Parameter(Mandatory=$true)]
         $Action,
-		[Parameter(Mandatory=$false)]
-		[string]$OwnerKey = $null,
+        [Parameter(Mandatory=$false)]
+        [string]$OwnerKey = $null,
         [Parameter(Mandatory=$false)]
         [int]$OldHotkeyId = $null
     )
 
-    # 1. Normalize Action to a specific Delegate instance.
+    
     if ($Action -is [System.Action]) {
         $actionDelegate = $Action
     } elseif ($Action -is [System.Delegate]) {
@@ -283,7 +528,7 @@ function Set-Hotkey
         $actionDelegate = [System.Action]$Action
     }
 
-    # 2. Unregistration
+    
     if (-not [string]::IsNullOrEmpty($OwnerKey)) {
         $idsToClean = @()
         foreach ($kvp in $global:RegisteredHotkeys.GetEnumerator()) {
@@ -354,34 +599,34 @@ function Set-Hotkey
         }
     }
 
-	# 3. Parse New Hotkey String
-	$parsedResult = ParseKeyString $KeyCombinationString
-	$modsFromParse = @()
-	if ($parsedResult.Modifiers) { if ($parsedResult.Modifiers -is [System.Array]) { $modsFromParse = $parsedResult.Modifiers } else { $modsFromParse = @($parsedResult.Modifiers) } }
-	[System.Collections.ArrayList]$parsedModifierKeys = @(); if ($modsFromParse.Count -gt 0) { $parsedModifierKeys.AddRange($modsFromParse) }
-	[string]$parsedPrimaryKey = if ($parsedResult.Primary) { [string]$parsedResult.Primary } else { $null }
+    
+    $parsedResult = ParseKeyString $KeyCombinationString
+    $modsFromParse = @()
+    if ($parsedResult.Modifiers) { if ($parsedResult.Modifiers -is [System.Array]) { $modsFromParse = $parsedResult.Modifiers } else { $modsFromParse = @($parsedResult.Modifiers) } }
+    [System.Collections.ArrayList]$parsedModifierKeys = @(); if ($modsFromParse.Count -gt 0) { $parsedModifierKeys.AddRange($modsFromParse) }
+    [string]$parsedPrimaryKey = if ($parsedResult.Primary) { [string]$parsedResult.Primary } else { $null }
 
     if ([string]::IsNullOrEmpty($parsedPrimaryKey) -and $parsedModifierKeys.Count -gt 0) { throw "A primary key is required." }
     if ([string]::IsNullOrEmpty($parsedPrimaryKey) -and $parsedModifierKeys.Count -eq 0) { throw "No key provided." }
 
-	[uint32]$mod = 0
+    [uint32]$mod = 0
     if($parsedModifierKeys){
         foreach ($mKey in $parsedModifierKeys) {
             switch ($mKey) { 'Alt' { $mod+=1 } 'Ctrl' { $mod+=2 } 'Shift' { $mod+=4 } 'Win' { $mod+=8 } }
         }
     }
 
-	$vkNameFromNormalized = if ($parsedResult.Normalized) { ($parsedResult.Normalized -split '\+')[-1] } else { $null }
-	$virtualKeyName = if (-not [string]::IsNullOrEmpty($vkNameFromNormalized)) { $vkNameFromNormalized } else { $parsedPrimaryKey }
-	$virtualKey = (Get-VirtualKeyMappings)[([string]$virtualKeyName).ToUpper()]
-	if (-not $virtualKey) { throw "Invalid primary key: $virtualKeyName" }
+    $vkNameFromNormalized = if ($parsedResult.Normalized) { ($parsedResult.Normalized -split '\+')[-1] } else { $null }
+    $virtualKeyName = if (-not [string]::IsNullOrEmpty($vkNameFromNormalized)) { $vkNameFromNormalized } else { $parsedPrimaryKey }
+    $virtualKey = (Get-VirtualKeyMappings)[([string]$virtualKeyName).ToUpper()]
+    if (-not $virtualKey) { throw "Invalid primary key: $virtualKeyName" }
 
-	$canonicalOrder = @('Ctrl','Alt','Shift','Win')
-	$canonicalModifiers = @(); foreach ($m in $canonicalOrder) { if ($parsedModifierKeys -contains $m) { $canonicalModifiers += $m } }
-	$verboseKeyString = if ($canonicalModifiers.Count -gt 0) { "$(($canonicalModifiers -join ' + '))+$parsedPrimaryKey" } else { $parsedPrimaryKey }
-	$normalizedKeyString = $verboseKeyString.ToUpper()
+    $canonicalOrder = @('Ctrl','Alt','Shift','Win')
+    $canonicalModifiers = @(); foreach ($m in $canonicalOrder) { if ($parsedModifierKeys -contains $m) { $canonicalModifiers += $m } }
+    $verboseKeyString = if ($canonicalModifiers.Count -gt 0) { "$(($canonicalModifiers -join ' + '))+$parsedPrimaryKey" } else { $parsedPrimaryKey }
+    $normalizedKeyString = $verboseKeyString.ToUpper()
 
-	# 4. Register New Hotkey
+    
     $actionType = [HotkeyManager+HotkeyActionType]::Normal
     if ($OwnerKey -and $OwnerKey -like "global_toggle_*") {
         $actionType = [HotkeyManager+HotkeyActionType]::GlobalToggle
@@ -391,321 +636,320 @@ function Set-Hotkey
     $hotkeyActionEntry.ActionDelegate = $actionDelegate
     $hotkeyActionEntry.Type = $actionType
 
-	$ownerToggleOn = $true
-	if ($OwnerKey) {
-		$instanceId = $OwnerKey
-		if ($OwnerKey -like 'ext_*') {
-			$parts = $OwnerKey -split '_'
-			if ($parts.Count -ge 2) { $instanceId = $parts[1] }
-		}
-		try {
-			if ($global:DashboardConfig.Resources.InstanceHotkeysPaused -and $global:DashboardConfig.Resources.InstanceHotkeysPaused.Contains($instanceId)) {
-				$ownerToggleOn = -not [bool]$global:DashboardConfig.Resources.InstanceHotkeysPaused[$instanceId]
-			} else {
-				if ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId)) {
-					$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
-					if ($form -and $form.Tag -and $form.Tag.BtnHotkeyToggle) {
-						$ownerToggleOn = [bool]$form.Tag.BtnHotkeyToggle.Checked
-					}
-				}
-			}
-		} catch { }
-	}
+    $ownerToggleOn = $true
+    if ($OwnerKey) {
+        $instanceId = $OwnerKey
+        if ($OwnerKey -like 'ext_*') {
+            $parts = $OwnerKey -split '_'
+            if ($parts.Count -ge 2) { $instanceId = $parts[1] }
+        }
+        try {
+            if ($global:DashboardConfig.Resources.InstanceHotkeysPaused -and $global:DashboardConfig.Resources.InstanceHotkeysPaused.Contains($instanceId)) {
+                $ownerToggleOn = -not [bool]$global:DashboardConfig.Resources.InstanceHotkeysPaused[$instanceId]
+            } else {
+                if ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId)) {
+                    $form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+                    if ($form -and $form.Tag -and $form.Tag.BtnHotkeyToggle) {
+                        $ownerToggleOn = [bool]$form.Tag.BtnHotkeyToggle.Checked
+                    }
+                }
+            }
+        } catch { }
+    }
 
-	if (-not $ownerToggleOn) {
-		$existingPausedId = $null
-		if ($global:PausedRegisteredHotkeys) {
-			foreach ($k in $global:PausedRegisteredHotkeys.Keys) {
-				try {
-					if ($global:PausedRegisteredHotkeys[$k].KeyString -and $global:PausedRegisteredHotkeys[$k].KeyString -eq $normalizedKeyString) {
-						$existingPausedId = $k
-						break
-					}
-				} catch {}
-			}
-		}
-		
-		if ($existingPausedId) {
-			$metaToUpdate = $global:PausedRegisteredHotkeys[$existingPausedId]
-			if (-not $metaToUpdate.Owners) { $metaToUpdate.Owners = @{} }
-			
+    if (-not $ownerToggleOn) {
+        $existingPausedId = $null
+        if ($global:PausedRegisteredHotkeys) {
+            foreach ($k in $global:PausedRegisteredHotkeys.Keys) {
+                try {
+                    if ($global:PausedRegisteredHotkeys[$k].KeyString -and $global:PausedRegisteredHotkeys[$k].KeyString -eq $normalizedKeyString) {
+                        $existingPausedId = $k
+                        break
+                    }
+                } catch {}
+            }
+        }
+        
+        if ($existingPausedId) {
+            $metaToUpdate = $global:PausedRegisteredHotkeys[$existingPausedId]
+            if (-not $metaToUpdate.Owners) { $metaToUpdate.Owners = @{} }
+            
             $updatedHotkeyActionEntry = New-Object HotkeyManager+HotkeyActionEntry
-			$updatedHotkeyActionEntry.ActionDelegate = $actionDelegate
-			$updatedHotkeyActionEntry.Type = $actionType
+            $updatedHotkeyActionEntry.ActionDelegate = $actionDelegate
+            $updatedHotkeyActionEntry.Type = $actionType
 
-			$metaToUpdate.Owners[$OwnerKey] = $updatedHotkeyActionEntry
-			
-			Write-Verbose "FTOOL: Registered hotkey (paused, updated) for owner '$OwnerKey' on key '$normalizedKeyString'."
-			return $existingPausedId
-		} else {
-			if (-not $global:NextPausedFakeId) { $global:NextPausedFakeId = -1 }
-			$fakeId = $global:NextPausedFakeId
-			$global:NextPausedFakeId = $global:NextPausedFakeId - 1
-			$meta = @{ Modifier = $mod; Key = $virtualKey; KeyString = $normalizedKeyString; Owners = @{}; Action = $actionDelegate; ActionType = $actionType }
-			$meta.Owners[$OwnerKey] = $hotkeyActionEntry
-			if (-not $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys = @{} }
-			$global:PausedRegisteredHotkeys[$fakeId] = $meta
-			$global:RegisteredHotkeyByString[$normalizedKeyString] = $fakeId
-			$id = $fakeId
-			Write-Verbose "FTOOL: Stored hotkey (paused) for owner $OwnerKey on key $normalizedKeyString."
-			return $id
-		}
-	}
+            $metaToUpdate.Owners[$OwnerKey] = $updatedHotkeyActionEntry
+            
+            Write-Verbose "FTOOL: Registered hotkey (paused, updated) for owner '$OwnerKey' on key '$normalizedKeyString'."
+            return $existingPausedId
+        } else {
+            if (-not $global:NextPausedFakeId) { $global:NextPausedFakeId = -1 }
+            $fakeId = $global:NextPausedFakeId
+            $global:NextPausedFakeId = $global:NextPausedFakeId - 1
+            $meta = @{ Modifier = $mod; Key = $virtualKey; KeyString = $normalizedKeyString; Owners = @{}; Action = $actionDelegate; ActionType = $actionType }
+            $meta.Owners[$OwnerKey] = $hotkeyActionEntry
+            if (-not $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys = @{} }
+            $global:PausedRegisteredHotkeys[$fakeId] = $meta
+            $global:RegisteredHotkeyByString[$normalizedKeyString] = $fakeId
+            $id = $fakeId
+            Write-Verbose "FTOOL: Stored hotkey (paused) for owner $OwnerKey on key $normalizedKeyString."
+            return $id
+        }
+    }
 
-	if ($global:RegisteredHotkeyByString.ContainsKey($normalizedKeyString)) {
-		$existingId = $global:RegisteredHotkeyByString[$normalizedKeyString]
-		if ($OwnerKey -and $global:RegisteredHotkeys.ContainsKey($existingId) -and $global:RegisteredHotkeys[$existingId].Owners.ContainsKey($OwnerKey)) {
-			$staleAction = $global:RegisteredHotkeys[$existingId].Owners[$OwnerKey]
-			try { [HotkeyManager]::UnregisterAction($existingId, $staleAction.ActionDelegate) } catch {}
-			$global:RegisteredHotkeys[$existingId].Owners.Remove($OwnerKey)
-		}
-		try {
-			$id = [HotkeyManager]::Register($mod, $virtualKey, $hotkeyActionEntry)
-		} catch {
-			Write-Warning "FTOOL: Failed to register hotkey $($KeyCombinationString): $_"
-			$id = $null
-			throw 
-		}
-	} else {
-		try {
-			$id = [HotkeyManager]::Register($mod, $virtualKey, $hotkeyActionEntry)
-		} catch {
-			Write-Warning "FTOOL: Failed to register hotkey $($KeyCombinationString): $_"
-			$id = $null
-			throw 
-		}
-	}
+    if ($global:RegisteredHotkeyByString.ContainsKey($normalizedKeyString)) {
+        $existingId = $global:RegisteredHotkeyByString[$normalizedKeyString]
+        if ($OwnerKey -and $global:RegisteredHotkeys.ContainsKey($existingId) -and $global:RegisteredHotkeys[$existingId].Owners.ContainsKey($OwnerKey)) {
+            $staleAction = $global:RegisteredHotkeys[$existingId].Owners[$OwnerKey]
+            try { [HotkeyManager]::UnregisterAction($existingId, $staleAction.ActionDelegate) } catch {}
+            $global:RegisteredHotkeys[$existingId].Owners.Remove($OwnerKey)
+        }
+        try {
+            $id = [HotkeyManager]::Register($mod, $virtualKey, $hotkeyActionEntry)
+        } catch {
+            Write-Warning "FTOOL: Failed to register hotkey $($KeyCombinationString): $_"
+            $id = $null
+            throw 
+        }
+    } else {
+        try {
+            $id = [HotkeyManager]::Register($mod, $virtualKey, $hotkeyActionEntry)
+        } catch {
+            Write-Warning "FTOOL: Failed to register hotkey $($KeyCombinationString): $_"
+            $id = $null
+            throw 
+        }
+    }
 
-	# 5. Update Maps - Handle re-sync if C# returns existing ID
-	if ($global:RegisteredHotkeys.ContainsKey($id)) {
-		$existingKeyString = $global:RegisteredHotkeys[$id].KeyString
-		if ($existingKeyString -and $existingKeyString -ne $normalizedKeyString) {
-			$errorMsg = "FTOOL: CRITICAL hotkey conflict. ID $id."
-			Write-Warning $errorMsg
-			throw $errorMsg
-		}
-	}
+    
+    if ($global:RegisteredHotkeys.ContainsKey($id)) {
+        $existingKeyString = $global:RegisteredHotkeys[$id].KeyString
+        if ($existingKeyString -and $existingKeyString -ne $normalizedKeyString) {
+            $errorMsg = "FTOOL: CRITICAL hotkey conflict. ID $id."
+            Write-Warning $errorMsg
+            throw $errorMsg
+        }
+    }
 
-	if (-not $global:RegisteredHotkeys.ContainsKey($id)) {
-		$global:RegisteredHotkeys[$id] = @{Modifier=$mod; Key=$virtualKey; KeyString=$normalizedKeyString; Owners = @{}; Action = $actionDelegate; ActionType = $actionType}
-	} else {
-		if (-not $global:RegisteredHotkeys[$id].KeyString) { $global:RegisteredHotkeys[$id].KeyString = $normalizedKeyString }
-	}
-	
-	if ($OwnerKey) {
-		if (-not $global:RegisteredHotkeys[$id].Owners) { $global:RegisteredHotkeys[$id].Owners = @{} }
-		$global:RegisteredHotkeys[$id].Owners[$OwnerKey] = $hotkeyActionEntry
-	}
-	$global:RegisteredHotkeyByString[$normalizedKeyString] = $id
+    if (-not $global:RegisteredHotkeys.ContainsKey($id)) {
+        $global:RegisteredHotkeys[$id] = @{Modifier=$mod; Key=$virtualKey; KeyString=$normalizedKeyString; Owners = @{}; Action = $actionDelegate; ActionType = $actionType}
+    } else {
+        if (-not $global:RegisteredHotkeys[$id].KeyString) { $global:RegisteredHotkeys[$id].KeyString = $normalizedKeyString }
+    }
+    
+    if ($OwnerKey) {
+        if (-not $global:RegisteredHotkeys[$id].Owners) { $global:RegisteredHotkeys[$id].Owners = @{} }
+        $global:RegisteredHotkeys[$id].Owners[$OwnerKey] = $hotkeyActionEntry
+    }
+    $global:RegisteredHotkeyByString[$normalizedKeyString] = $id
 
-	try {
-		if ($OwnerKey -and $global:PausedRegisteredHotkeys) {
-			$pausedKeys = @($global:PausedRegisteredHotkeys.Keys)
-			foreach ($k in $pausedKeys) {
-				if (-not $global:PausedRegisteredHotkeys.ContainsKey($k)) { continue }
-				$meta = $global:PausedRegisteredHotkeys[$k]
-				if ($meta -and $meta.KeyString -and $meta.KeyString -eq $normalizedKeyString) {
-					if ($meta.Owners -and $meta.Owners.ContainsKey($OwnerKey)) {
-						$meta.Owners.Remove($OwnerKey)
-						if ($meta.Owners.Count -eq 0) {
-							$global:PausedRegisteredHotkeys.Remove($k)
-						}
-						break 
-					}
-				}
-			}
-		}
-	} catch {}
+    try {
+        if ($OwnerKey -and $global:PausedRegisteredHotkeys) {
+            $pausedKeys = @($global:PausedRegisteredHotkeys.Keys)
+            foreach ($k in $pausedKeys) {
+                if (-not $global:PausedRegisteredHotkeys.ContainsKey($k)) { continue }
+                $meta = $global:PausedRegisteredHotkeys[$k]
+                if ($meta -and $meta.KeyString -and $meta.KeyString -eq $normalizedKeyString) {
+                    if ($meta.Owners -and $meta.Owners.ContainsKey($OwnerKey)) {
+                        $meta.Owners.Remove($OwnerKey)
+                        if ($meta.Owners.Count -eq 0) {
+                            $global:PausedRegisteredHotkeys.Remove($k)
+                        }
+                        break 
+                    }
+                }
+            }
+        }
+    } catch {}
 
-	return $id
+    return $id
 }
 
 function Resume-AllHotkeys {
-	if (-not $global:PausedRegisteredHotkeys -or $global:PausedRegisteredHotkeys.Count -eq 0) { return }
-	if (-not $global:PausedIdMap) { $global:PausedIdMap = @{} }
+    if (-not $global:PausedRegisteredHotkeys -or $global:PausedRegisteredHotkeys.Count -eq 0) { return }
+    if (-not $global:PausedIdMap) { $global:PausedIdMap = @{} }
 
-	$pausedKeys = @($global:PausedRegisteredHotkeys.Keys)
-	foreach ($oldId in $pausedKeys) {
-		try {
-			$meta  = $global:PausedRegisteredHotkeys[$oldId]
-			if (-not $meta) { continue }
+    $pausedKeys = @($global:PausedRegisteredHotkeys.Keys)
+    foreach ($oldId in $pausedKeys) {
+        try {
+            $meta  = $global:PausedRegisteredHotkeys[$oldId]
+            if (-not $meta) { continue }
 
-			$mod    = $meta.Modifier
-			$vk     = $meta.Key
-			$ks     = $meta.KeyString
-			$owners = if ($meta.Owners) { @($meta.Owners.Keys) } else { @() }
+            $mod    = $meta.Modifier
+            $vk     = $meta.Key
+            $ks     = $meta.KeyString
+            $owners = if ($meta.Owners) { @($meta.Owners.Keys) } else { @() }
 
-			if (-not $global:RegisteredHotkeys) { $global:RegisteredHotkeys = @{} }
+            if (-not $global:RegisteredHotkeys) { $global:RegisteredHotkeys = @{} }
 
-			foreach ($ok in $owners) {
-				$shouldResume = $true
-				try {
-					$instId = $ok
-					if ($ok -like 'ext_*') { $parts = $ok -split '_'; if ($parts.Count -ge 2) { $instId = $parts[1] } }
-					if ($global:DashboardConfig.Resources.InstanceHotkeysPaused -and $global:DashboardConfig.Resources.InstanceHotkeysPaused.Contains($instId)) {
-						if ([bool]$global:DashboardConfig.Resources.InstanceHotkeysPaused[$instId]) { $shouldResume = $false }
-					}
-				} catch { }
+            foreach ($ok in $owners) {
+                $shouldResume = $true
+                try {
+                    $instId = $ok
+                    if ($ok -like 'ext_*') { $parts = $ok -split '_'; if ($parts.Count -ge 2) { $instId = $parts[1] } }
+                    if ($global:DashboardConfig.Resources.InstanceHotkeysPaused -and $global:DashboardConfig.Resources.InstanceHotkeysPaused.Contains($instId)) {
+                        if ([bool]$global:DashboardConfig.Resources.InstanceHotkeysPaused[$instId]) { $shouldResume = $false }
+                    }
+                } catch { }
 
-				if (-not $shouldResume) { continue }
+                if (-not $shouldResume) { continue }
 
-				$ownerAct = $meta.Owners[$ok]
-				if (-not $ownerAct) { continue }
-				
-                # FIX: Explicit variable capture for closure
+                $ownerAct = $meta.Owners[$ok]
+                if (-not $ownerAct) { continue }
+                
                 $actionToRun = $ownerAct.ActionDelegate
-				$delegate = [System.Action]({ Invoke-FtoolAction -Action $actionToRun }.GetNewClosure())
+                $delegate = [System.Action]({ Invoke-FtoolAction -Action $actionToRun }.GetNewClosure())
 
-				try {
-					$hotkeyActionEntry = New-Object HotkeyManager+HotkeyActionEntry
-					$hotkeyActionEntry.ActionDelegate = $delegate
-					$hotkeyActionEntry.Type = if ($ownerAct.Type) { $ownerAct.Type } else { [HotkeyManager+HotkeyActionType]::Normal }
+                try {
+                    $hotkeyActionEntry = New-Object HotkeyManager+HotkeyActionEntry
+                    $hotkeyActionEntry.ActionDelegate = $delegate
+                    $hotkeyActionEntry.Type = if ($ownerAct.Type) { $ownerAct.Type } else { [HotkeyManager+HotkeyActionType]::Normal }
 
-					$registeredId = $null
-					try {
-						$registeredId = [HotkeyManager]::Register($mod, $vk, $hotkeyActionEntry)
-					} catch {
-						Write-Warning ("FTOOL: Resume-AllHotkeys failed owner '{0}': {1}" -f $ok, $_.Exception.Message)
-					}
+                    $registeredId = $null
+                    try {
+                        $registeredId = [HotkeyManager]::Register($mod, $vk, $hotkeyActionEntry)
+                    } catch {
+                        Write-Warning ("FTOOL: Resume-AllHotkeys failed owner '{0}': {1}" -f $ok, $_.Exception.Message)
+                    }
 
-					if (-not $registeredId) { continue }
-					
-					$global:PausedIdMap[$oldId] = $registeredId
-					if (-not $global:RegisteredHotkeys.ContainsKey($registeredId)) {
-						$global:RegisteredHotkeys[$registeredId] = @{ Modifier = $mod; Key = $vk; KeyString = $ks; Owners = @{}; Action = $null; ActionType = $hotkeyActionEntry.Type }
-					}
-					$global:RegisteredHotkeys[$registeredId].Owners[$ok] = $hotkeyActionEntry
-					if ($ks) { $global:RegisteredHotkeyByString[$ks] = $registeredId }
-					$global:RegisteredHotkeys[$registeredId].ActionType = $hotkeyActionEntry.Type 
+                    if (-not $registeredId) { continue }
+                    
+                    $global:PausedIdMap[$oldId] = $registeredId
+                    if (-not $global:RegisteredHotkeys.ContainsKey($registeredId)) {
+                        $global:RegisteredHotkeys[$registeredId] = @{ Modifier = $mod; Key = $vk; KeyString = $ks; Owners = @{}; Action = $null; ActionType = $hotkeyActionEntry.Type }
+                    }
+                    $global:RegisteredHotkeys[$registeredId].Owners[$ok] = $hotkeyActionEntry
+                    if ($ks) { $global:RegisteredHotkeyByString[$ks] = $registeredId }
+                    $global:RegisteredHotkeys[$registeredId].ActionType = $hotkeyActionEntry.Type 
 
-					$meta.Owners.Remove($ok)
-				} catch {}
-			}
+                    $meta.Owners.Remove($ok)
+                } catch {}
+            }
 
-			if (-not $meta.Owners -or $meta.Owners.Count -eq 0) {
-				$global:PausedRegisteredHotkeys.Remove($oldId)
-			} else {
-				$global:PausedRegisteredHotkeys[$oldId] = $meta
-			}
-		} catch {}
-	}
+            if (-not $meta.Owners -or $meta.Owners.Count -eq 0) {
+                $global:PausedRegisteredHotkeys.Remove($oldId)
+            } else {
+                $global:PausedRegisteredHotkeys[$oldId] = $meta
+            }
+        } catch {}
+    }
 }
 
 function Resume-PausedKeys {
-	param([Parameter(Mandatory=$true)][array]$Keys)
-	if (-not $Keys -or $Keys.Count -eq 0) { return }
-	if (-not $global:PausedIdMap) { $global:PausedIdMap = @{} }
-	if (-not $global:RegisteredHotkeys) { $global:RegisteredHotkeys = @{} }
+    param([Parameter(Mandatory=$true)][array]$Keys)
+    if (-not $Keys -or $Keys.Count -eq 0) { return }
+    if (-not $global:PausedIdMap) { $global:PausedIdMap = @{} }
+    if (-not $global:RegisteredHotkeys) { $global:RegisteredHotkeys = @{} }
 
-	foreach ($oldId in $Keys) {
-		if (-not $global:PausedRegisteredHotkeys.Contains($oldId)) { continue }
-		try {
-			$meta = $global:PausedRegisteredHotkeys[$oldId]
-			if (-not $meta) { continue }
+    foreach ($oldId in $Keys) {
+        if (-not $global:PausedRegisteredHotkeys.Contains($oldId)) { continue }
+        try {
+            $meta = $global:PausedRegisteredHotkeys[$oldId]
+            if (-not $meta) { continue }
 
-			$mod = $meta.Modifier; $vk = $meta.Key; $ks = $meta.KeyString
-			$owners = if ($meta.Owners) { @($meta.Owners.Keys) } else { @() }
+            $mod = $meta.Modifier; $vk = $meta.Key; $ks = $meta.KeyString
+            $owners = if ($meta.Owners) { @($meta.Owners.Keys) } else { @() }
 
-			foreach ($ok in $owners) {
-				$shouldResume = $true
-				try {
-					$instId = $ok
-					if ($ok -like 'ext_*') { $parts = $ok -split '_'; if ($parts.Count -ge 2) { $instId = $parts[1] } }
-					if ($global:DashboardConfig.Resources.InstanceHotkeysPaused -and $global:DashboardConfig.Resources.InstanceHotkeysPaused.Contains($instId)) {
-						if ([bool]$global:DashboardConfig.Resources.InstanceHotkeysPaused[$instId]) { $shouldResume = $false }
-					}
-				} catch {}
+            foreach ($ok in $owners) {
+                $shouldResume = $true
+                try {
+                    $instId = $ok
+                    if ($ok -like 'ext_*') { $parts = $ok -split '_'; if ($parts.Count -ge 2) { $instId = $parts[1] } }
+                    if ($global:DashboardConfig.Resources.InstanceHotkeysPaused -and $global:DashboardConfig.Resources.InstanceHotkeysPaused.Contains($instId)) {
+                        if ([bool]$global:DashboardConfig.Resources.InstanceHotkeysPaused[$instId]) { $shouldResume = $false }
+                    }
+                } catch {}
 
-				if (-not $shouldResume) { continue }
+                if (-not $shouldResume) { continue }
 
-				$ownerAct = $meta.Owners[$ok]
-				if (-not $ownerAct) { continue }
-				
+                $ownerAct = $meta.Owners[$ok]
+                if (-not $ownerAct) { continue }
+                
                 $actionToRun = $ownerAct.ActionDelegate
-				$delegate = [System.Action]({ Invoke-FtoolAction -Action $actionToRun }.GetNewClosure())
-								
-				try {
-					$hotkeyActionEntry = New-Object HotkeyManager+HotkeyActionEntry
-					$hotkeyActionEntry.ActionDelegate = $delegate
-					$hotkeyActionEntry.Type = if ($meta.ActionType) { $meta.ActionType } else { [HotkeyManager+HotkeyActionType]::Normal }
-				
-					$registeredId = [HotkeyManager]::Register($mod, $vk, $hotkeyActionEntry)
-					$global:PausedIdMap[$oldId] = $registeredId
-					if (-not $global:RegisteredHotkeys.ContainsKey($registeredId)) {
-						$global:RegisteredHotkeys[$registeredId] = @{ Modifier = $mod; Key = $vk; KeyString = $ks; Owners = @{}; Action = $null; ActionType = $hotkeyActionEntry.Type }
-					}
-					$global:RegisteredHotkeys[$registeredId].Owners[$ok] = $hotkeyActionEntry
-					$global:RegisteredHotkeys[$registeredId].ActionType = $hotkeyActionEntry.Type
-					if ($ks) { $global:RegisteredHotkeyByString[$ks] = $registeredId }
-					
-					$meta.Owners.Remove($ok)
-				} catch {}
-			}
+                $delegate = [System.Action]({ Invoke-FtoolAction -Action $actionToRun }.GetNewClosure())
+                                
+                try {
+                    $hotkeyActionEntry = New-Object HotkeyManager+HotkeyActionEntry
+                    $hotkeyActionEntry.ActionDelegate = $delegate
+                    $hotkeyActionEntry.Type = if ($meta.ActionType) { $meta.ActionType } else { [HotkeyManager+HotkeyActionType]::Normal }
+                
+                    $registeredId = [HotkeyManager]::Register($mod, $vk, $hotkeyActionEntry)
+                    $global:PausedIdMap[$oldId] = $registeredId
+                    if (-not $global:RegisteredHotkeys.ContainsKey($registeredId)) {
+                        $global:RegisteredHotkeys[$registeredId] = @{ Modifier = $mod; Key = $vk; KeyString = $ks; Owners = @{}; Action = $null; ActionType = $hotkeyActionEntry.Type }
+                    }
+                    $global:RegisteredHotkeys[$registeredId].Owners[$ok] = $hotkeyActionEntry
+                    $global:RegisteredHotkeys[$registeredId].ActionType = $hotkeyActionEntry.Type
+                    if ($ks) { $global:RegisteredHotkeyByString[$ks] = $registeredId }
+                    
+                    $meta.Owners.Remove($ok)
+                } catch {}
+            }
 
-			if (-not $meta.Owners -or $meta.Owners.Count -eq 0) {
-				$global:PausedRegisteredHotkeys.Remove($oldId)
-			} else {
-				$global:PausedRegisteredHotkeys[$oldId] = $meta
-			}
-		} catch {}
-	}
+            if (-not $meta.Owners -or $meta.Owners.Count -eq 0) {
+                $global:PausedRegisteredHotkeys.Remove($oldId)
+            } else {
+                $global:PausedRegisteredHotkeys[$oldId] = $meta
+            }
+        } catch {}
+    }
 }
 
 function Resume-HotkeysForOwner {
-	param([Parameter(Mandatory=$true)][string]$OwnerKey)
-	if (-not $OwnerKey) { return }
-	if (-not $global:PausedRegisteredHotkeys -or $global:PausedRegisteredHotkeys.Count -eq 0) { return }
-	if (-not $global:PausedIdMap) { $global:PausedIdMap = @{} }
-	
-	$idsToResume = @()
-	foreach ($kvp in $global:PausedRegisteredHotkeys.GetEnumerator()) {
-		$oldId = $kvp.Key
-		$meta = $kvp.Value
-		if ($meta.Owners -and $meta.Owners.ContainsKey($OwnerKey)) {
-			$idsToResume += $oldId
-		}
-	}
+    param([Parameter(Mandatory=$true)][string]$OwnerKey)
+    if (-not $OwnerKey) { return }
+    if (-not $global:PausedRegisteredHotkeys -or $global:PausedRegisteredHotkeys.Count -eq 0) { return }
+    if (-not $global:PausedIdMap) { $global:PausedIdMap = @{} }
+    
+    $idsToResume = @()
+    foreach ($kvp in $global:PausedRegisteredHotkeys.GetEnumerator()) {
+        $oldId = $kvp.Key
+        $meta = $kvp.Value
+        if ($meta.Owners -and $meta.Owners.ContainsKey($OwnerKey)) {
+            $idsToResume += $oldId
+        }
+    }
 
-	foreach ($oldId in $idsToResume) {
-		try {
-			$meta = $global:PausedRegisteredHotkeys[$oldId]
-			$mod = $meta.Modifier; $vk = $meta.Key; $ks = $meta.KeyString; $owners = $meta.Owners
+    foreach ($oldId in $idsToResume) {
+        try {
+            $meta = $global:PausedRegisteredHotkeys[$oldId]
+            $mod = $meta.Modifier; $vk = $meta.Key; $ks = $meta.KeyString; $owners = $meta.Owners
 
-			foreach ($ok in $owners.Keys) {
-				$ownerAct = $owners[$ok]
-				if (-not $ownerAct) { continue }
+            foreach ($ok in $owners.Keys) {
+                $ownerAct = $owners[$ok]
+                if (-not $ownerAct) { continue }
 
                 if ($ownerAct -is [HotkeyManager+HotkeyActionEntry]) {
                     $actionToRun = $ownerAct.ActionDelegate
                 } else {
                     $actionToRun = $ownerAct
                 }
-				$delegate = [System.Action]({ Invoke-FtoolAction -Action $actionToRun }.GetNewClosure())
-				
-				try {
-					$hotkeyActionEntry = New-Object HotkeyManager+HotkeyActionEntry
-					$hotkeyActionEntry.ActionDelegate = $delegate
-					$hotkeyActionEntry.Type = if ($meta.ActionType) { $meta.ActionType } else { [HotkeyManager+HotkeyActionType]::Normal }
+                $delegate = [System.Action]({ Invoke-FtoolAction -Action $actionToRun }.GetNewClosure())
+                
+                try {
+                    $hotkeyActionEntry = New-Object HotkeyManager+HotkeyActionEntry
+                    $hotkeyActionEntry.ActionDelegate = $delegate
+                    $hotkeyActionEntry.Type = if ($meta.ActionType) { $meta.ActionType } else { [HotkeyManager+HotkeyActionType]::Normal }
 
-					$registeredId = [HotkeyManager]::Register($mod, $vk, $hotkeyActionEntry)
-					$global:PausedIdMap[$oldId] = $registeredId
-					if (-not $global:RegisteredHotkeys.ContainsKey($registeredId)) {
-						$global:RegisteredHotkeys[$registeredId] = @{Modifier=$mod; Key=$vk; KeyString=$ks; Owners = @{}; Action = $null; ActionType = $hotkeyActionEntry.Type }
-					}
-					$global:RegisteredHotkeys[$registeredId].Owners[$ok] = $hotkeyActionEntry
+                    $registeredId = [HotkeyManager]::Register($mod, $vk, $hotkeyActionEntry)
+                    $global:PausedIdMap[$oldId] = $registeredId
+                    if (-not $global:RegisteredHotkeys.ContainsKey($registeredId)) {
+                        $global:RegisteredHotkeys[$registeredId] = @{Modifier=$mod; Key=$vk; KeyString=$ks; Owners = @{}; Action = $null; ActionType = $hotkeyActionEntry.Type }
+                    }
+                    $global:RegisteredHotkeys[$registeredId].Owners[$ok] = $hotkeyActionEntry
                     $global:RegisteredHotkeys[$registeredId].ActionType = $hotkeyActionEntry.Type
-					if ($ks) { $global:RegisteredHotkeyByString[$ks] = $registeredId }
-				} catch {}
-			}
-			$global:PausedRegisteredHotkeys.Remove($oldId)
-		} catch {}
-	}
+                    if ($ks) { $global:RegisteredHotkeyByString[$ks] = $registeredId }
+                } catch {}
+            }
+            $global:PausedRegisteredHotkeys.Remove($oldId)
+        } catch {}
+    }
 }
 
 function Remove-AllHotkeys {
     [HotkeyManager]::UnregisterAll()
     $global:RegisteredHotkeys.Clear()
-	$global:RegisteredHotkeyByString.Clear()
+    $global:RegisteredHotkeyByString.Clear()
     Write-Verbose "FTOOL: All hotkeys unregistered."
 }
 
@@ -771,34 +1015,34 @@ function Test-HotkeyConflict {
 
 
 function Invoke-FtoolAction {
-	param([Parameter(Mandatory=$true)]$Action)
-	try {
-		if ($Action -is [ScriptBlock]) { 
-			& $Action 
-		} elseif ($Action -is [System.Delegate] -or $Action -is [System.Action]) { 
-			$Action.Invoke() 
-		} elseif ($Action -is [string]) {
-			$cmd = Get-Command $Action -ErrorAction SilentlyContinue
-			if ($cmd) { & $cmd.Name } else { Invoke-Expression $Action }
-		}
-	} catch {
-		Write-Verbose ("FTOOL-DEBUG: Invoke-FtoolAction: Exception invoking action: {0}" -f $_.Exception.Message)
-	}
+    param([Parameter(Mandatory=$true)]$Action)
+    try {
+        if ($Action -is [ScriptBlock]) { 
+            & $Action 
+        } elseif ($Action -is [System.Delegate] -or $Action -is [System.Action]) { 
+            $Action.Invoke() 
+        } elseif ($Action -is [string]) {
+            $cmd = Get-Command $Action -ErrorAction SilentlyContinue
+            if ($cmd) { & $cmd.Name } else { Invoke-Expression $Action }
+        }
+    } catch {
+        Write-Verbose ("FTOOL-DEBUG: Invoke-FtoolAction: Exception invoking action: {0}" -f $_.Exception.Message)
+    }
 }
 
 function PauseAllHotkeys {
-	[HotkeyManager]::AreHotkeysGloballyPaused = $true
-	if (-not $global:RegisteredHotkeys -or $global:RegisteredHotkeys.Count -eq 0) { return }
-	
-	$global:PausedIdMap = @{}
-	if (-not $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys = @{} }
+    [HotkeyManager]::AreHotkeysGloballyPaused = $true
+    if (-not $global:RegisteredHotkeys -or $global:RegisteredHotkeys.Count -eq 0) { return }
+    
+    $global:PausedIdMap = @{}
+    if (-not $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys = @{} }
 
-	$idsToProcess = @($global:RegisteredHotkeys.Keys)
+    $idsToProcess = @($global:RegisteredHotkeys.Keys)
 
-	foreach ($id in $idsToProcess) {
-		try {
-			$meta = $global:RegisteredHotkeys[$id]
-			if (-not $meta -or -not $meta.Owners) { continue }
+    foreach ($id in $idsToProcess) {
+        try {
+            $meta = $global:RegisteredHotkeys[$id]
+            if (-not $meta -or -not $meta.Owners) { continue }
 
             $ownersToRemove = @()
             $ownerEntriesToPause = @{}
@@ -847,94 +1091,95 @@ function PauseAllHotkeys {
                 $global:RegisteredHotkeys[$id] = $meta
             }
 
-		} catch {}
-	}
+        } catch {}
+    }
 }
 
 function PauseHotkeysForOwner {
-	param([Parameter(Mandatory=$true)][string]$OwnerKey)
-	if (-not $OwnerKey) { return }
-	if (-not $global:RegisteredHotkeys -or $global:RegisteredHotkeys.Count -eq 0) { return }
-	if (-not $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys = @{} }
-	if (-not $global:PausedIdMap) { $global:PausedIdMap = @{} }
+    param([Parameter(Mandatory=$true)][string]$OwnerKey)
+    if (-not $OwnerKey) { return }
+    if (-not $global:RegisteredHotkeys -or $global:RegisteredHotkeys.Count -eq 0) { return }
+    if (-not $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys = @{} }
+    if (-not $global:PausedIdMap) { $global:PausedIdMap = @{} }
 
-	$idsToProcess = @()
-	foreach ($kvp in $global:RegisteredHotkeys.GetEnumerator()) {
-		$id = $kvp.Key
-		$meta = $kvp.Value
-		if ($meta.Owners -and $meta.Owners.ContainsKey($OwnerKey)) {
-			$idsToProcess += $id
-		}
-	}
+    $idsToProcess = @()
+    foreach ($kvp in $global:RegisteredHotkeys.GetEnumerator()) {
+        $id = $kvp.Key
+        $meta = $kvp.Value
+        if ($meta.Owners -and $meta.Owners.ContainsKey($OwnerKey)) {
+            $idsToProcess += $id
+        }
+    }
 
-	foreach ($id in $idsToProcess) {
-		try {
-			$meta = $global:RegisteredHotkeys[$id]
-			$ks = $null
-			try { $ks = $meta.KeyString } catch {}
+    foreach ($id in $idsToProcess) {
+        try {
+            $meta = $global:RegisteredHotkeys[$id]
+            $ks = $null
+            try { $ks = $meta.KeyString } catch {}
 
-			$ownerEntry = $null
-			try { $ownerEntry = $meta.Owners[$OwnerKey] } catch {}
+            $ownerEntry = $null
+            try { $ownerEntry = $meta.Owners[$OwnerKey] } catch {}
 
-			if ($null -eq $ownerEntry -or $null -eq $ownerEntry.ActionDelegate) {
-				continue
-			}
+            if ($null -eq $ownerEntry -or $null -eq $ownerEntry.ActionDelegate) {
+                continue
+            }
 
-			if (-not $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys = @{} }
-			if (-not $global:NextPausedFakeId) { $global:NextPausedFakeId = -1 }
+            if (-not $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys = @{} }
+            if (-not $global:NextPausedFakeId) { $global:NextPausedFakeId = -1 }
 
-			$unregisterActionMethod = $null
-			try { $unregisterActionMethod = [HotkeyManager].GetMethod('UnregisterAction') } catch {}
-			if ($unregisterActionMethod) {
-					try {
-						[HotkeyManager]::UnregisterAction($id, $ownerEntry.ActionDelegate)
+            $unregisterActionMethod = $null
+            try { $unregisterActionMethod = [HotkeyManager].GetMethod('UnregisterAction') } catch {}
+            if ($unregisterActionMethod) {
+                    try {
+                        [HotkeyManager]::UnregisterAction($id, $ownerEntry.ActionDelegate)
 
-						if ($global:RegisteredHotkeys.ContainsKey($id) -and $global:RegisteredHotkeys[$id].Owners.ContainsKey($OwnerKey)) {
-							$global:RegisteredHotkeys[$id].Owners.Remove($OwnerKey)
-						}
+                        if ($global:RegisteredHotkeys.ContainsKey($id) -and $global:RegisteredHotkeys[$id].Owners.ContainsKey($OwnerKey)) {
+                            $global:RegisteredHotkeys[$id].Owners.Remove($OwnerKey)
+                        }
 
-						$fakeId = $global:NextPausedFakeId; $global:NextPausedFakeId = $global:NextPausedFakeId - 1
-						$pausedMeta = @{ Modifier = $meta.Modifier; Key = $meta.Key; KeyString = $ks; Owners = @{}; Action = $ownerEntry.ActionDelegate; ActionType = $ownerEntry.Type } # Store ActionDelegate and Type
-						$pausedMeta.Owners[$OwnerKey] = $ownerEntry
-						$global:PausedRegisteredHotkeys[$fakeId] = $pausedMeta
-						if ($ks) { $global:RegisteredHotkeyByString.Remove($ks) }
-						$global:RegisteredHotkeyByString[$ks] = $fakeId
-						continue
-					} catch {}
-			}
+                        $fakeId = $global:NextPausedFakeId; $global:NextPausedFakeId = $global:NextPausedFakeId - 1
+                        $pausedMeta = @{ Modifier = $meta.Modifier; Key = $meta.Key; KeyString = $ks; Owners = @{}; Action = $ownerEntry.ActionDelegate; ActionType = $ownerEntry.Type } 
+                        $pausedMeta.Owners[$OwnerKey] = $ownerEntry
+                        $global:PausedRegisteredHotkeys[$fakeId] = $pausedMeta
+                        if ($ks) { $global:RegisteredHotkeyByString.Remove($ks) }
+                        $global:RegisteredHotkeyByString[$ks] = $fakeId
+                        continue
+                    } catch {}
+            }
 
-			$global:PausedRegisteredHotkeys[$id] = $meta
-		    try { [HotkeyManager]::Unregister($id) } catch { }
-		    try { if ($ks) { $global:RegisteredHotkeyByString.Remove($ks) } } catch {}
-		    try { $global:RegisteredHotkeys.Remove($id) } catch {}
-		} catch {}
-	}}
+            $global:PausedRegisteredHotkeys[$id] = $meta
+            try { [HotkeyManager]::Unregister($id) } catch { }
+            try { if ($ks) { $global:RegisteredHotkeyByString.Remove($ks) } } catch {}
+            try { $global:RegisteredHotkeys.Remove($id) } catch {}
+        } catch {}
+    }
+}
 
 function Unregister-HotkeyInstance {
-	param(
-		[Parameter(Mandatory=$true)][int]$Id,
-		[Parameter(Mandatory=$false)][string]$OwnerKey
-	)
-	if (-not $Id) { return }
-	try {
-		$didUnregister = $false
-		$translateTarget = $null
-		if ($global:PausedIdMap -and $global:PausedIdMap.ContainsKey($Id)) {
-			$translateTarget = $global:PausedIdMap[$Id]
-		}
-		if ($translateTarget) { $IdToUse = $translateTarget } else { $IdToUse = $Id }
-		
-		if (-not $global:RegisteredHotkeys.ContainsKey($IdToUse) -and $global:PausedRegisteredHotkeys -and $global:PausedRegisteredHotkeys.ContainsKey($IdToUse)) {
-			$pausedMeta = $global:PausedRegisteredHotkeys[$IdToUse]
-			if ($OwnerKey -and $pausedMeta.Owners -and $pausedMeta.Owners.ContainsKey($OwnerKey)) {
-				$pausedMeta.Owners.Remove($OwnerKey)
-				if ($pausedMeta.Owners.Count -eq 0) { $global:PausedRegisteredHotkeys.Remove($IdToUse); }
-				$didUnregister = $true
-			} else {
-				$global:PausedRegisteredHotkeys.Remove($IdToUse)
-				$didUnregister = $true
-			}
-		}
+    param(
+        [Parameter(Mandatory=$true)][int]$Id,
+        [Parameter(Mandatory=$false)][string]$OwnerKey
+    )
+    if (-not $Id) { return }
+    try {
+        $didUnregister = $false
+        $translateTarget = $null
+        if ($global:PausedIdMap -and $global:PausedIdMap.ContainsKey($Id)) {
+            $translateTarget = $global:PausedIdMap[$Id]
+        }
+        if ($translateTarget) { $IdToUse = $translateTarget } else { $IdToUse = $Id }
+        
+        if (-not $global:RegisteredHotkeys.ContainsKey($IdToUse) -and $global:PausedRegisteredHotkeys -and $global:PausedRegisteredHotkeys.ContainsKey($IdToUse)) {
+            $pausedMeta = $global:PausedRegisteredHotkeys[$IdToUse]
+            if ($OwnerKey -and $pausedMeta.Owners -and $pausedMeta.Owners.ContainsKey($OwnerKey)) {
+                $pausedMeta.Owners.Remove($OwnerKey)
+                if ($pausedMeta.Owners.Count -eq 0) { $global:PausedRegisteredHotkeys.Remove($IdToUse); }
+                $didUnregister = $true
+            } else {
+                $global:PausedRegisteredHotkeys.Remove($IdToUse)
+                $didUnregister = $true
+            }
+        }
         if ($OwnerKey -and $global:RegisteredHotkeys.ContainsKey($Id) -and $global:RegisteredHotkeys[$Id].Owners.ContainsKey($OwnerKey)) {
             $ownerEntry = $global:RegisteredHotkeys[$Id].Owners[$OwnerKey]
             $unregisterMethod = $null
@@ -951,19 +1196,19 @@ function Unregister-HotkeyInstance {
                 $global:RegisteredHotkeys[$Id].Owners.Remove($OwnerKey)
             }
             if ($global:RegisteredHotkeys.ContainsKey($Id) -and $global:RegisteredHotkeys[$Id].Owners.Count -eq 0) {
-				$ks = $global:RegisteredHotkeys[$Id].KeyString
-				if ($ks) { $global:RegisteredHotkeyByString.Remove($ks) }
-				$global:RegisteredHotkeys.Remove($Id)
-			}
-		}
-		if (-not $didUnregister) {
-			if ($global:RegisteredHotkeys.ContainsKey($Id)) {
+                $ks = $global:RegisteredHotkeys[$Id].KeyString
+                if ($ks) { $global:RegisteredHotkeyByString.Remove($ks) }
+                $global:RegisteredHotkeys.Remove($Id)
+            }
+        }
+        if (-not $didUnregister) {
+            if ($global:RegisteredHotkeys.ContainsKey($Id)) {
                 $unregisteredSuccessfully = $false
-				try {
-					[HotkeyManager]::Unregister($Id)
+                try {
+                    [HotkeyManager]::Unregister($Id)
                     $unregisteredSuccessfully = $true
-				} catch {}
-				
+                } catch {}
+                
                 if ($unregisteredSuccessfully) {
                     if ($global:RegisteredHotkeys.ContainsKey($Id)) {
                         $ks = $global:RegisteredHotkeys[$Id].KeyString
@@ -971,11 +1216,11 @@ function Unregister-HotkeyInstance {
                         $global:RegisteredHotkeys.Remove($Id)
                     }
                 }
-			}
-		}
-	} catch {
-		Write-Warning "FTOOL: Failed to unregister hotkey ID $Id. Error: $_"
-	}
+            }
+        }
+    } catch {
+        Write-Warning "FTOOL: Failed to unregister hotkey ID $Id. Error: $_"
+    }
 }
 
 
@@ -1048,12 +1293,12 @@ function ToggleInstanceHotkeys
         }
     } catch {}
 
-	if ($global:DashboardConfig.Resources.FtoolForms.Contains($InstanceId)) {
-		$form = $global:DashboardConfig.Resources.FtoolForms[$InstanceId]
-		if ($form -and -not $form.IsDisposed) {
-			UpdateSettings -formData $form.Tag -forceWrite
-		}
-	}
+    if ($global:DashboardConfig.Resources.FtoolForms.Contains($InstanceId)) {
+        $form = $global:DashboardConfig.Resources.FtoolForms[$InstanceId]
+        if ($form -and -not $form.IsDisposed) {
+            UpdateSettings -formData $form.Tag -forceWrite
+        }
+    }
 }
 
 
@@ -1064,29 +1309,18 @@ function ToggleInstanceHotkeys
 function Get-VirtualKeyMappings
 {
     return @{
-        # =========================
-        # MOUSE BUTTONS
-        # =========================
-        # Windows API supports a maximum of 5 native mouse buttons.
         'LEFT_MOUSE'    = 0x01
         'RIGHT_MOUSE'   = 0x02
-        'CANCEL'        = 0x03 # Ctrl-Break processing
-        'MIDDLE_MOUSE'  = 0x04 # Mouse 3
-        'MOUSE_X1'      = 0x05 # Mouse 4 (Back)
-        'MOUSE_X2'      = 0x06 # Mouse 5 (Forward)
-        # Note: Mouse 6+ are custom mapped by drivers to keyboard keys (e.g., F13-F24).
+        'CANCEL'        = 0x03 
+        'MIDDLE_MOUSE'  = 0x04 
+        'MOUSE_X1'      = 0x05 
+        'MOUSE_X2'      = 0x06 
 
-        # =========================
-        # STANDARD FUNCTION KEYS
-        # =========================
         'F1' = 0x70; 'F2' = 0x71; 'F3' = 0x72; 'F4' = 0x73; 'F5' = 0x74; 'F6' = 0x75
         'F7' = 0x76; 'F8' = 0x77; 'F9' = 0x78; 'F10' = 0x79; 'F11' = 0x7A; 'F12' = 0x7B
         'F13' = 0x7C; 'F14' = 0x7D; 'F15' = 0x7E; 'F16' = 0x7F; 'F17' = 0x80; 'F18' = 0x81
         'F19' = 0x82; 'F20' = 0x83; 'F21' = 0x84; 'F22' = 0x85; 'F23' = 0x86; 'F24' = 0x87
 
-        # =========================
-        # NUMBERS & LETTERS
-        # =========================
         '0' = 0x30; '1' = 0x31; '2' = 0x32; '3' = 0x33; '4' = 0x34
         '5' = 0x35; '6' = 0x36; '7' = 0x37; '8' = 0x38; '9' = 0x39
 
@@ -1095,27 +1329,18 @@ function Get-VirtualKeyMappings
         'Q' = 0x51; 'R' = 0x52; 'S' = 0x53; 'T' = 0x54; 'U' = 0x55; 'V' = 0x56; 'W' = 0x57; 'X' = 0x58
         'Y' = 0x59; 'Z' = 0x5A
 
-        # =========================
-        # CONTROLS & NAVIGATION
-        # =========================
+        
         'SPACE' = 0x20; 'ENTER' = 0x0D; 'TAB' = 0x09; 'ESCAPE' = 0x1B; 
         'SHIFT' = 0x10; 'CONTROL' = 0x11; 'ALT' = 0x12
         'UP_ARROW' = 0x26; 'DOWN_ARROW' = 0x28; 'LEFT_ARROW' = 0x25; 'RIGHT_ARROW' = 0x27
         'HOME' = 0x24; 'END' = 0x23; 'PAGE_UP' = 0x21; 'PAGE_DOWN' = 0x22
         'INSERT' = 0x2D; 'DELETE' = 0x2E; 'BACKSPACE' = 0x08
 
-        # =========================
-        # MODERN NAVIGATION (Added in Win10/11)
-        # =========================
-        # Used for UI navigation in modern apps/Xbox integration
         'NAV_VIEW'    = 0x88; 'NAV_MENU'    = 0x89
         'NAV_UP'      = 0x8A; 'NAV_DOWN'    = 0x8B
         'NAV_LEFT'    = 0x8C; 'NAV_RIGHT'   = 0x8D
         'NAV_ACCEPT'  = 0x8E; 'NAV_CANCEL'  = 0x8F
 
-        # =========================
-        # SYSTEM & LOCKS
-        # =========================
         'CAPS_LOCK' = 0x14; 'NUM_LOCK' = 0x90; 'SCROLL_LOCK' = 0x91
         'PRINT_SCREEN' = 0x2C; 'PAUSE_BREAK' = 0x13
         'LEFT_WINDOWS' = 0x5B; 'RIGHT_WINDOWS' = 0x5C; 'APPLICATION' = 0x5D
@@ -1123,55 +1348,34 @@ function Get-VirtualKeyMappings
         'LEFT_CONTROL' = 0xA2; 'RIGHT_CONTROL' = 0xA3
         'LEFT_ALT' = 0xA4; 'RIGHT_ALT' = 0xA5; 'SLEEP' = 0x5F
 
-        # =========================
-        # NUMPAD
-        # =========================
         'NUMPAD_0' = 0x60; 'NUMPAD_1' = 0x61; 'NUMPAD_2' = 0x62; 'NUMPAD_3' = 0x63; 'NUMPAD_4' = 0x64
         'NUMPAD_5' = 0x65; 'NUMPAD_6' = 0x66; 'NUMPAD_7' = 0x67; 'NUMPAD_8' = 0x68; 'NUMPAD_9' = 0x69
         'NUMPAD_MULTIPLY' = 0x6A; 'NUMPAD_ADD' = 0x6B; 'NUMPAD_SEPARATOR' = 0x6C
         'NUMPAD_SUBTRACT' = 0x6D; 'NUMPAD_DECIMAL' = 0x6E; 'NUMPAD_DIVIDE' = 0x6F
 
-        # =========================
-        # PUNCTUATION & US OEM
-        # =========================
-        # Note: These names are for US Keyboards. The hex codes represent physical locations.
-        'SEMICOLON'     = 0xBA # VK_OEM_1 
-        'EQUALS'        = 0xBB # VK_OEM_PLUS
-        'COMMA'         = 0xBC # VK_OEM_COMMA
-        'MINUS'         = 0xBD # VK_OEM_MINUS
-        'PERIOD'        = 0xBE # VK_OEM_PERIOD
-        'FORWARD_SLASH' = 0xBF # VK_OEM_2
-        'BACKTICK'      = 0xC0 # VK_OEM_3
-        'LEFT_BRACKET'  = 0xDB # VK_OEM_4
-        'BACKSLASH'     = 0xDC # VK_OEM_5
-        'RIGHT_BRACKET' = 0xDD # VK_OEM_6
-        'APOSTROPHE'    = 0xDE # VK_OEM_7
+        'SEMICOLON'     = 0xBA 
+        'EQUALS'        = 0xBB 
+        'COMMA'         = 0xBC 
+        'MINUS'         = 0xBD 
+        'PERIOD'        = 0xBE 
+        'FORWARD_SLASH' = 0xBF 
+        'BACKTICK'      = 0xC0 
+        'LEFT_BRACKET'  = 0xDB 
+        'BACKSLASH'     = 0xDC 
+        'RIGHT_BRACKET' = 0xDD 
+        'APOSTROPHE'    = 0xDE 
 
-        # =========================
-        # INTERNATIONAL & EXTENDED OEM
-        # =========================
-        # "Angle Bracket" or "Backslash" key between Left Shift and Z on ISO (UK/DE/FR) keyboards
-        'OEM_102' = 0xE2 
-        # Miscellaneous OEM keys (vary by locale)
+        '<' = 0xE2 
         'OEM_8'   = 0xDF 
-        # Japanese Keyboard Specifics
-        'OEM_AX'  = 0xE1 
-        # Used to pass Unicode characters as if they were keystrokes
+        'AX'  = 0xE1 
         'PACKET'  = 0xE7 
 
-        # =========================
-        # MEDIA & BROWSER
-        # =========================
         'BROWSER_BACK' = 0xA6; 'BROWSER_FORWARD' = 0xA7; 'BROWSER_REFRESH' = 0xA8; 'BROWSER_STOP' = 0xA9
         'BROWSER_SEARCH' = 0xAA; 'BROWSER_FAVORITES' = 0xAB; 'BROWSER_HOME' = 0xAC; 'VOLUME_MUTE' = 0xAD
         'VOLUME_DOWN' = 0xAE; 'VOLUME_UP' = 0xAF; 'MEDIA_NEXT_TRACK' = 0xB0; 'MEDIA_PREVIOUS_TRACK' = 0xB1
         'MEDIA_STOP' = 0xB2; 'MEDIA_PLAY_PAUSE' = 0xB3; 'LAUNCH_MAIL' = 0xB4; 'LAUNCH_MEDIA_PLAYER' = 0xB5
         'LAUNCH_MY_COMPUTER' = 0xB6; 'LAUNCH_CALCULATOR' = 0xB7
 
-        # =========================
-        # GAMEPAD MAPPINGS
-        # =========================
-        # Reserved for Gamepad navigation (e.g. Xbox Controller on Windows)
         'GAMEPAD_A' = 0xC3; 'GAMEPAD_B' = 0xC4
         'GAMEPAD_X' = 0xC5; 'GAMEPAD_Y' = 0xC6
         'GAMEPAD_RIGHT_BUMPER' = 0xC7; 'GAMEPAD_LEFT_BUMPER' = 0xC8
@@ -1185,16 +1389,11 @@ function Get-VirtualKeyMappings
         'GAMEPAD_RIGHT_THUMB_UP' = 0xD7; 'GAMEPAD_RIGHT_THUMB_DOWN' = 0xD8
         'GAMEPAD_RIGHT_THUMB_RIGHT' = 0xD9; 'GAMEPAD_RIGHT_THUMB_LEFT' = 0xDA
 
-        # =========================
-        # IME, LEGACY & MANUFACTURER
-        # =========================
         'IME_KANA_HANGUL' = 0x15; 'IME_JUNJA' = 0x17; 'IME_FINAL' = 0x18; 'IME_HANJA_KANJI' = 0x19
         'IME_CONVERT' = 0x1C; 'IME_NONCONVERT' = 0x1D; 'IME_ACCEPT' = 0x1E; 'IME_MODE_CHANGE' = 0x1F; 'IME_PROCESS' = 0xE5
 
-        # Fujitsu/OASYS keys
         'OEM_FJ_JISHO' = 0x92; 'OEM_FJ_MASSHOU' = 0x93; 'OEM_FJ_TOUROKU' = 0x94; 'OEM_FJ_LOYA' = 0x95; 'OEM_FJ_ROYA' = 0x96
         
-        # Legacy / Mainframe
         'SELECT' = 0x29; 'PRINT' = 0x2A; 'EXECUTE' = 0x2B; 'HELP' = 0x2F; 'CLEAR' = 0x0C
         'ATTN' = 0xF6; 'CRSEL' = 0xF7; 'EXSEL' = 0xF8; 'ERASE_EOF' = 0xF9; 'PLAY' = 0xFA; 'ZOOM' = 0xFB
         'PA1' = 0xFD; 'OEM_CLEAR' = 0xFE
@@ -1202,100 +1401,100 @@ function Get-VirtualKeyMappings
 }
 
 function NormalizeKeyString {
-	param(
-		[Parameter(Mandatory=$true)][string]$KeyCombinationString
-	)
+    param(
+        [Parameter(Mandatory=$true)][string]$KeyCombinationString
+    )
 
-	if ([string]::IsNullOrEmpty($KeyCombinationString)) { return $null }
-	$parts = @($KeyCombinationString -split '\s*\+\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
-	
-	$parsedModifierKeys = @()
-	$parsedPrimaryKey = $null
-	foreach ($part in $parts) {
-		switch ($part.ToUpper()) {
-			'ALT'   { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
-			'MENU'  { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
-			'LALT'  { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
-			'RALT'  { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
-			'LEFT_ALT'  { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
-			'RIGHT_ALT' { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
-			'CTRL'  { if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
-			'CONTROL'{ if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
-			'LCTRL' { if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
-			'RCTRL' { if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
-			'LEFT_CONTROL' { if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
-			'RIGHT_CONTROL'{ if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
-			'SHIFT' { if ($parsedModifierKeys -notcontains 'Shift') { $parsedModifierKeys += 'Shift' } }
-			'LSHIFT'{ if ($parsedModifierKeys -notcontains 'Shift') { $parsedModifierKeys += 'Shift' } }
-			'RSHIFT'{ if ($parsedModifierKeys -notcontains 'Shift') { $parsedModifierKeys += 'Shift' } }
-			'WIN'   { if ($parsedModifierKeys -notcontains 'Win') { $parsedModifierKeys += 'Win' } }
-			'LWIN'  { if ($parsedModifierKeys -notcontains 'Win') { $parsedModifierKeys += 'Win' } }
-			'RWIN'  { if ($parsedModifierKeys -notcontains 'Win') { $parsedModifierKeys += 'Win' } }
-			'WINDOWS' { if ($parsedModifierKeys -notcontains 'Win') { $parsedModifierKeys += 'Win' } }
-			default { 
+    if ([string]::IsNullOrEmpty($KeyCombinationString)) { return $null }
+    $parts = @($KeyCombinationString -split '\s*\+\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+    
+    $parsedModifierKeys = @()
+    $parsedPrimaryKey = $null
+    foreach ($part in $parts) {
+        switch ($part.ToUpper()) {
+            'ALT'   { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
+            'MENU'  { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
+            'LALT'  { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
+            'RALT'  { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
+            'LEFT_ALT'  { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
+            'RIGHT_ALT' { if ($parsedModifierKeys -notcontains 'Alt') { $parsedModifierKeys += 'Alt' } }
+            'CTRL'  { if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
+            'CONTROL'{ if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
+            'LCTRL' { if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
+            'RCTRL' { if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
+            'LEFT_CONTROL' { if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
+            'RIGHT_CONTROL'{ if ($parsedModifierKeys -notcontains 'Ctrl') { $parsedModifierKeys += 'Ctrl' } }
+            'SHIFT' { if ($parsedModifierKeys -notcontains 'Shift') { $parsedModifierKeys += 'Shift' } }
+            'LSHIFT'{ if ($parsedModifierKeys -notcontains 'Shift') { $parsedModifierKeys += 'Shift' } }
+            'RSHIFT'{ if ($parsedModifierKeys -notcontains 'Shift') { $parsedModifierKeys += 'Shift' } }
+            'WIN'   { if ($parsedModifierKeys -notcontains 'Win') { $parsedModifierKeys += 'Win' } }
+            'LWIN'  { if ($parsedModifierKeys -notcontains 'Win') { $parsedModifierKeys += 'Win' } }
+            'RWIN'  { if ($parsedModifierKeys -notcontains 'Win') { $parsedModifierKeys += 'Win' } }
+            'WINDOWS' { if ($parsedModifierKeys -notcontains 'Win') { $parsedModifierKeys += 'Win' } }
+            default { 
                 if ([string]::IsNullOrEmpty($parsedPrimaryKey)) { 
                     $parsedPrimaryKey = $part 
                 } else {
                     $parsedPrimaryKey = "$parsedPrimaryKey $part"
                 }
             }
-		}
-	}
+        }
+    }
 
-	$canonicalOrder = @('Ctrl','Alt','Shift','Win')
-	$canonicalModifiers = @()
-	foreach ($m in $canonicalOrder) { if ($parsedModifierKeys -contains $m) { $canonicalModifiers += $m } }
+    $canonicalOrder = @('Ctrl','Alt','Shift','Win')
+    $canonicalModifiers = @()
+    foreach ($m in $canonicalOrder) { if ($parsedModifierKeys -contains $m) { $canonicalModifiers += $m } }
 
-	if ($canonicalModifiers.Count -gt 0) {
-		if ([string]::IsNullOrEmpty($parsedPrimaryKey)) { return ([string]($canonicalModifiers -join ' + ')).ToUpper() }
-		return ([string]("$(($canonicalModifiers -join ' + '))+$parsedPrimaryKey")).ToUpper()
-	} else {
-		return ([string]$parsedPrimaryKey).ToUpper()
-	}
+    if ($canonicalModifiers.Count -gt 0) {
+        if ([string]::IsNullOrEmpty($parsedPrimaryKey)) { return ([string]($canonicalModifiers -join ' + ')).ToUpper() }
+        return ([string]("$(($canonicalModifiers -join ' + '))+$parsedPrimaryKey")).ToUpper()
+    } else {
+        return ([string]$parsedPrimaryKey).ToUpper()
+    }
 }
 
 function ParseKeyString {
-	param(
-		[Parameter(Mandatory=$true)][string]$KeyCombinationString
-	)
+    param(
+        [Parameter(Mandatory=$true)][string]$KeyCombinationString
+    )
 
-	$normalized = NormalizeKeyString $KeyCombinationString
-	if (-not $normalized) { return @{Modifiers=@(); Primary=$null; Normalized=$null} }
+    $normalized = NormalizeKeyString $KeyCombinationString
+    if (-not $normalized) { return @{Modifiers=@(); Primary=$null; Normalized=$null} }
 
-	$parts = @($normalized -split '\s*\+\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
-	
-	if ($parts.Count -eq 0) { return @{Modifiers=@(); Primary=$null; Normalized=$normalized} }
+    $parts = @($normalized -split '\s*\+\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+    
+    if ($parts.Count -eq 0) { return @{Modifiers=@(); Primary=$null; Normalized=$normalized} }
 
-	if ($parts.Count -eq 1) {
-		return @{Modifiers=@(); Primary=([string]$parts[0]).ToUpper(); Normalized=$normalized}
-	}
+    if ($parts.Count -eq 1) {
+        return @{Modifiers=@(); Primary=([string]$parts[0]).ToUpper(); Normalized=$normalized}
+    }
 
-	$primary = ([string]$parts[-1]).ToUpper()
-	$mods = $parts[0..($parts.Count - 2)] | ForEach-Object {
-		switch ($_.ToUpper()) {
-			'CTRL' { 'Ctrl' }
-			'CONTROL' { 'Ctrl' }
-			'LCTRL' { 'Ctrl' }
-			'RCTRL' { 'Ctrl' }
-			'LEFT_CONTROL' { 'Ctrl' }
-			'RIGHT_CONTROL' { 'Ctrl' }
-			'ALT'  { 'Alt' }
-			'MENU' { 'Alt' }
-			'LALT'  { 'Alt' }
-			'RALT'  { 'Alt' }
-			'LEFT_ALT' { 'Alt' }
-			'RIGHT_ALT' { 'Alt' }
-			'SHIFT'{ 'Shift' }
-			'LSHIFT'{ 'Shift' }
-			'RSHIFT'{ 'Shift' }
-			'WIN'  { 'Win' }
-			'LWIN' { 'Win' }
-			'RWIN' { 'Win' }
-			'WINDOWS' { 'Win' }
-			default { $_ }
-		}
-	}
-	return @{Modifiers=$mods; Primary=$primary; Normalized=$normalized}
+    $primary = ([string]$parts[-1]).ToUpper()
+    $mods = $parts[0..($parts.Count - 2)] | ForEach-Object {
+        switch ($_.ToUpper()) {
+            'CTRL' { 'Ctrl' }
+            'CONTROL' { 'Ctrl' }
+            'LCTRL' { 'Ctrl' }
+            'RCTRL' { 'Ctrl' }
+            'LEFT_CONTROL' { 'Ctrl' }
+            'RIGHT_CONTROL' { 'Ctrl' }
+            'ALT'  { 'Alt' }
+            'MENU' { 'Alt' }
+            'LALT'  { 'Alt' }
+            'RALT'  { 'Alt' }
+            'LEFT_ALT' { 'Alt' }
+            'RIGHT_ALT' { 'Alt' }
+            'SHIFT'{ 'Shift' }
+            'LSHIFT'{ 'Shift' }
+            'RSHIFT'{ 'Shift' }
+            'WIN'  { 'Win' }
+            'LWIN' { 'Win' }
+            'RWIN' { 'Win' }
+            'WINDOWS' { 'Win' }
+            default { $_ }
+        }
+    }
+    return @{Modifiers=$mods; Primary=$primary; Normalized=$normalized}
 }
 
 function Get-KeyCombinationString {
@@ -1326,20 +1525,21 @@ function IsModifierKeyCode {
 
 function Show-KeyCaptureDialog
 {
-	param(
-		[string]$currentKey = '' 
-	)
-	try {
-		PauseAllHotkeys
-		$script:KeyCapture_PausedSnapshot = @()
-		if ($global:PausedRegisteredHotkeys) { $script:KeyCapture_PausedSnapshot = @($global:PausedRegisteredHotkeys.Keys) }
-	} catch {
-		Write-Verbose ("FTOOL: Pause-AllHotkeys failed: {0}" -f $_.Exception.Message)
-	}
+    param(
+        [string]$currentKey = '' 
+    )
+    try {
+        PauseAllHotkeys
+        $script:KeyCapture_PausedSnapshot = @()
+        if ($global:PausedRegisteredHotkeys) { $script:KeyCapture_PausedSnapshot = @($global:PausedRegisteredHotkeys.Keys) }
+    } catch {
+        Write-Verbose ("FTOOL: Pause-AllHotkeys failed: {0}" -f $_.Exception.Message)
+    }
 
     $script:capturedModifierKeys = @()
     $script:capturedPrimaryKey = $null
 
+    
     if (-not [string]::IsNullOrEmpty($currentKey) -and $currentKey -ne "Hotkey" -and $currentKey -ne "none") {
         $parts = $currentKey.Split(' + ')
         foreach ($part in $parts) {
@@ -1353,43 +1553,138 @@ function Show-KeyCaptureDialog
         }
     }
 
-	$captureForm = New-Object System.Windows.Forms.Form
-	$captureForm.Text = "Press a Key Combination" 
-	$captureForm.Size = New-Object System.Drawing.Size(300, 150)
-	$captureForm.StartPosition = 'CenterParent'
-	$captureForm.FormBorderStyle = 'FixedDialog'
-	$captureForm.MaximizeBox = $false
-	$captureForm.MinimizeBox = $false
-	$captureForm.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
-	$captureForm.ForeColor = [System.Drawing.Color]::White
-	
-	$label = New-Object System.Windows.Forms.Label
-	$label.Text = "Press any key combination.`n`nPress ESC to cancel." 
-	$label.Size = New-Object System.Drawing.Size(280, 60)
-	$label.Location = New-Object System.Drawing.Point(10, 10)
-	$label.TextAlign = 'MiddleCenter'
-	$label.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-	$captureForm.Controls.Add($label)
-	
-	$resultLabel = New-Object System.Windows.Forms.Label
-	$resultLabel.Text = (Get-KeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey) 
-	$resultLabel.Size = New-Object System.Drawing.Size(280, 25)
-	$resultLabel.Location = New-Object System.Drawing.Point(10, 75)
-	$resultLabel.TextAlign = 'MiddleCenter'
-	$resultLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
-	$resultLabel.ForeColor = [System.Drawing.Color]::Yellow
-	$captureForm.Controls.Add($resultLabel)
-	
-	$captureForm.Add_KeyDown({
-        param($form, $e)
+    $captureForm = New-Object System.Windows.Forms.Form
+    $captureForm.Text = "Capture Input"
+    $captureForm.Size = New-Object System.Drawing.Size(340, 180)
+    $captureForm.StartPosition = 'CenterParent'
+    $captureForm.FormBorderStyle = 'FixedDialog'
+    $captureForm.MaximizeBox = $false
+    $captureForm.MinimizeBox = $false
+    $captureForm.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 48)
+    $captureForm.ForeColor = [System.Drawing.Color]::White
+    $captureForm.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
-        if ($e.KeyCode -eq 'Escape') {
-            $script:capturedPrimaryKey = $null
-            $script:capturedModifierKeys = @()
-            $captureForm.DialogResult = 'Cancel'
-            $captureForm.Close()
+    $label = New-Object System.Windows.Forms.Label
+    $label.Text = "Press any key combination or click a mouse button inside this window."
+    $label.Size = New-Object System.Drawing.Size(300, 60)
+    $label.Location = New-Object System.Drawing.Point(10, 10)
+    $label.TextAlign = 'MiddleCenter'
+    $label.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+    $label.ForeColor = [System.Drawing.Color]::White
+    $label.Enabled = $false
+
+    $label.Add_Paint({
+        param($s, $e) 
+
+        
+        $graphics = $e.Graphics
+        $text = $this.Text
+
+        
+        $font = $this.Font
+        $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+        $rect = $this.ClientRectangle
+
+        
+        $format = New-Object System.Drawing.StringFormat
+        $format.Alignment = [System.Drawing.StringAlignment]::Center
+        $format.LineAlignment = [System.Drawing.StringAlignment]::Center
+
+        $rectF = New-Object System.Drawing.RectangleF($rect.X, $rect.Y, $rect.Width, $rect.Height)
+
+        
+        $graphics.DrawString($text, $font, $brush, $rectF, $format)
+
+        
+        $brush.Dispose()
+
+    })
+    $captureForm.Controls.Add($label)
+
+    
+    $resultPanel = New-Object System.Windows.Forms.Panel
+    $resultPanel.Location = New-Object System.Drawing.Point(10, 80)
+    $resultPanel.Size = New-Object System.Drawing.Size(300, 40)
+    $resultPanel.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+    $captureForm.Controls.Add($resultPanel)
+
+    $resultLabel = New-Object System.Windows.Forms.Label
+    $resultLabel.Text = (Get-KeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)
+    $resultLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $resultLabel.TextAlign = 'MiddleCenter'
+    $resultLabel.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+    $resultLabel.ForeColor = [System.Drawing.Color]::White
+    $resultLabel.Enabled = $false
+
+    $resultLabel.Add_Paint({
+
+        param($s, $e) 
+
+        
+        $graphics = $e.Graphics
+        $text = $this.Text
+
+        
+        $font = $this.Font
+        $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+        $rect = $this.ClientRectangle
+
+        
+        $format = New-Object System.Drawing.StringFormat
+        $format.Alignment = [System.Drawing.StringAlignment]::Center
+        $format.LineAlignment = [System.Drawing.StringAlignment]::Center
+
+        $rectF = New-Object System.Drawing.RectangleF($rect.X, $rect.Y, $rect.Width, $rect.Height)
+
+        
+        $graphics.DrawString($text, $font, $brush, $rectF, $format)
+
+        
+        $brush.Dispose()
+    })
+    $resultPanel.Controls.Add($resultLabel)
+
+    
+    $captureForm.Add_MouseDown({
+        param($s, $e)
+        
+        $formBounds = $s.Bounds
+        $cursorPos = [System.Windows.Forms.Cursor]::Position
+        if (-not $formBounds.Contains($cursorPos)) {
             return
         }
+
+        
+        [System.Collections.ArrayList]$currentModifiers = @()
+        if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Control) { $currentModifiers.Add('Ctrl') }
+        if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Alt)     { $currentModifiers.Add('Alt') }
+        if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Shift)   { $currentModifiers.Add('Shift') }
+        
+
+        
+        $btnName = $null
+        switch ($e.Button) {
+            'Left'    { $btnName = 'LEFT_MOUSE' }
+            'Right'   { $btnName = 'RIGHT_MOUSE' }
+            'Middle'  { $btnName = 'MIDDLE_MOUSE' }
+            'XButton1'{ $btnName = 'MOUSE_X1' }
+            'XButton2'{ $btnName = 'MOUSE_X2' }
+        }
+
+        if ($btnName) {
+            $script:capturedPrimaryKey = $btnName
+            $script:capturedModifierKeys = $currentModifiers
+            
+            $resultLabel.Text = "Captured: $(Get-KeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)"
+            $resultLabel.ForeColor = [System.Drawing.Color]::Green
+            $captureForm.DialogResult = 'OK'
+            $captureForm.Close()
+        }
+    })
+    
+    
+    $captureForm.Add_KeyDown({
+        param($form, $e)
 
         [System.Collections.ArrayList]$currentModifiersTemp = @()
         if ($e.Control) { $currentModifiersTemp.Add('Ctrl') }
@@ -1449,56 +1744,56 @@ function Show-KeyCaptureDialog
         }
     })
 
-
-	$captureForm.KeyPreview = $true
-	$captureForm.TopMost = $true
-	
-	$result = $captureForm.ShowDialog()
-	try {
-		if ($result -eq 'OK' -and -not [string]::IsNullOrEmpty($script:capturedPrimaryKey)) 
-		{
-			return (Get-KeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)
-		}
-		else
-		{
-			return $currentKey  
-		}
-	} finally {
-		try {
-			[HotkeyManager]::AreHotkeysGloballyPaused = $false
-			if ($script:KeyCapture_PausedSnapshot -and $script:KeyCapture_PausedSnapshot.Count -gt 0) {
-				Resume-PausedKeys -Keys $script:KeyCapture_PausedSnapshot
-			} else {
-				Resume-AllHotkeys
-			}
-		} catch {
-			Write-Verbose ("FTOOL: Resume-AllHotkeys (or Resume-PausedKeys) failed: {0}" -f $_.Exception.Message)
-		} finally {
-			Remove-Variable -Name KeyCapture_PausedSnapshot -Scope Script -ErrorAction SilentlyContinue
+    $captureForm.KeyPreview = $true
+    $captureForm.TopMost = $true
+    
+    $result = $captureForm.ShowDialog()
+    try {
+        if ($result -eq 'OK' -and -not [string]::IsNullOrEmpty($script:capturedPrimaryKey)) 
+        {
+            return (Get-KeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)
+        }
+        else
+        {
+            return $currentKey  
+        }
+    } finally {
+        try {
+            [HotkeyManager]::AreHotkeysGloballyPaused = $false
+            if ($script:KeyCapture_PausedSnapshot -and $script:KeyCapture_PausedSnapshot.Count -gt 0) {
+                Resume-PausedKeys -Keys $script:KeyCapture_PausedSnapshot
+            } else {
+                Resume-AllHotkeys
+            }
+        } catch {
+            Write-Verbose ("FTOOL: Resume-AllHotkeys (or Resume-PausedKeys) failed: {0}" -f $_.Exception.Message)
+        } finally {
+            Remove-Variable -Name KeyCapture_PausedSnapshot -Scope Script -ErrorAction SilentlyContinue
             $script:capturedPrimaryKey = $null
             $script:capturedModifierKeys = @()
-		}
-	}
+        }
+    }
 }
+
 
 function LoadFtoolSettings
 {
-	param($formData)
-	
-	if (-not $global:DashboardConfig.Config)
-	{ 
-		$global:DashboardConfig.Config = [ordered]@{} 
-	}
-	if (-not $global:DashboardConfig.Config.Contains('Ftool'))
-	{ 
-		$global:DashboardConfig.Config['Ftool'] = [ordered]@{} 
-	}
-	
-	$profilePrefix = FindOrCreateProfile $formData.WindowTitle
-	$formData.ProfilePrefix = $profilePrefix
+    param($formData)
+    
+    if (-not $global:DashboardConfig.Config)
+    { 
+        $global:DashboardConfig.Config = [ordered]@{} 
+    }
+    if (-not $global:DashboardConfig.Config.Contains('Ftool'))
+    { 
+        $global:DashboardConfig.Config['Ftool'] = [ordered]@{} 
+    }
+    
+    $profilePrefix = FindOrCreateProfile $formData.WindowTitle
+    $formData.ProfilePrefix = $profilePrefix
 
-	if ($profilePrefix)
-	{
+    if ($profilePrefix)
+    {
         $globalHotkeyName = "GlobalHotkey_$profilePrefix"
         if ($global:DashboardConfig.Config['Ftool'].Contains($globalHotkeyName))
         {
@@ -1517,281 +1812,281 @@ function LoadFtoolSettings
             $formData.BtnHotKey.Text = "Hotkey" 
         }
 
-		$hotkeysEnabledName = "hotkeys_enabled_$profilePrefix"
-		if ($global:DashboardConfig.Config['Ftool'].Contains($hotkeysEnabledName)) {
-			$value = $global:DashboardConfig.Config['Ftool'][$hotkeysEnabledName]
-			try { $formData.BtnHotkeyToggle.Checked = [bool]::Parse($value) } catch { $formData.BtnHotkeyToggle.Checked = $true }
-		} else {
-			$formData.BtnHotkeyToggle.Checked = $true
-		}
+        $hotkeysEnabledName = "hotkeys_enabled_$profilePrefix"
+        if ($global:DashboardConfig.Config['Ftool'].Contains($hotkeysEnabledName)) {
+            $value = $global:DashboardConfig.Config['Ftool'][$hotkeysEnabledName]
+            try { $formData.BtnHotkeyToggle.Checked = [bool]::Parse($value) } catch { $formData.BtnHotkeyToggle.Checked = $true }
+        } else {
+            $formData.BtnHotkeyToggle.Checked = $true
+        }
 
-		$keyName = "key1_$profilePrefix"
-		$intervalName = "inpt1_$profilePrefix"
-		$nameName = "name1_$profilePrefix"
-		$positionXName = "pos1X_$profilePrefix"
-		$positionYName = "pos1Y_$profilePrefix"
-	
-		if ($global:DashboardConfig.Config['Ftool'].Contains($keyName))
-		{
-			$formData.BtnKeySelect.Text = $global:DashboardConfig.Config['Ftool'][$keyName]
-		}
-		else
-		{
-			$formData.BtnKeySelect.Text = 'none'
-		}
-		
-		if ($global:DashboardConfig.Config['Ftool'].Contains($intervalName))
-		{
-			$intervalValue = [int]$global:DashboardConfig.Config['Ftool'][$intervalName]
-			if ($intervalValue -lt 10)
-			{
-				$intervalValue = 100
-			}
-			$formData.Interval.Text = $intervalValue.ToString()
-		}
-		else
-		{
-			$formData.Interval.Text = '100'
-		}
+        $keyName = "key1_$profilePrefix"
+        $intervalName = "inpt1_$profilePrefix"
+        $nameName = "name1_$profilePrefix"
+        $positionXName = "pos1X_$profilePrefix"
+        $positionYName = "pos1Y_$profilePrefix"
+    
+        if ($global:DashboardConfig.Config['Ftool'].Contains($keyName))
+        {
+            $formData.BtnKeySelect.Text = $global:DashboardConfig.Config['Ftool'][$keyName]
+        }
+        else
+        {
+            $formData.BtnKeySelect.Text = 'none'
+        }
+        
+        if ($global:DashboardConfig.Config['Ftool'].Contains($intervalName))
+        {
+            $intervalValue = [int]$global:DashboardConfig.Config['Ftool'][$intervalName]
+            if ($intervalValue -lt 10)
+            {
+                $intervalValue = 100
+            }
+            $formData.Interval.Text = $intervalValue.ToString()
+        }
+        else
+        {
+            $formData.Interval.Text = '100'
+        }
 
-		if ($global:DashboardConfig.Config['Ftool'].Contains($nameName))
-		{
-			$nameValue = [string]$global:DashboardConfig.Config['Ftool'][$nameName]
-			$formData.Name.Text = $nameValue.ToString()
-		}
-		else
-		{
-			$formData.Name.Text = 'Main'
-		}
+        if ($global:DashboardConfig.Config['Ftool'].Contains($nameName))
+        {
+            $nameValue = [string]$global:DashboardConfig.Config['Ftool'][$nameName]
+            $formData.Name.Text = $nameValue.ToString()
+        }
+        else
+        {
+            $formData.Name.Text = 'Main'
+        }
 
-		if ($global:DashboardConfig.Config['Ftool'].Contains($positionXName))
-		{
-			$positionValue = [int]$global:DashboardConfig.Config['Ftool'][$positionXName]
-			$formData.PositionSliderX.Value = $positionValue
-		}
-		else
-		{
-			$formData.PositionSliderX.Value = 0
-		}
+        if ($global:DashboardConfig.Config['Ftool'].Contains($positionXName))
+        {
+            $positionValue = [int]$global:DashboardConfig.Config['Ftool'][$positionXName]
+            $formData.PositionSliderX.Value = $positionValue
+        }
+        else
+        {
+            $formData.PositionSliderX.Value = 0
+        }
 
-		if ($global:DashboardConfig.Config['Ftool'].Contains($positionYName))
-		{
-			$positionValue = [int]$global:DashboardConfig.Config['Ftool'][$positionYName]
-			$formData.PositionSliderY.Value = $positionValue
-		}
-		else
-		{
-			$formData.PositionSliderY.Value = 100
-		}
-	}
-	else
-	{
+        if ($global:DashboardConfig.Config['Ftool'].Contains($positionYName))
+        {
+            $positionValue = [int]$global:DashboardConfig.Config['Ftool'][$positionYName]
+            $formData.PositionSliderY.Value = $positionValue
+        }
+        else
+        {
+            $formData.PositionSliderY.Value = 100
+        }
+    }
+    else
+    {
         $formData.Hotkey = $null
         $formData.BtnHotKey.Text = "Hotkey" 
-		$formData.BtnKeySelect.Text = 'none'
-		$formData.Interval.Text = '1000'
-		$formData.Name.Text = 'Main'
-	}
+        $formData.BtnKeySelect.Text = 'none'
+        $formData.Interval.Text = '1000'
+        $formData.Name.Text = 'Main'
+    }
 }
 
 function FindOrCreateProfile
 {
-	param($windowTitle)
-	
-	$profilePrefix = $null
-	$profileFound = $false
-	
-	if ($windowTitle)
-	{
-		foreach ($key in $global:DashboardConfig.Config['Ftool'].Keys)
-		{
-			if ($key -like 'profile_*' -and $global:DashboardConfig.Config['Ftool'][$key] -eq $windowTitle)
-			{
-				$profilePrefix = $key -replace 'profile_', ''
-				$profileFound = $true
-				break
-			}
-		}
-		
-		if (-not $profileFound)
-		{
-			$maxProfileNum = 0
-			foreach ($key in $global:DashboardConfig.Config['Ftool'].Keys)
-			{
-				if ($key -match 'profile_(\d+)')
-				{
-					$profileNum = [int]$matches[1]
-					if ($profileNum -gt $maxProfileNum)
-					{
-						$maxProfileNum = $profileNum
-					}
-				}
-			}
-			
-			$profilePrefix = ($maxProfileNum + 1).ToString()
-			$profileKey = "profile_$profilePrefix"
-			$global:DashboardConfig.Config['Ftool'][$profileKey] = $windowTitle
-		}
-	}
-	return $profilePrefix
+    param($windowTitle)
+    
+    $profilePrefix = $null
+    $profileFound = $false
+    
+    if ($windowTitle)
+    {
+        foreach ($key in $global:DashboardConfig.Config['Ftool'].Keys)
+        {
+            if ($key -like 'profile_*' -and $global:DashboardConfig.Config['Ftool'][$key] -eq $windowTitle)
+            {
+                $profilePrefix = $key -replace 'profile_', ''
+                $profileFound = $true
+                break
+            }
+        }
+        
+        if (-not $profileFound)
+        {
+            $maxProfileNum = 0
+            foreach ($key in $global:DashboardConfig.Config['Ftool'].Keys)
+            {
+                if ($key -match 'profile_(\d+)')
+                {
+                    $profileNum = [int]$matches[1]
+                    if ($profileNum -gt $maxProfileNum)
+                    {
+                        $maxProfileNum = $profileNum
+                    }
+                }
+            }
+            
+            $profilePrefix = ($maxProfileNum + 1).ToString()
+            $profileKey = "profile_$profilePrefix"
+            $global:DashboardConfig.Config['Ftool'][$profileKey] = $windowTitle
+        }
+    }
+    return $profilePrefix
 }
 
 function InitializeExtensionTracking
 {
-	param($instanceId)
-	
-	$instanceKey = "instance_$instanceId"
-	
-	if (-not $global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
-	{
-		$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey] = @{
-			NextExtNum       = 2
-			ActiveExtensions = @()
-			RemovedExtNums   = @()
-		}
-	}
-	
-	$validActiveExtensions = @()
-	foreach ($key in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions)
-	{
-		if ($global:DashboardConfig.Resources.ExtensionData.Contains($key))
-		{
-			$validActiveExtensions += $key
-		}
-	}
-	$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions = $validActiveExtensions
-	
-	if ($global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums)
-	{
-		$validRemovedNums = @()
-		foreach ($num in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums)
-		{
-			$intNum = 0
-			if ([int]::TryParse($num.ToString(), [ref]$intNum))
-			{
-				# Only add if not already in the list
-				if ($validRemovedNums -notcontains $intNum)
-				{
-					$validRemovedNums += $intNum
-				}
-			}
-		}
-		$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums = $validRemovedNums
-	}
+    param($instanceId)
+    
+    $instanceKey = "instance_$instanceId"
+    
+    if (-not $global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
+    {
+        $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey] = @{
+            NextExtNum       = 2
+            ActiveExtensions = @()
+            RemovedExtNums   = @()
+        }
+    }
+    
+    $validActiveExtensions = @()
+    foreach ($key in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions)
+    {
+        if ($global:DashboardConfig.Resources.ExtensionData.Contains($key))
+        {
+            $validActiveExtensions += $key
+        }
+    }
+    $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions = $validActiveExtensions
+    
+    if ($global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums)
+    {
+        $validRemovedNums = @()
+        foreach ($num in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums)
+        {
+            $intNum = 0
+            if ([int]::TryParse($num.ToString(), [ref]$intNum))
+            {
+                
+                if ($validRemovedNums -notcontains $intNum)
+                {
+                    $validRemovedNums += $intNum
+                }
+            }
+        }
+        $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums = $validRemovedNums
+    }
 }
 
 function GetNextExtensionNumber
 {
-	param($instanceId)
-	
-	$instanceKey = "instance_$instanceId"
-	
-	if ($global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums.Count -gt 0)
-	{
-		$sortedNums = @()
-		foreach ($num in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums)
-		{
-			$intNum = 0
-			if ([int]::TryParse($num.ToString(), [ref]$intNum))
-			{
-				$sortedNums += $intNum
-			}
-		}
-		
-		$sortedNums = $sortedNums | Sort-Object
-		
-		if ($sortedNums.Count -gt 0)
-		{
-			$extNum = $sortedNums[0]
-			
-			$newRemovedNums = @()
-			foreach ($num in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums)
-			{
-				$intNum = 0
-				if ([int]::TryParse($num.ToString(), [ref]$intNum) -and $intNum -ne $extNum)
-				{
-					$newRemovedNums += $intNum
-				}
-			}
-			$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums = $newRemovedNums
-			
-			Write-Verbose "FTOOL: Reusing extension number $extNum for $instanceId" -ForegroundColor DarkGray
-		}
-		else
-		{
-			$extNum = $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].NextExtNum
-			$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].NextExtNum++
-			Write-Verbose "FTOOL: Using new extension number $extNum for $instanceId (no valid reusable numbers)" -ForegroundColor Yellow
-		}
-	}
-	else
-	{
-		$extNum = $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].NextExtNum
-		$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].NextExtNum++
-		Write-Verbose "FTOOL: Using new extension number $extNum for $instanceId" -ForegroundColor DarkGray
-	}
-	
-	return $extNum
+    param($instanceId)
+    
+    $instanceKey = "instance_$instanceId"
+    
+    if ($global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums.Count -gt 0)
+    {
+        $sortedNums = @()
+        foreach ($num in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums)
+        {
+            $intNum = 0
+            if ([int]::TryParse($num.ToString(), [ref]$intNum))
+            {
+                $sortedNums += $intNum
+            }
+        }
+        
+        $sortedNums = $sortedNums | Sort-Object
+        
+        if ($sortedNums.Count -gt 0)
+        {
+            $extNum = $sortedNums[0]
+            
+            $newRemovedNums = @()
+            foreach ($num in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums)
+            {
+                $intNum = 0
+                if ([int]::TryParse($num.ToString(), [ref]$intNum) -and $intNum -ne $extNum)
+                {
+                    $newRemovedNums += $intNum
+                }
+            }
+            $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums = $newRemovedNums
+            
+            Write-Verbose "FTOOL: Reusing extension number $extNum for $instanceId" -ForegroundColor DarkGray
+        }
+        else
+        {
+            $extNum = $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].NextExtNum
+            $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].NextExtNum++
+            Write-Verbose "FTOOL: Using new extension number $extNum for $instanceId (no valid reusable numbers)" -ForegroundColor Yellow
+        }
+    }
+    else
+    {
+        $extNum = $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].NextExtNum
+        $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].NextExtNum++
+        Write-Verbose "FTOOL: Using new extension number $extNum for $instanceId" -ForegroundColor DarkGray
+    }
+    
+    return $extNum
 }
 
 function FindExtensionKeyByControl
 {
-	param($control, $controlType)
-	
-	if (-not $control)
-	{
-		return $null 
-	}
-	if (-not $controlType -or -not ($controlType -is [string]))
-	{
-		return $null 
-	}
-	
-	$controlId = $control.GetHashCode()
-	$form = $control.FindForm()
-	
-	if ($form -and $form.Tag -and $form.Tag.ControlToExtensionMap.Contains($controlId))
-	{
-		$extKey = $form.Tag.ControlToExtensionMap[$controlId]
-		
-		if ($global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
-		{
-			return $extKey
-		}
-		else
-		{
-			$form.Tag.ControlToExtensionMap.Remove($controlId)
-		}
-	}
-	
-	foreach ($key in $global:DashboardConfig.Resources.ExtensionData.Keys)
-	{
-		$extData = $global:DashboardConfig.Resources.ExtensionData[$key]
-		if ($extData -and $extData.$controlType -eq $control)
-		{
-			if ($form -and $form.Tag)
-			{
-				$form.Tag.ControlToExtensionMap[$controlId] = $key
-			}
-			return $key
-		}
-	}
-	
-	return $null
+    param($control, $controlType)
+    
+    if (-not $control)
+    {
+        return $null 
+    }
+    if (-not $controlType -or -not ($controlType -is [string]))
+    {
+        return $null 
+    }
+    
+    $controlId = $control.GetHashCode()
+    $form = $control.FindForm()
+    
+    if ($form -and $form.Tag -and $form.Tag.ControlToExtensionMap.Contains($controlId))
+    {
+        $extKey = $form.Tag.ControlToExtensionMap[$controlId]
+        
+        if ($global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+        {
+            return $extKey
+        }
+        else
+        {
+            $form.Tag.ControlToExtensionMap.Remove($controlId)
+        }
+    }
+    
+    foreach ($key in $global:DashboardConfig.Resources.ExtensionData.Keys)
+    {
+        $extData = $global:DashboardConfig.Resources.ExtensionData[$key]
+        if ($extData -and $extData.$controlType -eq $control)
+        {
+            if ($form -and $form.Tag)
+            {
+                $form.Tag.ControlToExtensionMap[$controlId] = $key
+            }
+            return $key
+        }
+    }
+    
+    return $null
 }
 
 function LoadExtensionSettings
 {
-	param($extData, $profilePrefix)
-	
-	$extNum = $extData.ExtNum
-	
-	# Load settings from config if they exist
-	$keyName = "key${extNum}_$profilePrefix"
-	$intervalName = "inpt${extNum}_$profilePrefix"
-	$nameName = "name${extNum}_$profilePrefix"
+    param($extData, $profilePrefix)
+    
+    $extNum = $extData.ExtNum
+    
+    
+    $keyName = "key${extNum}_$profilePrefix"
+    $intervalName = "inpt${extNum}_$profilePrefix"
+    $nameName = "name${extNum}_$profilePrefix"
     $extHotkeyName = "ExtHotkey_${extNum}_$profilePrefix" 
-	
+    
     if ($global:DashboardConfig.Config['Ftool'].Contains($extHotkeyName))
     {
         $extData.Hotkey = $global:DashboardConfig.Config['Ftool'][$extHotkeyName]
@@ -1803,56 +2098,56 @@ function LoadExtensionSettings
         $extData.BtnHotKey.Text = "Hotkey" 
     }
 
-	if ($global:DashboardConfig.Config['Ftool'].Contains($keyName))
-	{
-		$keyValue = $global:DashboardConfig.Config['Ftool'][$keyName]
-		$extData.BtnKeySelect.Text = $keyValue
-	}
-	else
-	{
-		$extData.BtnKeySelect.Text = 'none'
-	}
-	
-	if ($global:DashboardConfig.Config['Ftool'].Contains($intervalName))
-	{
-		$intervalValue = [int]$global:DashboardConfig.Config['Ftool'][$intervalName]
-		if ($intervalValue -lt 10)
-		{
-			$intervalValue = 100
-		}
-		$extData.Interval.Text = $intervalValue.ToString()
-	}
-	else
-	{
-		$extData.Interval.Text = '1000'
-	}
+    if ($global:DashboardConfig.Config['Ftool'].Contains($keyName))
+    {
+        $keyValue = $global:DashboardConfig.Config['Ftool'][$keyName]
+        $extData.BtnKeySelect.Text = $keyValue
+    }
+    else
+    {
+        $extData.BtnKeySelect.Text = 'none'
+    }
+    
+    if ($global:DashboardConfig.Config['Ftool'].Contains($intervalName))
+    {
+        $intervalValue = [int]$global:DashboardConfig.Config['Ftool'][$intervalName]
+        if ($intervalValue -lt 10)
+        {
+            $intervalValue = 100
+        }
+        $extData.Interval.Text = $intervalValue.ToString()
+    }
+    else
+    {
+        $extData.Interval.Text = '1000'
+    }
 
-	if ($global:DashboardConfig.Config['Ftool'].Contains($nameName))
-	{
-		$nameValue = [string]$global:DashboardConfig.Config['Ftool'][$nameName]
+    if ($global:DashboardConfig.Config['Ftool'].Contains($nameName))
+    {
+        $nameValue = [string]$global:DashboardConfig.Config['Ftool'][$nameName]
 
-		$extData.Name.Text = $nameValue.ToString()
-	}
-	else
-	{
-		$extData.Name.Text = 'Name'
-	}
+        $extData.Name.Text = $nameValue.ToString()
+    }
+    else
+    {
+        $extData.Name.Text = 'Name'
+    }
 }
 
 function UpdateSettings
 {
-	param($formData, $extData = $null, [switch]$forceWrite)
-	
-	$profilePrefix = FindOrCreateProfile $formData.WindowTitle
-	
-	if ($profilePrefix)
-	{
-		if ($extData)
-		{
-			$extNum = $extData.ExtNum
-			$keyName = "key${extNum}_$profilePrefix"
-			$intervalName = "inpt${extNum}_$profilePrefix"
-			$nameName = "name${extNum}_$profilePrefix"
+    param($formData, $extData = $null, [switch]$forceWrite)
+    
+    $profilePrefix = FindOrCreateProfile $formData.WindowTitle
+    
+    if ($profilePrefix)
+    {
+        if ($extData)
+        {
+            $extNum = $extData.ExtNum
+            $keyName = "key${extNum}_$profilePrefix"
+            $intervalName = "inpt${extNum}_$profilePrefix"
+            $nameName = "name${extNum}_$profilePrefix"
             $extHotkeyName = "ExtHotkey_${extNum}_$profilePrefix" 
             
             if ($extData.Hotkey) { 
@@ -1862,42 +2157,42 @@ function UpdateSettings
                     $global:DashboardConfig.Config['Ftool'].Remove($extHotkeyName)
                 }
             }
-			
-			if ($extData.BtnKeySelect -and $extData.BtnKeySelect.Text)
-			{
-				$global:DashboardConfig.Config['Ftool'][$keyName] = $extData.BtnKeySelect.Text
-			}
-			
-			if ($extData.Interval)
-			{
-				$global:DashboardConfig.Config['Ftool'][$intervalName] = $extData.Interval.Text
-			}
+            
+            if ($extData.BtnKeySelect -and $extData.BtnKeySelect.Text)
+            {
+                $global:DashboardConfig.Config['Ftool'][$keyName] = $extData.BtnKeySelect.Text
+            }
+            
+            if ($extData.Interval)
+            {
+                $global:DashboardConfig.Config['Ftool'][$intervalName] = $extData.Interval.Text
+            }
 
-			if ($extData.Name)
-			{
-				$global:DashboardConfig.Config['Ftool'][$nameName] = $extData.Name.Text
-			}
-		}
-		else
-		{
+            if ($extData.Name)
+            {
+                $global:DashboardConfig.Config['Ftool'][$nameName] = $extData.Name.Text
+            }
+        }
+        else
+        {
             $global:DashboardConfig.Config['Ftool']["GlobalHotkey_$profilePrefix"] = $formData.GlobalHotkey
             $global:DashboardConfig.Config['Ftool']["Hotkey_$profilePrefix"] = $formData.Hotkey
-			$global:DashboardConfig.Config['Ftool']["hotkeys_enabled_$profilePrefix"] = $formData.BtnHotkeyToggle.Checked
-			$global:DashboardConfig.Config['Ftool']["key1_$profilePrefix"] = $formData.BtnKeySelect.Text
-			$global:DashboardConfig.Config['Ftool']["inpt1_$profilePrefix"] = $formData.Interval.Text
-			$global:DashboardConfig.Config['Ftool']["name1_$profilePrefix"] = $formData.Name.Text
-			$global:DashboardConfig.Config['Ftool']["pos1X_$profilePrefix"] = $formData.PositionSliderX.Value
-			$global:DashboardConfig.Config['Ftool']["pos1Y_$profilePrefix"] = $formData.PositionSliderY.Value
-		}
-		
-		if ($forceWrite) {
-			Write-Config
-			if ($global:DashboardConfig.Resources.Timers.Contains('ConfigWriteTimer')) {
-				$global:DashboardConfig.Resources.Timers['ConfigWriteTimer'].Stop()
-			}
-		}
-		else
-		{
+            $global:DashboardConfig.Config['Ftool']["hotkeys_enabled_$profilePrefix"] = $formData.BtnHotkeyToggle.Checked
+            $global:DashboardConfig.Config['Ftool']["key1_$profilePrefix"] = $formData.BtnKeySelect.Text
+            $global:DashboardConfig.Config['Ftool']["inpt1_$profilePrefix"] = $formData.Interval.Text
+            $global:DashboardConfig.Config['Ftool']["name1_$profilePrefix"] = $formData.Name.Text
+            $global:DashboardConfig.Config['Ftool']["pos1X_$profilePrefix"] = $formData.PositionSliderX.Value
+            $global:DashboardConfig.Config['Ftool']["pos1Y_$profilePrefix"] = $formData.PositionSliderY.Value
+        }
+        
+        if ($forceWrite) {
+            Write-Config
+            if ($global:DashboardConfig.Resources.Timers.Contains('ConfigWriteTimer')) {
+                $global:DashboardConfig.Resources.Timers['ConfigWriteTimer'].Stop()
+            }
+        }
+        else
+        {
             if (-not $global:DashboardConfig.Resources.Timers.Contains('ConfigWriteTimer'))
             {
                 $ConfigWriteTimer = New-Object System.Windows.Forms.Timer
@@ -1927,7 +2222,7 @@ function UpdateSettings
             $ConfigWriteTimer.Stop()
             $ConfigWriteTimer.Start()
         }
-	}
+    }
 }
 
 function IsWindowBelow {
@@ -1936,14 +2231,14 @@ function IsWindowBelow {
         [IntPtr]$hWndToFind
     )
     $current = $hWndTop
-    # Limit search to avoid infinite loops on weird window hierarchies
+    
     for ($i = 0; $i -lt 500; $i++) {
         $current = [Custom.Native]::GetWindow($current, [Custom.Native]::GW_HWNDNEXT)
         if ($current -eq [IntPtr]::Zero) {
-            return $false # Reached the end of the Z-order
+            return $false 
         }
         if ($current -eq $hWndToFind) {
-            return $true # Found it below
+            return $true
         }
     }
     return $false
@@ -1951,527 +2246,596 @@ function IsWindowBelow {
 
 function CreatePositionTimer
 {
-	param($formData)
-	
-	$positionTimer = New-Object System.Windows.Forms.Timer
-	$positionTimer.Interval = 10
-		$positionTimer.Tag = @{
-			WindowHandle = $formData.SelectedWindow
-			FtoolForm    = $formData.Form
-			InstanceId   = $formData.InstanceId
-			FormData     = $formData
-			FtoolZState  = 'unknown' # Add state tracking for Z-order
-		}
-		
-		$positionTimer.Add_Tick({
-				param($s, $e)
-				try
-				{
-					if (-not $s -or -not $s.Tag) { return }
-					$timerData = $s.Tag
-					if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
-					if (-not $timerData['FtoolForm'] -or $timerData['FtoolForm'].IsDisposed) { return }
-			
-					$rect = New-Object Custom.Native+RECT
-					# Check if the parent window is still a valid window.
-					if ([Custom.Native]::IsWindow($timerData['WindowHandle']))
-					{
-						if ([Custom.Native]::GetWindowRect($timerData['WindowHandle'], [ref]$rect))
-						{
-							try
-							{
-								# Positioning logic
-								$sliderValueX = $timerData.FormData.PositionSliderX.Value
-								$maxLeft = $rect.Right - $timerData['FtoolForm'].Width - 8
-								$targetLeft = $rect.Left + 8 + (($maxLeft - ($rect.Left + 8)) * $sliderValueX / 100)
-								
-								$sliderValueY = 100 - $timerData.FormData.PositionSliderY.Value
-								$maxTop = $rect.Bottom - $timerData['FtoolForm'].Height - 8
-								$targetTop = $rect.Top + 8 + (($maxTop - ($rect.Top + 8)) * $sliderValueY / 100)
-	
-								$currentLeft = $timerData['FtoolForm'].Left
-								$newLeft = $currentLeft + ($targetLeft - $currentLeft) * 0.2 
-								$timerData['FtoolForm'].Left = [int]$newLeft
-	
-								                        $currentTop = $timerData['FtoolForm'].Top
-								                        $newTop = $currentTop + ($targetTop - $currentTop) * 0.2 
-								                        $timerData['FtoolForm'].Top = [int]$newTop
-								                    
-								                        # Z-Order Management
-								                        $ftoolHandle = $timerData['FtoolForm'].Handle
-								                        $linkedHandle = $timerData['WindowHandle']
-								                        $foregroundWindow = [Custom.Native]::GetForegroundWindow()
-								                        $flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
+    param($formData)
+    
+    $positionTimer = New-Object System.Windows.Forms.Timer
+    $positionTimer.Interval = 10
+        $positionTimer.Tag = @{
+            WindowHandle = $formData.SelectedWindow
+            FtoolForm    = $formData.Form
+            InstanceId   = $formData.InstanceId
+            FormData     = $formData
+            FtoolZState  = 'unknown' 
+        }
+        
+        $positionTimer.Add_Tick({
+                param($s, $e)
+                try
+                {
+                    if (-not $s -or -not $s.Tag) { return }
+                    $timerData = $s.Tag
+                    if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
+                    if (-not $timerData['FtoolForm'] -or $timerData['FtoolForm'].IsDisposed) { return }
+            
+                    $rect = New-Object Custom.Native+RECT
+                    
+                    if ([Custom.Native]::IsWindow($timerData['WindowHandle']))
+                    {
+                        if ([Custom.Native]::GetWindowRect($timerData['WindowHandle'], [ref]$rect))
+                        {
+                            try
+                            {
+                                
+                                $sliderValueX = $timerData.FormData.PositionSliderX.Value
+                                $maxLeft = $rect.Right - $timerData['FtoolForm'].Width - 8
+                                $targetLeft = $rect.Left + 8 + (($maxLeft - ($rect.Left + 8)) * $sliderValueX / 100)
+                                
+                                $sliderValueY = 100 - $timerData.FormData.PositionSliderY.Value
+                                $maxTop = $rect.Bottom - $timerData['FtoolForm'].Height - 8
+                                $targetTop = $rect.Top + 8 + (($maxTop - ($rect.Top + 8)) * $sliderValueY / 100)
+    
+                                $currentLeft = $timerData['FtoolForm'].Left
+                                $newLeft = $currentLeft + ($targetLeft - $currentLeft) * 0.2 
+                                $timerData['FtoolForm'].Left = [int]$newLeft
+    
+                                                        $currentTop = $timerData['FtoolForm'].Top
+                                                        $newTop = $currentTop + ($targetTop - $currentTop) * 0.2 
+                                                        $timerData['FtoolForm'].Top = [int]$newTop
+                                                    
+                                                        
+                                                        $ftoolHandle = $timerData['FtoolForm'].Handle
+                                                        $linkedHandle = $timerData['WindowHandle']
+                                                        $foregroundWindow = [Custom.Native]::GetForegroundWindow()
+                                                        $flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
 
-								                        if ($foregroundWindow -eq $linkedHandle -or $foregroundWindow -eq $ftoolHandle)
-								                        {
-								                            # ACTIVE: The ftool/linked window pair is active. Make ftool topmost.
-								                            if ($timerData.FtoolZState -ne 'topmost')
-								                            {
-								                                [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-								                                $timerData.FtoolZState = 'topmost'
-								                            }
-								                        }
-								                        else
-								                        {
-								                            # INACTIVE: The pair is not the foreground window. Make ftool a normal, non-topmost window.
-								                            if ($timerData.FtoolZState -ne 'standard')
-								                            {
-								                                [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-								                                $timerData.FtoolZState = 'standard'
-								                            }
+                                                        if ($foregroundWindow -eq $linkedHandle -or $foregroundWindow -eq $ftoolHandle)
+                                                        {
+                                                            
+                                                            if ($timerData.FtoolZState -ne 'topmost')
+                                                            {
+                                                                [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
+                                                                $timerData.FtoolZState = 'topmost'
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            
+                                                            if ($timerData.FtoolZState -ne 'standard')
+                                                            {
+                                                                [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
+                                                                $timerData.FtoolZState = 'standard'
+                                                            }
 
-								                            # INVARIANT CHECK: As an inactive window, ftool must still never be behind its linked partner.
-								                            # Check if ftool is positioned lower than (behind) its linked window in the Z-order.
-								                            if (IsWindowBelow -hWndTop $linkedHandle -hWndToFind $ftoolHandle) {
-								                                # CORRECTION: ftool is behind. Move it to be directly in front of the linked window.
-								                                # Get the window currently in front of the linked window.
-								                                $prevHandle = [Custom.Native]::GetWindow($linkedHandle, [Custom.Native]::GW_HWNDPREV)
-								                                # Move ftool to that position, which is now on top of the linked window.
-								                                # This only moves the ftool window, respecting the "don't touch linked window" rule.
-								                                if ($prevHandle -ne $ftoolHandle) {
-								                                    [Custom.Native]::PositionWindow($ftoolHandle, $prevHandle, 0, 0, 0, 0, $flags) | Out-Null
-								                                }
-								                            }
-								                        }
-								                    }
-								                    catch
-													{							Write-Verbose ("FTOOL: Position timer error: {0} for {1}" -f $_.Exception.Message, $($timerData['InstanceId'])) -ForegroundColor Red
-						}
-					}
-				}
-				else
-				{
-					# Parent window handle is no longer valid, so close the ftool form and stop the timer.
-					Write-Verbose ("FTOOL: Parent window handle no longer valid. Closing ftool {0}." -f $timerData['InstanceId']) -ForegroundColor Yellow
-					$timerData['FtoolForm'].Close()
-					$s.Stop()
-					$s.Dispose()
-					$global:DashboardConfig.Resources.Timers.Remove("ftoolPosition_$($timerData.InstanceId)")
-				}
-			}
-			catch
-			{
-				Write-Verbose ("FTOOL: Position timer critical error: {0}" -f $_.Exception.Message) -ForegroundColor Red
-			}
-		})
-	
-	$positionTimer.Start()
-	$global:DashboardConfig.Resources.Timers["ftoolPosition_$($formData.InstanceId)"] = $positionTimer
+                                                            
+                                                            
+                                                            if (IsWindowBelow -hWndTop $linkedHandle -hWndToFind $ftoolHandle) {
+                                                                
+                                                                
+                                                                $prevHandle = [Custom.Native]::GetWindow($linkedHandle, [Custom.Native]::GW_HWNDPREV)
+                                                                
+                                                                
+                                                                if ($prevHandle -ne $ftoolHandle) {
+                                                                    [Custom.Native]::PositionWindow($ftoolHandle, $prevHandle, 0, 0, 0, 0, $flags) | Out-Null
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    catch
+                                                    {                           Write-Verbose ("FTOOL: Position timer error: {0} for {1}" -f $_.Exception.Message, $($timerData['InstanceId'])) -ForegroundColor Red
+                        }
+                    }
+                }
+                else
+                {
+                    
+                    Write-Verbose ("FTOOL: Parent window handle no longer valid. Closing ftool {0}." -f $timerData['InstanceId']) -ForegroundColor Yellow
+                    $timerData['FtoolForm'].Close()
+                    $s.Stop()
+                    $s.Dispose()
+                    $global:DashboardConfig.Resources.Timers.Remove("ftoolPosition_$($timerData.InstanceId)")
+                }
+            }
+            catch
+            {
+                Write-Verbose ("FTOOL: Position timer critical error: {0}" -f $_.Exception.Message) -ForegroundColor Red
+            }
+        })
+    
+    $positionTimer.Start()
+    $global:DashboardConfig.Resources.Timers["ftoolPosition_$($formData.InstanceId)"] = $positionTimer
 }
 
 function RepositionExtensions
 {
-	param($form, $instanceId)
-	
-	if (-not $form -or -not $instanceId)
-	{
-		return 
-	}
-	
-	$instanceKey = "instance_$instanceId"
-	
-	if (-not $global:DashboardConfig.Resources.ExtensionTracking -or 
-		-not $global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
-	{
-		return
-	}
-	
-	$form.SuspendLayout()
-	
-	try
-	{
-		$baseHeight = 130
-		
-		$activeExtensions = @()
-		if ($global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions)
-		{
-			$activeExtensions = $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions
-		}
-		
-		$newHeight = 130  
-		$position = 0
-		
-		if ($activeExtensions.Count -gt 0)
-		{
-			$sortedExtensions = @()
-			foreach ($extKey in $activeExtensions)
-			{
-				if ($global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
-				{
-					$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
-					$sortedExtensions += [PSCustomObject]@{
-						Key    = $extKey
-						ExtNum = [int]$extData.ExtNum 
-					}
-				}
-			}
-			$sortedExtensions = $sortedExtensions | Sort-Object ExtNum
-			
-			foreach ($extObj in $sortedExtensions)
-			{
-				$extKey = $extObj.Key
-				if ($global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
-				{
-					$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
-					if ($extData -and $extData.Panel -and -not $extData.Panel.IsDisposed)
-					{
-						$newTop = $baseHeight + ($position * 70)
-						
-						$extData.Panel.Top = $newTop
-						$extData.Position = $position
-						
-						$position++
-					}
-				}
-			}
-			
-			if ($position -gt 0)
-			{
-				$newHeight = 130 + ($position * 70)
-			}
-		}
-		
-		if (-not $form.Tag.IsCollapsed)
-		{
-			$form.Height = $newHeight
-			$form.Tag.OriginalHeight = $newHeight
-			$form.Tag.PositionSliderY.Height = $newHeight - 20
-		}
-	}
-	catch
-	{
-		Write-Verbose ("FTOOL: Error in RepositionExtensions: {0}" -f $_.Exception.Message) -ForegroundColor Red
-	}
-	finally
-	{
-		$form.ResumeLayout()
-	}
+    param($form, $instanceId)
+    
+    if (-not $form -or -not $instanceId)
+    {
+        return 
+    }
+    
+    $instanceKey = "instance_$instanceId"
+    
+    if (-not $global:DashboardConfig.Resources.ExtensionTracking -or 
+        -not $global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
+    {
+        return
+    }
+    
+    $form.SuspendLayout()
+    
+    try
+    {
+        $baseHeight = 130
+        
+        $activeExtensions = @()
+        if ($global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions)
+        {
+            $activeExtensions = $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions
+        }
+        
+        $newHeight = 130  
+        $position = 0
+        
+        if ($activeExtensions.Count -gt 0)
+        {
+            $sortedExtensions = @()
+            foreach ($extKey in $activeExtensions)
+            {
+                if ($global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+                {
+                    $extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+                    $sortedExtensions += [PSCustomObject]@{
+                        Key    = $extKey
+                        ExtNum = [int]$extData.ExtNum 
+                    }
+                }
+            }
+            $sortedExtensions = $sortedExtensions | Sort-Object ExtNum
+            
+            foreach ($extObj in $sortedExtensions)
+            {
+                $extKey = $extObj.Key
+                if ($global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+                {
+                    $extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+                    if ($extData -and $extData.Panel -and -not $extData.Panel.IsDisposed)
+                    {
+                        $newTop = $baseHeight + ($position * 70)
+                        
+                        $extData.Panel.Top = $newTop
+                        $extData.Position = $position
+                        
+                        $position++
+                    }
+                }
+            }
+            
+            if ($position -gt 0)
+            {
+                $newHeight = 130 + ($position * 70)
+            }
+        }
+        
+        if (-not $form.Tag.IsCollapsed)
+        {
+            $form.Height = $newHeight
+            $form.Tag.OriginalHeight = $newHeight
+            $form.Tag.PositionSliderY.Height = $newHeight - 20
+        }
+    }
+    catch
+    {
+        Write-Verbose ("FTOOL: Error in RepositionExtensions: {0}" -f $_.Exception.Message) -ForegroundColor Red
+    }
+    finally
+    {
+        $form.ResumeLayout()
+    }
 }
 
 function CreateSpammerTimer
 {
-	param($windowHandle, $keyValue, $instanceId, $interval, $extNum = $null, $extKey = $null)
-	
-	$spamTimer = New-Object System.Windows.Forms.Timer
-	$spamTimer.Interval = $interval
-	
-	$timerTag = @{
-		WindowHandle = $windowHandle
-		Key          = $keyValue
-		InstanceId   = $instanceId
-	}
-	
-	if ($null -ne $extNum)
-	{
-		$timerTag['ExtNum'] = $extNum
-		$timerTag['ExtKey'] = $extKey
-	}
-	
-	$spamTimer.Tag = $timerTag
-	
-	$spamTimer.Add_Tick({
-			param($s, $evt)
-			try
-			{
-				if (-not $s -or -not $s.Tag)
-				{
-					return
-				}
-				$timerData = $s.Tag
-				if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero)
-				{
-					return
-				}
-				
-				$keyMappings = Get-VirtualKeyMappings
-				$virtualKeyCode = $keyMappings[$timerData['Key']]
-				
-				if ($virtualKeyCode)
-				{
-					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], 256, $virtualKeyCode, 0)
-				}
-				else
-				{
-					Write-Verbose "FTOOL: Unknown key '$($timerData['Key'])' for $($timerData['InstanceId'])" -ForegroundColor Yellow
-				}
-			}
-			catch
-			{
-				Write-Verbose ("FTOOL: Spammer timer error: {0}" -f $_.Exception.Message) -ForegroundColor Red
-			}
-		})
-	
-	$spamTimer.Start()
-	return $spamTimer
+    param($windowHandle, $keyValue, $instanceId, $interval, $extNum = $null, $extKey = $null)
+    
+    $spamTimer = New-Object System.Windows.Forms.Timer
+    $spamTimer.Interval = $interval
+    
+    $timerTag = @{
+        WindowHandle = $windowHandle
+        Key          = $keyValue
+        InstanceId   = $instanceId
+    }
+    
+    if ($null -ne $extNum) {
+        $timerTag['ExtNum'] = $extNum
+        $timerTag['ExtKey'] = $extKey
+    }
+    
+    $spamTimer.Tag = $timerTag
+    
+    $spamTimer.Add_Tick({
+        param($s, $evt)
+        try
+        {
+            if (-not $s -or -not $s.Tag) { return }
+            $timerData = $s.Tag
+            if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
+            
+            $keyMappings = Get-VirtualKeyMappings
+            $virtualKeyCode = $keyMappings[$timerData['Key']]
+            
+            if ($virtualKeyCode)
+            {
+                $WM_KEYDOWN     = 0x0100
+                $WM_KEYUP       = 0x0101
+                $WM_LBUTTONDOWN = 0x0201
+                $WM_LBUTTONUP   = 0x0202
+                $WM_RBUTTONDOWN = 0x0204
+                $WM_RBUTTONUP   = 0x0205
+                $WM_MBUTTONDOWN = 0x0207
+                $WM_MBUTTONUP   = 0x0208
+                $WM_XBUTTONDOWN = 0x020B
+                $WM_XBUTTONUP   = 0x020C
+                
+                $MK_LBUTTON     = 0x0001
+                $MK_RBUTTON     = 0x0002
+                $MK_MBUTTON     = 0x0010
+                $MK_XBUTTON1    = 0x0020
+                $MK_XBUTTON2    = 0x0040
+
+                $point = New-Object Win32Point
+                [Win32MouseUtils]::GetCursorPos([ref]$point) | Out-Null
+                [Win32MouseUtils]::ScreenToClient($timerData['WindowHandle'], [ref]$point) | Out-Null
+                $lParam = [Win32MouseUtils]::MakeLParam($point.X, $point.Y)
+
+                $dwellTime = Get-Random -Minimum 2 -Maximum 9
+
+                if ($virtualKeyCode -eq 0x01) 
+                {
+                    $wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_LBUTTON, $true, $virtualKeyCode)
+                    $wUp   = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_LBUTTON, $false, $virtualKeyCode)
+
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_LBUTTONDOWN, $wDown, $lParam)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_LBUTTONUP, $wUp, $lParam)
+                }
+                elseif ($virtualKeyCode -eq 0x02) 
+                {
+                    $wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_RBUTTON, $true, $virtualKeyCode)
+                    $wUp   = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_RBUTTON, $false, $virtualKeyCode)
+
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_RBUTTONDOWN, $wDown, $lParam)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_RBUTTONUP, $wUp, $lParam)
+                }
+                elseif ($virtualKeyCode -eq 0x04) 
+                {
+                    $wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_MBUTTON, $true, $virtualKeyCode)
+                    $wUp   = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_MBUTTON, $false, $virtualKeyCode)
+
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_MBUTTONDOWN, $wDown, $lParam)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_MBUTTONUP, $wUp, $lParam)
+                }
+                elseif ($virtualKeyCode -eq 0x05) 
+                {
+                    $wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON1, $true, $virtualKeyCode)
+                    $wUp   = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON1, $false, $virtualKeyCode)
+                    
+                    $wDown = $wDown.ToInt64() -bor 0x00010000
+                    $wUp   = $wUp.ToInt64()   -bor 0x00010000
+
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONDOWN, [IntPtr]$wDown, $lParam)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONUP, [IntPtr]$wUp, $lParam)
+                }
+                elseif ($virtualKeyCode -eq 0x06) 
+                {
+                    $wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON2, $true, $virtualKeyCode)
+                    $wUp   = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON2, $false, $virtualKeyCode)
+
+                    $wDown = $wDown.ToInt64() -bor 0x00020000
+                    $wUp   = $wUp.ToInt64()   -bor 0x00020000
+
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONDOWN, [IntPtr]$wDown, $lParam)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONUP, [IntPtr]$wUp, $lParam)
+                }
+                else
+                {
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $virtualKeyCode, 0)
+                    Start-Sleep -Milliseconds $dwellTime
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $virtualKeyCode, 0xC0000000) 
+                }
+            }
+        }
+        catch
+        {
+            Write-Verbose ("FTOOL: Spammer Error: {0}" -f $_.Exception.Message)
+        }
+    })
+    
+    $spamTimer.Start()
+    return $spamTimer
 }
 
 function ToggleButtonState
 {
-	param($startBtn, $stopBtn, $isStarting)
-	
-	if ($isStarting)
-	{
-		$startBtn.Enabled = $false
-		$startBtn.Visible = $false
-		$stopBtn.Enabled = $true
-		$stopBtn.Visible = $true
-	}
-	else
-	{
-		$startBtn.Enabled = $true
-		$startBtn.Visible = $true
-		$stopBtn.Enabled = $false
-		$stopBtn.Visible = $false
-	}
+    param($startBtn, $stopBtn, $isStarting)
+    
+    if ($isStarting)
+    {
+        $startBtn.Enabled = $false
+        $startBtn.Visible = $false
+        $stopBtn.Enabled = $true
+        $stopBtn.Visible = $true
+    }
+    else
+    {
+        $startBtn.Enabled = $true
+        $startBtn.Visible = $true
+        $stopBtn.Enabled = $false
+        $stopBtn.Visible = $false
+    }
 }
 
 function CheckRateLimit
 {
-	param($controlId, $minInterval = 100)
-	
-	$currentTime = Get-Date
-	if ($global:DashboardConfig.Resources.LastEventTimes.Contains($controlId) -and 
-	($currentTime - $global:DashboardConfig.Resources.LastEventTimes[$controlId]).TotalMilliseconds -lt $minInterval)
-	{
-		return $false
-	}
-	
-	$global:DashboardConfig.Resources.LastEventTimes[$controlId] = $currentTime
-	return $true
+    param($controlId, $minInterval = 100)
+    
+    $currentTime = Get-Date
+    if ($global:DashboardConfig.Resources.LastEventTimes.Contains($controlId) -and 
+    ($currentTime - $global:DashboardConfig.Resources.LastEventTimes[$controlId]).TotalMilliseconds -lt $minInterval)
+    {
+        return $false
+    }
+    
+    $global:DashboardConfig.Resources.LastEventTimes[$controlId] = $currentTime
+    return $true
 }
 
 function AddFormCleanupHandler
 {
-	param($form)
-	
-	if (-not $form.Tag.ExtensionCleanupAdded)
-	{
-		$form.Add_FormClosing({
-				param($src, $e)
-			
-				try
-				{
-					$instanceId = $src.Tag.InstanceId
-					if ($instanceId)
-					{
-						CleanupInstanceResources $instanceId
-					}
-				}
-				catch
-				{
-					Write-Verbose ("FTOOL: Error during form cleanup: {0}" -f $_.Exception.Message) -ForegroundColor Red
-				}
-			})
-		
-		$form.Tag | Add-Member -NotePropertyName ExtensionCleanupAdded -NotePropertyValue $true -Force
-	}
+    param($form)
+    
+    if (-not $form.Tag.ExtensionCleanupAdded)
+    {
+        $form.Add_FormClosing({
+                param($src, $e)
+            
+                try
+                {
+                    $instanceId = $src.Tag.InstanceId
+                    if ($instanceId)
+                    {
+                        CleanupInstanceResources $instanceId
+                    }
+                }
+                catch
+                {
+                    Write-Verbose ("FTOOL: Error during form cleanup: {0}" -f $_.Exception.Message) -ForegroundColor Red
+                }
+            })
+        
+        $form.Tag | Add-Member -NotePropertyName ExtensionCleanupAdded -NotePropertyValue $true -Force
+    }
 }
 
 function CleanupInstanceResources
 {
-	param($instanceId)
-	
-	$instanceKey = "instance_$instanceId"
-	
-	$keysToRemove = @()
-	
-	$activeExtensions = @()
-	if ($global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey) -and 
-		$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions)
-	{
-		$activeExtensions = @() + $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions
-	}
-	
-	foreach ($key in $activeExtensions)
-	{
-		if ($global:DashboardConfig.Resources.ExtensionData.Contains($key))
-		{
-			$extData = $global:DashboardConfig.Resources.ExtensionData[$key]
-			if ($extData.RunningSpammer)
-			{
-				$extData.RunningSpammer.Stop()
-				$extData.RunningSpammer.Dispose()
-			}
-			$keysToRemove += $key
-		}
-	}
-	
-	foreach ($key in $keysToRemove)
-	{
-		$global:DashboardConfig.Resources.ExtensionData.Remove($key)
-	}
-	
-	$timerKeysToRemove = @()
-	foreach ($key in $global:DashboardConfig.Resources.Timers.Keys)
-	{
-		if ($key -like "ExtSpammer_${instanceId}_*" -or $key -eq "ftoolPosition_$instanceId")
-		{
-			$timer = $global:DashboardConfig.Resources.Timers[$key]
-			if ($timer)
-			{
-				$timer.Stop()
-				$timer.Dispose()
-			}
-			$timerKeysToRemove += $key
-		}
-	}
-	
-	foreach ($key in $timerKeysToRemove)
-	{
-		$global:DashboardConfig.Resources.Timers.Remove($key)
-	}
-	
+    param($instanceId)
+    
+    $instanceKey = "instance_$instanceId"
+    
+    $keysToRemove = @()
+    
+    $activeExtensions = @()
+    if ($global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey) -and 
+        $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions)
+    {
+        $activeExtensions = @() + $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions
+    }
+    
+    foreach ($key in $activeExtensions)
+    {
+        if ($global:DashboardConfig.Resources.ExtensionData.Contains($key))
+        {
+            $extData = $global:DashboardConfig.Resources.ExtensionData[$key]
+            if ($extData.RunningSpammer)
+            {
+                $extData.RunningSpammer.Stop()
+                $extData.RunningSpammer.Dispose()
+            }
+            $keysToRemove += $key
+        }
+    }
+    
+    foreach ($key in $keysToRemove)
+    {
+        $global:DashboardConfig.Resources.ExtensionData.Remove($key)
+    }
+    
+    $timerKeysToRemove = @()
+    foreach ($key in $global:DashboardConfig.Resources.Timers.Keys)
+    {
+        if ($key -like "ExtSpammer_${instanceId}_*" -or $key -eq "ftoolPosition_$instanceId")
+        {
+            $timer = $global:DashboardConfig.Resources.Timers[$key]
+            if ($timer)
+            {
+                $timer.Stop()
+                $timer.Dispose()
+            }
+            $timerKeysToRemove += $key
+        }
+    }
+    
+    foreach ($key in $timerKeysToRemove)
+    {
+        $global:DashboardConfig.Resources.Timers.Remove($key)
+    }
+    
     if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId)) {
         $form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
         if ($form -and $form.Tag) {
-            # Dispose of the tool window's independent tooltip object if it exists
+            
             if ($form.Tag.ToolTip) {
                 $form.Tag.ToolTip.Dispose()
             }
             if ($form.Tag.HotkeyId) {
-			    try {
-				    Unregister-HotkeyInstance -Id $form.Tag.HotkeyId -OwnerKey $form.Tag.InstanceId
-			    } catch {
-				    Write-Warning "FTOOL: Failed to unregister hotkey with ID $($form.Tag.HotkeyId) for instance $instanceId. Error: $_"
-			    }
+                try {
+                    Unregister-HotkeyInstance -Id $form.Tag.HotkeyId -OwnerKey $form.Tag.InstanceId
+                } catch {
+                    Write-Warning "FTOOL: Failed to unregister hotkey with ID $($form.Tag.HotkeyId) for instance $instanceId. Error: $_"
+                }
             }
         }
     }
 
-	if ($global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
-	{
-		$global:DashboardConfig.Resources.ExtensionTracking.Remove($instanceKey)
-	}
-	
-	[System.GC]::Collect()
-	[System.GC]::WaitForPendingFinalizers()
+    if ($global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
+    {
+        $global:DashboardConfig.Resources.ExtensionTracking.Remove($instanceKey)
+    }
+    
+    [System.GC]::Collect()
+    [System.GC]::WaitForPendingFinalizers()
 }
 
 function Stop-FtoolForm
 {
-	param($Form)
-	
-	if (-not $Form -or $Form.IsDisposed)
-	{
-		return
-	}
-	
-	try
-	{
-		$instanceId = $Form.Tag.InstanceId
-		if ($instanceId)
-		{
-			CleanupInstanceResources $instanceId
-			
-			if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
-			{
-				$global:DashboardConfig.Resources.FtoolForms.Remove($instanceId)
-			}
-		}
-		
-		$Form.Close()
-		$Form.Dispose()
-	}
-	catch
-	{
-		Write-Verbose ("FTOOL: Error stopping Ftool form: {0}" -f $_.Exception.Message) -ForegroundColor Red
-	}
+    param($Form)
+    
+    if (-not $Form -or $Form.IsDisposed)
+    {
+        return
+    }
+    
+    try
+    {
+        $instanceId = $Form.Tag.InstanceId
+        if ($instanceId)
+        {
+            CleanupInstanceResources $instanceId
+            
+            if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+            {
+                $global:DashboardConfig.Resources.FtoolForms.Remove($instanceId)
+            }
+        }
+        
+        $Form.Close()
+        $Form.Dispose()
+    }
+    catch
+    {
+        Write-Verbose ("FTOOL: Error stopping Ftool form: {0}" -f $_.Exception.Message) -ForegroundColor Red
+    }
 }
 
 function RemoveExtension
 {
-	param($form, $extKey)
-	
-	if (-not $form -or -not $extKey)
-	{
-		return $false 
-	}
-	
-	if (-not $global:DashboardConfig.Resources.ExtensionData -or 
-		-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
-	{
-		return $false
-	}
-	
-	$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
-	if (-not $extData)
-	{
-		return $false 
-	}
-	
-	$extNum = [int]$extData.ExtNum 
-	$instanceId = $extData.InstanceId
-	$instanceKey = "instance_$instanceId"
-	
-	try
-	{
-		if ($extData.RunningSpammer)
-		{
-			$extData.RunningSpammer.Stop()
-			$extData.RunningSpammer.Dispose()
-			$extData.RunningSpammer = $null
-			
-			$timerKey = "ExtSpammer_${instanceId}_$extNum"
-			if ($global:DashboardConfig.Resources.Timers.Contains($timerKey))
-			{
-				$global:DashboardConfig.Resources.Timers.Remove($timerKey)
-			}
-		}
-		
-		if ($extData.Panel -and -not $extData.Panel.IsDisposed)
-		{
-			$form.Controls.Remove($extData.Panel)
-			$extData.Panel.Dispose()
-		}
-		
-		if (-not $global:DashboardConfig.Resources.ExtensionTracking -or 
-			-not $global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
-		{
-			InitializeExtensionTracking $instanceId
-		}
-		
-		$intExtNum = [int]$extNum 
-		
-		$found = $false
-		foreach ($num in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums)
-		{
-			$intNum = 0
-			if ([int]::TryParse($num.ToString(), [ref]$intNum) -and $intNum -eq $intExtNum)
-			{
-				$found = $true
-				break
-			}
-		}
-		
-		if (-not $found)
-		{
-			$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums += $intExtNum
-		}
-		
-		$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions = 
-		$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions | 
-		Where-Object { $_ -ne $extKey }
-		
-		$global:DashboardConfig.Resources.ExtensionData.Remove($extKey)
+    param($form, $extKey)
+    
+    if (-not $form -or -not $extKey)
+    {
+        return $false 
+    }
+    
+    if (-not $global:DashboardConfig.Resources.ExtensionData -or 
+        -not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+    {
+        return $false
+    }
+    
+    $extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+    if (-not $extData)
+    {
+        return $false 
+    }
+    
+    $extNum = [int]$extData.ExtNum 
+    $instanceId = $extData.InstanceId
+    $instanceKey = "instance_$instanceId"
+    
+    try
+    {
+        if ($extData.RunningSpammer)
+        {
+            $extData.RunningSpammer.Stop()
+            $extData.RunningSpammer.Dispose()
+            $extData.RunningSpammer = $null
+            
+            $timerKey = "ExtSpammer_${instanceId}_$extNum"
+            if ($global:DashboardConfig.Resources.Timers.Contains($timerKey))
+            {
+                $global:DashboardConfig.Resources.Timers.Remove($timerKey)
+            }
+        }
+        
+        if ($extData.Panel -and -not $extData.Panel.IsDisposed)
+        {
+            $form.Controls.Remove($extData.Panel)
+            $extData.Panel.Dispose()
+        }
+        
+        if (-not $global:DashboardConfig.Resources.ExtensionTracking -or 
+            -not $global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
+        {
+            InitializeExtensionTracking $instanceId
+        }
+        
+        $intExtNum = [int]$extNum 
+        
+        $found = $false
+        foreach ($num in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums)
+        {
+            $intNum = 0
+            if ([int]::TryParse($num.ToString(), [ref]$intNum) -and $intNum -eq $intExtNum)
+            {
+                $found = $true
+                break
+            }
+        }
+        
+        if (-not $found)
+        {
+            $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums += $intExtNum
+        }
+        
+        $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions = 
+        $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions | 
+        Where-Object { $_ -ne $extKey }
+        
+        $global:DashboardConfig.Resources.ExtensionData.Remove($extKey)
 
         if ($extData.HotkeyId) {
-			try {
-				Unregister-HotkeyInstance -Id $extData.HotkeyId -OwnerKey $extKey
-			} catch {
-				Write-Warning "FTOOL: Failed to unregister hotkey ID $($extData.HotkeyId) for extension $($extKey). Error: $_"
-			}
+            try {
+                Unregister-HotkeyInstance -Id $extData.HotkeyId -OwnerKey $extKey
+            } catch {
+                Write-Warning "FTOOL: Failed to unregister hotkey ID $($extData.HotkeyId) for extension $($extKey). Error: $_"
+            }
         }
-		
-		RepositionExtensions $form $instanceId
-		
-		return $true
-	}
-	catch
-	{
-		Write-Verbose ("FTOOL: Error in RemoveExtension: {0}" -f $_.Exception.Message) -ForegroundColor Red
-		return $false
-	}
+        
+        RepositionExtensions $form $instanceId
+        
+        return $true
+    }
+    catch
+    {
+        Write-Verbose ("FTOOL: Error in RemoveExtension: {0}" -f $_.Exception.Message) -ForegroundColor Red
+        return $false
+    }
 }
 
 #endregion
@@ -2480,237 +2844,252 @@ function RemoveExtension
 
 function FtoolSelectedRow
 {
-	param($row)
-	
-	if (-not $row -or -not $row.Cells -or $row.Cells.Count -lt 3)
-	{
-		Write-Verbose 'FTOOL: Invalid row data, skipping' -ForegroundColor Yellow
-		return
-	}
-	
-	$instanceId = $row.Cells[2].Value.ToString()
-	if (-not $row.Tag -or -not $row.Tag.MainWindowHandle)
-	{
-		Write-Verbose "FTOOL: Missing window handle for instance $instanceId, skipping" -ForegroundColor Yellow
-		return
-	}
-	
-	$windowHandle = $row.Tag.MainWindowHandle
-	if (-not $instanceId)
-	{
-		Write-Verbose 'FTOOL: Missing instance ID, skipping' -ForegroundColor Yellow
-		return
-	}
-	
-	if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
-	{
-		$existingForm = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
-		if (-not $existingForm.IsDisposed)
-		{
-			$existingForm.BringToFront()
-			return
-		}
-		else
-		{
-			$global:DashboardConfig.Resources.FtoolForms.Remove($instanceId)
-		}
-	}
-	
-		$targetWindowRect = New-Object Custom.Native+RECT
-		[Custom.Native]::GetWindowRect($windowHandle, [ref]$targetWindowRect)
-	
-	$windowTitle = if ($row.Tag -and $row.Tag.MainWindowTitle)
-	{
-		$row.Tag.MainWindowTitle
-	}
-	elseif ($row.Cells[1].Value)
-	{
-		$row.Cells[1].Value.ToString()
-	}
-	else
-	{
-		"Window_$instanceId"
-	}
-	
-	$ftoolForm = CreateFtoolForm $instanceId $targetWindowRect $windowTitle $row
-	
-	$global:DashboardConfig.Resources.FtoolForms[$instanceId] = $ftoolForm
-	
+    param($row)
+    
+    if (-not $row -or -not $row.Cells -or $row.Cells.Count -lt 3)
+    {
+        Write-Verbose 'FTOOL: Invalid row data, skipping' -ForegroundColor Yellow
+        return
+    }
+    
+    $instanceId = $row.Cells[2].Value.ToString()
+    if (-not $row.Tag -or -not $row.Tag.MainWindowHandle)
+    {
+        Write-Verbose "FTOOL: Missing window handle for instance $instanceId, skipping" -ForegroundColor Yellow
+        return
+    }
+    
+    $windowHandle = $row.Tag.MainWindowHandle
+    if (-not $instanceId)
+    {
+        Write-Verbose 'FTOOL: Missing instance ID, skipping' -ForegroundColor Yellow
+        return
+    }
+    
+    if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+    {
+        $existingForm = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+        if (-not $existingForm.IsDisposed)
+        {
+            $existingForm.BringToFront()
+            return
+        }
+        else
+        {
+            $global:DashboardConfig.Resources.FtoolForms.Remove($instanceId)
+        }
+    }
+    
+        $targetWindowRect = New-Object Custom.Native+RECT
+        [Custom.Native]::GetWindowRect($windowHandle, [ref]$targetWindowRect)
+    
+    $windowTitle = if ($row.Tag -and $row.Tag.MainWindowTitle)
+    {
+        $row.Tag.MainWindowTitle
+    }
+    elseif ($row.Cells[1].Value)
+    {
+        $row.Cells[1].Value.ToString()
+    }
+    else
+    {
+        "Window_$instanceId"
+    }
+    
+    $ftoolForm = CreateFtoolForm $instanceId $targetWindowRect $windowTitle $row
+    
+    $global:DashboardConfig.Resources.FtoolForms[$instanceId] = $ftoolForm
+    
     $ftoolForm.Show()
-	$ftoolForm.BringToFront()
+    $ftoolForm.BringToFront()
 }
 
 function CreateFtoolForm
 {
-	param($instanceId, $targetWindowRect, $windowTitle, $row)
-	
-	# Create the form first
-	$ftoolForm = Set-UIElement -type 'Form' -visible $true -width 250 -height 170 -top ($targetWindowRect.Top + 30) -left ($targetWindowRect.Left + 10) -bg @(30, 30, 30) -fg @(255, 255, 255) -text "FTool - $instanceId" -startPosition 'Manual' -formBorderStyle 0 -opacity 1
-	if ($global:DashboardConfig.Paths.Icon -and (Test-Path $global:DashboardConfig.Paths.Icon))
-	{
-		try
-		{
-			$icon = New-Object System.Drawing.Icon($global:DashboardConfig.Paths.Icon)
-			$ftoolForm.Icon = $icon
-		}
-		catch
-		{
-			Write-Verbose "FTOOL: Failed to load icon from $($global:DashboardConfig.Paths.Icon): $_" -ForegroundColor Red
-		}
-	}
-	if (-not $ftoolForm)
-	{
-		Write-Verbose "FTOOL: Failed to create form for $instanceId, skipping" -ForegroundColor Red
-		return $null
-	}
+    param($instanceId, $targetWindowRect, $windowTitle, $row)
+    
+    # Create an instance of your custom FtoolFormWindow
+    $ftoolForm = New-Object Custom.FtoolFormWindow
+    
+    # Manually set the properties that were previously handled by Set-UIElement
+    $ftoolForm.Visible = $true
+    $ftoolForm.Width = 235
+    $ftoolForm.Height = 130
+    $ftoolForm.Top = ($targetWindowRect.Top + 30)
+    $ftoolForm.Left = ($targetWindowRect.Left + 10)
+    $ftoolForm.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+    $ftoolForm.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+    $ftoolForm.Text = "FTool - $instanceId"
+    $ftoolForm.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+    $ftoolForm.Opacity = 1.0 # Ensure it's fully opaque
 
-    # --- TOOLTIP FIX START ---
-    # Create a specific ToolTip object for this window to avoid conflicts with other windows
+    if ($global:DashboardConfig.Paths.Icon -and (Test-Path $global:DashboardConfig.Paths.Icon))
+    {
+        try
+        {
+            $icon = New-Object System.Drawing.Icon($global:DashboardConfig.Paths.Icon)
+            $ftoolForm.Icon = $icon
+        }
+        catch
+        {
+            Write-Verbose "FTOOL: Failed to load icon from $($global:DashboardConfig.Paths.Icon): $_" -ForegroundColor Red
+        }
+    }
+    if (-not $ftoolForm)
+    {
+        Write-Verbose "FTOOL: Failed to create form for $instanceId, skipping" -ForegroundColor Red
+        return $null
+    }
+
+
+
+    
+    
     $ftoolToolTip = New-Object System.Windows.Forms.ToolTip
     $ftoolToolTip.AutoPopDelay = 5000
     $ftoolToolTip.InitialDelay = 100
     $ftoolToolTip.ReshowDelay = 10
     $ftoolToolTip.ShowAlways = $true
     
-    # Store the previous global tooltip reference
+    
     $previousToolTip = $global:DashboardConfig.UI.ToolTip
     
-    # Temporarily set the global UI tooltip to this local one so Set-UIElement uses it
+    
     $global:DashboardConfig.UI.ToolTip = $ftoolToolTip
-    # --- TOOLTIP FIX END ---
+    
 
-	try {
-		$headerPanel = Set-UIElement -type 'Panel' -visible $true -width 250 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
-		$ftoolForm.Controls.Add($headerPanel)
+    try {
+        $headerPanel = Set-UIElement -type 'Panel' -visible $true -width 250 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
+        $ftoolForm.Controls.Add($headerPanel)
 
-		$btnInstanceHotkeyToggle = Set-UIElement -type 'Label' -visible $true -width 15 -height 14 -top 2 -left 118 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip 'Set Master Hotkey'
-		$headerPanel.Controls.Add($btnInstanceHotkeyToggle)
+        $btnInstanceHotkeyToggle = Set-UIElement -type 'Label' -visible $true -width 15 -height 14 -top 2 -left 118 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip 'Set Master Hotkey'
+        $headerPanel.Controls.Add($btnInstanceHotkeyToggle)
 
-		$labelWinTitle = Set-UIElement -type 'Label' -visible $true -width 120 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
-		$headerPanel.Controls.Add($labelWinTitle)
-		
-		$btnHotkeyToggle = Set-UIElement -type 'Toggle' -visible $true -width 30 -height 14 -top 3 -left 135 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip 'Enable/Disable Hotkeys for this Instance'
-		$headerPanel.Controls.Add($btnHotkeyToggle)
+        $labelWinTitle = Set-UIElement -type 'Label' -visible $true -width 120 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
+        $headerPanel.Controls.Add($labelWinTitle)
+        
+        $btnHotkeyToggle = Set-UIElement -type 'Toggle' -visible $true -width 30 -height 14 -top 3 -left 135 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip 'Enable/Disable Hotkeys for this Instance'
+        $headerPanel.Controls.Add($btnHotkeyToggle)
 
-		$btnAdd = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 170 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Add new Ftool Extension'
-		$headerPanel.Controls.Add($btnAdd)
-		
-		$btnShowHide = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 185 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Minimize/Expand Tool'
-		$headerPanel.Controls.Add($btnShowHide)
-		
-		$btnClose = Set-UIElement -type 'Button' -visible $true -width 16 -height 14 -top 3 -left 210 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Terminate Ftool'
-		$headerPanel.Controls.Add($btnClose)
-		
-		$panelSettings = Set-UIElement -type 'Panel' -visible $true -width 190 -height 60 -top 60 -left 40 -bg @(50, 50, 50)
-		$ftoolForm.Controls.Add($panelSettings)
-		
-		$btnKeySelect = Set-UIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip 'Click to bind Key'
-		$panelSettings.Controls.Add($btnKeySelect)
-		
-		$interval = Set-UIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Delay in milliseconds'
-		$panelSettings.Controls.Add($interval)
-		
-		$name = Set-UIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip 'Identification Name'
-		$panelSettings.Controls.Add($name)
-		
-		$btnStart = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Start Ftool'
-		$panelSettings.Controls.Add($btnStart)
-		
-		$btnStop = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Stop Ftool'
-		$btnStop.Enabled = $false
-		$btnStop.Visible = $false
-		$panelSettings.Controls.Add($btnStop)
+        $btnAdd = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 170 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Add new Ftool Extension'
+        $headerPanel.Controls.Add($btnAdd)
+        
+        $btnShowHide = Set-UIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 185 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Minimize/Expand Tool'
+        $headerPanel.Controls.Add($btnShowHide)
+        
+        $btnClose = Set-UIElement -type 'Button' -visible $true -width 16 -height 14 -top 3 -left 210 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Terminate Ftool'
+        $headerPanel.Controls.Add($btnClose)
+        
+        $panelSettings = Set-UIElement -type 'Panel' -visible $true -width 190 -height 60 -top 60 -left 40 -bg @(50, 50, 50)
+        $ftoolForm.Controls.Add($panelSettings)
+        
+        $btnKeySelect = Set-UIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip 'Click to bind Key'
+        $panelSettings.Controls.Add($btnKeySelect)
+        
+        $interval = Set-UIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Delay in milliseconds'
+        $panelSettings.Controls.Add($interval)
+        
+        $name = Set-UIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip 'Identification Name'
+        $panelSettings.Controls.Add($name)
+        
+        $btnStart = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Start Ftool'
+        $panelSettings.Controls.Add($btnStart)
+        
+        $btnStop = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Stop Ftool'
+        $btnStop.Enabled = $false
+        $btnStop.Visible = $false
+        $panelSettings.Controls.Add($btnStop)
 
-		$btnHotKey = Set-UIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip 'Assign Hotkey'
-		$panelSettings.Controls.Add($btnHotKey)
-		
-		$positionSliderY = New-Object System.Windows.Forms.TrackBar
-		$positionSliderY.Orientation = 'Vertical'
-		$positionSliderY.Minimum = 0
-		$positionSliderY.Maximum = 100
-		$positionSliderY.TickFrequency = 300
-		$positionSliderY.Value = 0
-		$positionSliderY.Size = New-Object System.Drawing.Size(1, 110)
-		$positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
-		$ftoolForm.Controls.Add($positionSliderY)
-			
-		$positionSliderX = New-Object System.Windows.Forms.TrackBar
-		$positionSliderX.Minimum = 0
-		$positionSliderX.Maximum = 100
-		$positionSliderX.TickFrequency = 300
-		$positionSliderX.Value = 0
-		$positionSliderX.Size = New-Object System.Drawing.Size(190, 1)
-		$positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
-		$ftoolForm.Controls.Add($positionSliderX)
+        $btnHotKey = Set-UIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip 'Assign Hotkey'
+        $panelSettings.Controls.Add($btnHotKey)
+        
+        $positionSliderY = New-Object System.Windows.Forms.TrackBar
+        $positionSliderY.Orientation = 'Vertical'
+        $positionSliderY.Minimum = 0
+        $positionSliderY.Maximum = 100
+        $positionSliderY.TickFrequency = 300
+        $positionSliderY.Value = 0
+        $positionSliderY.Size = New-Object System.Drawing.Size(1, 110)
+        $positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
+        $ftoolForm.Controls.Add($positionSliderY)
+            
+        $positionSliderX = New-Object System.Windows.Forms.TrackBar
+        $positionSliderX.Minimum = 0
+        $positionSliderX.Maximum = 100
+        $positionSliderX.TickFrequency = 300
+        $positionSliderX.Value = 0
+        $positionSliderX.Size = New-Object System.Drawing.Size(190, 1)
+        $positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
+        $ftoolForm.Controls.Add($positionSliderX)
 
     } finally {
-        # Restore the global tooltip reference to avoid breaking other UI parts
+        
         $global:DashboardConfig.UI.ToolTip = $previousToolTip
     }
 
-	$formData = [PSCustomObject]@{
-		InstanceId            = $instanceId
-		SelectedWindow        = $row.Tag.MainWindowHandle
-		BtnKeySelect          = $btnKeySelect
-		Interval              = $interval
-		Name                  = $name
-		BtnStart              = $btnStart
-		BtnStop               = $btnStop
-		BtnHotKey             = $btnHotKey
-		BtnInstanceHotkeyToggle = $btnInstanceHotkeyToggle
-		BtnHotkeyToggle       = $btnHotkeyToggle
-		BtnAdd                = $btnAdd
-		BtnClose              = $btnClose
-		BtnShowHide           = $btnShowHide
-		PositionSliderX       = $positionSliderX
-		PositionSliderY       = $positionSliderY
-		Form                  = $ftoolForm
-        ToolTip               = $ftoolToolTip # Store the tooltip so it can be disposed later
-		RunningSpammer        = $null
-		WindowTitle           = $windowTitle
-		Process               = $row.Tag
-		OriginalLeft          = $targetWindowRect.Left
-		IsCollapsed           = $false
-		LastExtensionAdded    = 0
-		ExtensionCount        = 0
-		ControlToExtensionMap = @{}
-		OriginalHeight        = 130
-		HotkeyId              = $null 
-		GlobalHotkeyId        = $null 
-		ProfilePrefix         = $null 
-		Hotkey                = $null 
-		GlobalHotkey          = $null 
-	}
-	
-	$ftoolForm.Tag = $formData
-	
-	LoadFtoolSettings $formData
-	ToggleInstanceHotkeys -InstanceId $formData.InstanceId -ToggleState $formData.BtnHotkeyToggle.Checked
-	
-	if (-not [string]::IsNullOrEmpty($formData.Hotkey)) {
-		try {
-			$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($formData.InstanceId)' -ExtKey `$null")
-			$newHotkeyId = Set-Hotkey -KeyCombinationString $formData.Hotkey -Action $scriptBlock -OwnerKey $formData.InstanceId
-			$formData.HotkeyId = $newHotkeyId
-			$hotkeyIdDisplay = if ($formData.HotkeyId) { $formData.HotkeyId } else { 'None' }
-			Write-Verbose "FTOOL: Registered hotkey $($formData.Hotkey) (ID: $hotkeyIdDisplay) for main instance $($formData.InstanceId) on load."
-		} catch {
-			Write-Warning "FTOOL: Failed to register hotkey $($formData.Hotkey) for main instance $($formData.InstanceId) on load. Error: $_"
-			$formData.HotkeyId = $null 
-		}
-	}
+    $formData = [PSCustomObject]@{
+        InstanceId            = $instanceId
+        SelectedWindow        = $row.Tag.MainWindowHandle
+        BtnKeySelect          = $btnKeySelect
+        Interval              = $interval
+        Name                  = $name
+        BtnStart              = $btnStart
+        BtnStop               = $btnStop
+        BtnHotKey             = $btnHotKey
+        BtnInstanceHotkeyToggle = $btnInstanceHotkeyToggle
+        BtnHotkeyToggle       = $btnHotkeyToggle
+        BtnAdd                = $btnAdd
+        BtnClose              = $btnClose
+        BtnShowHide           = $btnShowHide
+        PositionSliderX       = $positionSliderX
+        PositionSliderY       = $positionSliderY
+        Form                  = $ftoolForm
+        ToolTip               = $ftoolToolTip 
+        RunningSpammer        = $null
+        WindowTitle           = $windowTitle
+        Process               = $row.Tag
+        OriginalLeft          = $targetWindowRect.Left
+        IsCollapsed           = $false
+        LastExtensionAdded    = 0
+        ExtensionCount        = 0
+        ControlToExtensionMap = @{}
+        OriginalHeight        = 130
+        HotkeyId              = $null 
+        GlobalHotkeyId        = $null 
+        ProfilePrefix         = $null 
+        Hotkey                = $null 
+        GlobalHotkey          = $null 
+    }
+    
+    $ftoolForm.Tag = $formData
+    
+    LoadFtoolSettings $formData
+    ToggleInstanceHotkeys -InstanceId $formData.InstanceId -ToggleState $formData.BtnHotkeyToggle.Checked
+    
+    if (-not [string]::IsNullOrEmpty($formData.Hotkey)) {
+        try {
+            $scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($formData.InstanceId)' -ExtKey `$null")
+            $newHotkeyId = Set-Hotkey -KeyCombinationString $formData.Hotkey -Action $scriptBlock -OwnerKey $formData.InstanceId
+            $formData.HotkeyId = $newHotkeyId
+            $hotkeyIdDisplay = if ($formData.HotkeyId) { $formData.HotkeyId } else { 'None' }
+            Write-Verbose "FTOOL: Registered hotkey $($formData.Hotkey) (ID: $hotkeyIdDisplay) for main instance $($formData.InstanceId) on load."
+        } catch {
+            Write-Warning "FTOOL: Failed to register hotkey $($formData.Hotkey) for main instance $($formData.InstanceId) on load. Error: $_"
+            $formData.HotkeyId = $null 
+        }
+    }
 
-	if (-not [string]::IsNullOrEmpty($formData.GlobalHotkey)) {
-		try {
-			$ownerKey = "global_toggle_$($formData.InstanceId)"
-			$script = @"
+    if (-not [string]::IsNullOrEmpty($formData.GlobalHotkey)) {
+        try {
+            $ownerKey = "global_toggle_$($formData.InstanceId)"
+            $script = @"
 Write-Verbose "FTOOL: Global-toggle hotkey triggered for instance '$($formData.InstanceId)'"
 if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.InstanceId)')) {
-	`$f = `$global:DashboardConfig.Resources.FtoolForms['$($formData.InstanceId)']
-	if (`$f -and -not `$f.IsDisposed -and `$f.Tag) {
-		`$toggle = `$f.Tag.BtnHotkeyToggle
-		if (`$toggle) {
-			try {
+    `$f = `$global:DashboardConfig.Resources.FtoolForms['$($formData.InstanceId)']
+    if (`$f -and -not `$f.IsDisposed -and `$f.Tag) {
+        `$toggle = `$f.Tag.BtnHotkeyToggle
+        if (`$toggle) {
+            try {
                 if (`$toggle.InvokeRequired) {
                     `$action = [System.Action]{ `$toggle.Checked = -not `$toggle.Checked }
                     `$toggle.Invoke(`$action)
@@ -2722,816 +3101,814 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.Instance
             } catch {
                 Write-Warning "FTOOL: Error during global toggle action for instance '$($formData.InstanceId)'. Error: `$_"
             }
-		}
-	}
+        }
+    }
 }
 "@
-			$scriptBlock = [scriptblock]::Create($script)
-			$formData.GlobalHotkeyId = Set-Hotkey -KeyCombinationString $formData.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey
-			Write-Verbose "FTOOL: Registered global-toggle hotkey $($formData.GlobalHotkey) (ID: $($formData.GlobalHotkeyId)) for instance $($formData.InstanceId) on load."
-		} catch {
-			Write-Warning "FTOOL: Failed to register global-toggle hotkey $($formData.GlobalHotkey) for instance $($formData.InstanceId) on load. Error: $_"
-			$formData.GlobalHotkeyId = $null
-		}
-	}
+            $scriptBlock = [scriptblock]::Create($script)
+            $formData.GlobalHotkeyId = Set-Hotkey -KeyCombinationString $formData.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey
+            Write-Verbose "FTOOL: Registered global-toggle hotkey $($formData.GlobalHotkey) (ID: $($formData.GlobalHotkeyId)) for instance $($formData.InstanceId) on load."
+        } catch {
+            Write-Warning "FTOOL: Failed to register global-toggle hotkey $($formData.GlobalHotkey) for instance $($formData.InstanceId) on load. Error: $_"
+            $formData.GlobalHotkeyId = $null
+        }
+    }
 
-	CreatePositionTimer $formData
-	AddFtoolEventHandlers $formData
-	
-	return $ftoolForm
+    CreatePositionTimer $formData
+    AddFtoolEventHandlers $formData
+    
+    return $ftoolForm
 }
 
 function AddFtoolEventHandlers
 {
-	param($formData)
-	
-	$formData.Interval.Add_TextChanged({
-			$form = $this.FindForm()
-			if (-not $form -or -not $form.Tag)
-			{
-				return 
-			}
-			$data = $form.Tag
-		
-			$intervalValue = 0
-			if (-not [int]::TryParse($this.Text, [ref]$intervalValue) -or $intervalValue -lt 10)
-			{
-				$this.Text = '100'
-			}
-		
-			UpdateSettings $data -forceWrite
-		})
+    param($formData)
+    
+    $formData.Interval.Add_TextChanged({
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag)
+            {
+                return 
+            }
+            $data = $form.Tag
+        
+            $intervalValue = 0
+            if (-not [int]::TryParse($this.Text, [ref]$intervalValue) -or $intervalValue -lt 10)
+            {
+                $this.Text = '100'
+            }
+        
+            UpdateSettings $data -forceWrite
+        })
 
-	$formData.Name.Add_TextChanged({
-		$form = $this.FindForm()
-		if (-not $form -or -not $form.Tag)
-		{
-			return 
-		}
-		$data = $form.Tag
-	
-		UpdateSettings $data -forceWrite
-	})
+    $formData.Name.Add_TextChanged({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag)
+        {
+            return 
+        }
+        $data = $form.Tag
+    
+        UpdateSettings $data -forceWrite
+    })
 
-	$formData.PositionSliderX.Add_ValueChanged({
-		$form = $this.FindForm()
-		if (-not $form -or -not $form.Tag)
-		{
-			return
-		}
-		$data = $form.Tag
-		UpdateSettings $data -forceWrite
-	})
+    $formData.PositionSliderX.Add_ValueChanged({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag)
+        {
+            return
+        }
+        $data = $form.Tag
+        UpdateSettings $data -forceWrite
+    })
 
-	$formData.PositionSliderY.Add_ValueChanged({
-		$form = $this.FindForm()
-		if (-not $form -or -not $form.Tag)
-		{
-			return
-		}
-		$data = $form.Tag
-		UpdateSettings $data -forceWrite
-	})
-	
-	$formData.BtnKeySelect.Add_Click({
-		$form = $this.FindForm()
-		if (-not $form -or -not $form.Tag)
-		{
-			return 
-		}
-		$data = $form.Tag
-		
-		$currentKey = $data.BtnKeySelect.Text
-		$newKey = Show-KeyCaptureDialog $currentKey
-		
-		if ($newKey -and $newKey -ne $currentKey)
-		{
-			if ($data.RunningSpammer)
-			{
-				$data.RunningSpammer.Stop()
-				$data.RunningSpammer.Dispose()
-				$data.RunningSpammer = $null
-			}
-			
-			$data.BtnKeySelect.Text = $newKey
-			UpdateSettings $data -forceWrite
-			
-			ToggleButtonState $data.BtnStart $data.BtnStop $false
-		}
-	})
-	
-	$formData.BtnStart.Add_Click({
-			$form = $this.FindForm()
-			if (-not $form -or -not $form.Tag)
-			{
-				return 
-			}
-			$data = $form.Tag
-		
-			$keyValue = $data.BtnKeySelect.Text
-			if (-not $keyValue -or $keyValue.Trim() -eq '')
-			{
-			[System.Windows.Forms.MessageBox]::Show('Please select a key', 'Error')
-			return
-			}
-		
-			$intervalNum = 0
-			if (-not [int]::TryParse($data.Interval.Text, [ref]$intervalNum) -or $intervalNum -lt 10)
-			{
-				$intervalNum = 100
-				$data.Interval.Text = '100'
-			}
-		
-			ToggleButtonState $data.BtnStart $data.BtnStop $true
-		
-			$spamTimer = CreateSpammerTimer $data.SelectedWindow $keyValue $data.InstanceId $intervalNum
-		
-			$data.RunningSpammer = $spamTimer
-			$global:DashboardConfig.Resources.Timers["ExtSpammer_$($data.InstanceId)_1"] = $spamTimer
-		})
-	
-	$formData.BtnStop.Add_Click({
-			$form = $this.FindForm()
-			if (-not $form -or -not $form.Tag)
-			{
-				return 
-			}
-			$data = $form.Tag
-		
-			if ($data.RunningSpammer)
-			{
-				$data.RunningSpammer.Stop()
-				$data.RunningSpammer.Dispose()
-				$data.RunningSpammer = $null
-			}
-		
-			ToggleButtonState $data.BtnStart $data.BtnStop $false
-		
-			if ($global:DashboardConfig.Resources.Timers.Contains("ExtSpammer_$($data.InstanceId)_1"))
-			{
-				$global:DashboardConfig.Resources.Timers.Remove("ExtSpammer_$($data.InstanceId)_1")
-			}
-		})
+    $formData.PositionSliderY.Add_ValueChanged({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag)
+        {
+            return
+        }
+        $data = $form.Tag
+        UpdateSettings $data -forceWrite
+    })
+    
+    $formData.BtnKeySelect.Add_Click({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag)
+        {
+            return 
+        }
+        $data = $form.Tag
+        
+        $currentKey = $data.BtnKeySelect.Text
+        $newKey = Show-KeyCaptureDialog $currentKey
+        
+        if ($newKey -and $newKey -ne $currentKey)
+        {
+            if ($data.RunningSpammer)
+            {
+                $data.RunningSpammer.Stop()
+                $data.RunningSpammer.Dispose()
+                $data.RunningSpammer = $null
+            }
+            
+            $data.BtnKeySelect.Text = $newKey
+            UpdateSettings $data -forceWrite
+            
+            ToggleButtonState $data.BtnStart $data.BtnStop $false
+        }
+    })
+    
+    $formData.BtnStart.Add_Click({
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag)
+            {
+                return 
+            }
+            $data = $form.Tag
+        
+            $keyValue = $data.BtnKeySelect.Text
+            if (-not $keyValue -or $keyValue.Trim() -eq '')
+            {
+            [System.Windows.Forms.MessageBox]::Show('Please select a key', 'Error')
+            return
+            }
+        
+            $intervalNum = 0
+            if (-not [int]::TryParse($data.Interval.Text, [ref]$intervalNum) -or $intervalNum -lt 10)
+            {
+                $intervalNum = 100
+                $data.Interval.Text = '100'
+            }
+        
+            ToggleButtonState $data.BtnStart $data.BtnStop $true
+        
+            $spamTimer = CreateSpammerTimer $data.SelectedWindow $keyValue $data.InstanceId $intervalNum
+        
+            $data.RunningSpammer = $spamTimer
+            $global:DashboardConfig.Resources.Timers["ExtSpammer_$($data.InstanceId)_1"] = $spamTimer
+        })
+    
+    $formData.BtnStop.Add_Click({
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag)
+            {
+                return 
+            }
+            $data = $form.Tag
+        
+            if ($data.RunningSpammer)
+            {
+                $data.RunningSpammer.Stop()
+                $data.RunningSpammer.Dispose()
+                $data.RunningSpammer = $null
+            }
+        
+            ToggleButtonState $data.BtnStart $data.BtnStop $false
+        
+            if ($global:DashboardConfig.Resources.Timers.Contains("ExtSpammer_$($data.InstanceId)_1"))
+            {
+                $global:DashboardConfig.Resources.Timers.Remove("ExtSpammer_$($data.InstanceId)_1")
+            }
+        })
 
-	$formData.BtnHotKey.Add_Click({
-		$form = $this.FindForm()
-		if (-not $form -or -not $form.Tag)
-		{
-			return 
-		}
-		$data = $form.Tag
+    $formData.BtnHotKey.Add_Click({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag)
+        {
+            return 
+        }
+        $data = $form.Tag
 
-		$currentHotkeyText = $data.BtnHotKey.Text
-		if ($currentHotkeyText -eq "Hotkey") { $currentHotkeyText = $null } 
+        $currentHotkeyText = $data.BtnHotKey.Text
+        if ($currentHotkeyText -eq "Hotkey") { $currentHotkeyText = $null } 
 
-		$oldHotkeyIdToUnregister = $data.HotkeyId
+        $oldHotkeyIdToUnregister = $data.HotkeyId
 
-		$newHotkey = Show-KeyCaptureDialog $currentHotkeyText
-		
-		        if ($newHotkey -and $newHotkey -ne $currentHotkeyText) { 
-		
-		            $data.Hotkey = $newHotkey 		
-			try {
-				$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($data.InstanceId)' -ExtKey `$null")
-				$data.HotkeyId = Set-Hotkey -KeyCombinationString $data.Hotkey -Action $scriptBlock -OwnerKey $data.InstanceId -OldHotkeyId $oldHotkeyIdToUnregister
-				$data.BtnHotKey.Text = $newHotkey 
-				Write-Verbose "FTOOL: Registered hotkey $($data.Hotkey) (ID: $($data.HotkeyId)) for main instance $($data.InstanceId)."
-			} catch {
-				Write-Warning "FTOOL: Failed to register hotkey $($data.Hotkey) for main instance $($data.InstanceId). Error: $_"
+        $newHotkey = Show-KeyCaptureDialog $currentHotkeyText
+        
+                if ($newHotkey -and $newHotkey -ne $currentHotkeyText) { 
+        
+                    $data.Hotkey = $newHotkey       
+            try {
+                $scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($data.InstanceId)' -ExtKey `$null")
+                $data.HotkeyId = Set-Hotkey -KeyCombinationString $data.Hotkey -Action $scriptBlock -OwnerKey $data.InstanceId -OldHotkeyId $oldHotkeyIdToUnregister
+                $data.BtnHotKey.Text = $newHotkey 
+                Write-Verbose "FTOOL: Registered hotkey $($data.Hotkey) (ID: $($data.HotkeyId)) for main instance $($data.InstanceId)."
+            } catch {
+                Write-Warning "FTOOL: Failed to register hotkey $($data.Hotkey) for main instance $($data.InstanceId). Error: $_"
                 $data.HotkeyId = $null 
                 $data.Hotkey = $currentHotkeyText
                 $data.BtnHotKey.Text = $currentHotkeyText -or "Hotkey"
-			}
-			
-			UpdateSettings $data -forceWrite 
-		} elseif (-not $newHotkey -and $oldHotkeyIdToUnregister) { 
-			try {
-				Unregister-HotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $data.InstanceId
-				Write-Verbose "FTOOL: Unregistered hotkey (ID: $($oldHotkeyIdToUnregister)) for main instance $($data.InstanceId) due to user clear."
-			} catch {
-				Write-Warning "FTOOL: Failed to unregister hotkey (ID: $($oldHotkeyIdToUnregister)) for main instance $($data.InstanceId) on clear. Error: $_"
-			}
+            }
+            
+            UpdateSettings $data -forceWrite 
+        } elseif (-not $newHotkey -and $oldHotkeyIdToUnregister) { 
+            try {
+                Unregister-HotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $data.InstanceId
+                Write-Verbose "FTOOL: Unregistered hotkey (ID: $($oldHotkeyIdToUnregister)) for main instance $($data.InstanceId) due to user clear."
+            } catch {
+                Write-Warning "FTOOL: Failed to unregister hotkey (ID: $($oldHotkeyIdToUnregister)) for main instance $($data.InstanceId) on clear. Error: $_"
+            }
             $data.HotkeyId = $null
             $data.Hotkey = $null
             $data.BtnHotKey.Text = "Hotkey"
             UpdateSettings $data -forceWrite
         }
-	})
+    })
 
-	$formData.BtnHotkeyToggle.Add_Click({
-		$form = $this.FindForm()
-		if (-not $form -or -not $form.Tag) { return }
-		$data = $form.Tag
-		$toggleOn = $this.Checked
+    $formData.BtnHotkeyToggle.Add_Click({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag) { return }
+        $data = $form.Tag
+        $toggleOn = $this.Checked
         ToggleInstanceHotkeys -InstanceId $data.InstanceId -ToggleState $toggleOn
-	})
+    })
 
-			$formData.BtnInstanceHotkeyToggle.Add_Click({
-				$form = $this.FindForm()
-				if (-not $form -or -not $form.Tag) { return }
-				$data = $form.Tag
-		
-				$currentHotkeyText = $data.GlobalHotkey
-		
-				$oldHotkeyIdToUnregister = $data.GlobalHotkeyId
-				$ownerKey = "global_toggle_$($data.InstanceId)"
-		
-				$newHotkey = Show-KeyCaptureDialog $currentHotkeyText
-		
-				if ($newHotkey -and $newHotkey -ne $currentHotkeyText) {
-					if (Test-HotkeyConflict -KeyCombinationString $newHotkey -NewHotkeyType ([HotkeyManager+HotkeyActionType]::GlobalToggle) -OwnerKeyToExclude $ownerKey) {
-						[System.Windows.Forms.MessageBox]::Show("This hotkey combination ('$newHotkey') is already assigned to another function or instance. Please choose a different key.", "Hotkey Conflict", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
-						$data.GlobalHotkey = $currentHotkeyText
-						return 
-					}
-		
-					$data.GlobalHotkey = $newHotkey
-					try {
-						$script = @"
-		Write-Verbose "FTOOL: Global-toggle hotkey triggered for instance '$($data.InstanceId)'"
-		if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)')) {
-			`$f = `$global:DashboardConfig.Resources.FtoolForms['$($data.InstanceId)']
-			if (`$f -and -not `$f.IsDisposed -and `$f.Tag) {
-				`$toggle = `$f.Tag.BtnHotkeyToggle
-				if (`$toggle) {
-					try {
-						if (`$toggle.InvokeRequired) {
-							`$action = [System.Action]{ `$toggle.Checked = -not `$toggle.Checked }
-							`$toggle.Invoke(`$action)
-						} else {
-							`$toggle.Checked = -not `$toggle.Checked
-						}
-						ToggleInstanceHotkeys -InstanceId '$($data.InstanceId)' -ToggleState `$toggle.Checked
-						Write-Verbose "FTOOL: Global toggle action completed for instance '$($data.InstanceId)'."
-					} catch {
-						Write-Warning "FTOOL: Error during global toggle action for instance '$($data.InstanceId)'. Error: `$_"
-					}
-				}
-			}
-		}
+            $formData.BtnInstanceHotkeyToggle.Add_Click({
+                $form = $this.FindForm()
+                if (-not $form -or -not $form.Tag) { return }
+                $data = $form.Tag
+        
+                $currentHotkeyText = $data.GlobalHotkey
+        
+                $oldHotkeyIdToUnregister = $data.GlobalHotkeyId
+                $ownerKey = "global_toggle_$($data.InstanceId)"
+        
+                $newHotkey = Show-KeyCaptureDialog $currentHotkeyText
+        
+                if ($newHotkey -and $newHotkey -ne $currentHotkeyText) {
+                    if (Test-HotkeyConflict -KeyCombinationString $newHotkey -NewHotkeyType ([HotkeyManager+HotkeyActionType]::GlobalToggle) -OwnerKeyToExclude $ownerKey) {
+                        [System.Windows.Forms.MessageBox]::Show("This hotkey combination ('$newHotkey') is already assigned to another function or instance. Please choose a different key.", "Hotkey Conflict", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+                        $data.GlobalHotkey = $currentHotkeyText
+                        return 
+                    }
+        
+                    $data.GlobalHotkey = $newHotkey
+                    try {
+                        $script = @"
+        Write-Verbose "FTOOL: Global-toggle hotkey triggered for instance '$($data.InstanceId)'"
+        if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)')) {
+            `$f = `$global:DashboardConfig.Resources.FtoolForms['$($data.InstanceId)']
+            if (`$f -and -not `$f.IsDisposed -and `$f.Tag) {
+                `$toggle = `$f.Tag.BtnHotkeyToggle
+                if (`$toggle) {
+                    try {
+                        if (`$toggle.InvokeRequired) {
+                            `$action = [System.Action]{ `$toggle.Checked = -not `$toggle.Checked }
+                            `$toggle.Invoke(`$action)
+                        } else {
+                            `$toggle.Checked = -not `$toggle.Checked
+                        }
+                        ToggleInstanceHotkeys -InstanceId '$($data.InstanceId)' -ToggleState `$toggle.Checked
+                        Write-Verbose "FTOOL: Global toggle action completed for instance '$($data.InstanceId)'."
+                    } catch {
+                        Write-Warning "FTOOL: Error during global toggle action for instance '$($data.InstanceId)'. Error: `$_"
+                    }
+                }
+            }
+        }
 "@
-						$scriptBlock = [scriptblock]::Create($script)
-						$data.GlobalHotkeyId = Set-Hotkey -KeyCombinationString $data.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey -OldHotkeyId $oldHotkeyIdToUnregister
-						Write-Verbose "FTOOL: Registered global-toggle hotkey $($data.GlobalHotkey) (ID: $($data.GlobalHotkeyId)) for instance $($data.InstanceId)."
-					} catch {
-						Write-Warning "FTOOL: Failed to register global-toggle hotkey $($data.GlobalHotkey) for instance $($data.InstanceId). Error: $_"
-						$data.GlobalHotkeyId = $null
-						$data.GlobalHotkey = $currentHotkeyText
-					}
-		
-					UpdateSettings $data -forceWrite
-				} elseif (-not $newHotkey -and $oldHotkeyIdToUnregister) {
-					try {
-						Unregister-HotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $ownerKey
-						Write-Verbose "FTOOL: Unregistered global-toggle hotkey (ID: $($oldHotkeyIdToUnregister)) for instance $($data.InstanceId) due to user clear."
-					} catch {
-						Write-Warning "FTOOL: Failed to unregister global-toggle hotkey (ID: $($oldHotkeyIdToUnregister)) for instance $($data.InstanceId) on clear. Error: $_"
-					}
-					$data.GlobalHotkeyId = $null
-					$data.GlobalHotkey = $null
-					UpdateSettings $data -forceWrite
-				}
-			})
+                        $scriptBlock = [scriptblock]::Create($script)
+                        $data.GlobalHotkeyId = Set-Hotkey -KeyCombinationString $data.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey -OldHotkeyId $oldHotkeyIdToUnregister
+                        Write-Verbose "FTOOL: Registered global-toggle hotkey $($data.GlobalHotkey) (ID: $($data.GlobalHotkeyId)) for instance $($data.InstanceId)."
+                    } catch {
+                        Write-Warning "FTOOL: Failed to register global-toggle hotkey $($data.GlobalHotkey) for instance $($data.InstanceId). Error: $_"
+                        $data.GlobalHotkeyId = $null
+                        $data.GlobalHotkey = $currentHotkeyText
+                    }
+        
+                    UpdateSettings $data -forceWrite
+                } elseif (-not $newHotkey -and $oldHotkeyIdToUnregister) {
+                    try {
+                        Unregister-HotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $ownerKey
+                        Write-Verbose "FTOOL: Unregistered global-toggle hotkey (ID: $($oldHotkeyIdToUnregister)) for instance $($data.InstanceId) due to user clear."
+                    } catch {
+                        Write-Warning "FTOOL: Failed to unregister global-toggle hotkey (ID: $($oldHotkeyIdToUnregister)) for instance $($data.InstanceId) on clear. Error: $_"
+                    }
+                    $data.GlobalHotkeyId = $null
+                    $data.GlobalHotkey = $null
+                    UpdateSettings $data -forceWrite
+                }
+            })
 
-	
-	$formData.BtnShowHide.Add_Click({
-			$form = $this.FindForm()
-			if (-not $form -or -not $form.Tag)
-			{
-				return 
-			}
-			$data = $form.Tag
-		
-			if (-not (CheckRateLimit $this.GetHashCode() 200))
-			{
-				return 
-			}
-		
-			if ($data.IsCollapsed)
-			{
-				$form.Height = $data.OriginalHeight
-				$data.IsCollapsed = $false
-				$this.Text = [char]0x25B2  
-			}
-			else
-			{
-				$data.OriginalHeight = $form.Height
-				$form.Height = 25
-				$data.IsCollapsed = $true
-				$this.Text = [char]0x25BC  
-			}
-		})
-	
-	$formData.BtnAdd.Add_Click({
-			$form = $this.FindForm()
-			if (-not $form -or -not $form.Tag -or $form.Tag.IsCollapsed)
-			{
-				return 
-			}
-			$data = $form.Tag
-		
-			if (-not (CheckRateLimit $this.GetHashCode() 200))
-			{
-				return 
-			}
-		
-			if ($data.ExtensionCount -ge 8)
-			{
-				[System.Windows.Forms.MessageBox]::Show('Maximum number of extensions reached.', 'Warning')
-				return
-			}
-		
-			$data.ExtensionCount++
-		
-			InitializeExtensionTracking $data.InstanceId
-		
-			$extNum = GetNextExtensionNumber $data.InstanceId
-		
-			$extData = CreateExtensionPanel $form $currentHeight $extNum $data.InstanceId $data.SelectedWindow
+    
+    $formData.BtnShowHide.Add_Click({
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag)
+            {
+                return 
+            }
+            $data = $form.Tag
+        
+            if (-not (CheckRateLimit $this.GetHashCode() 200))
+            {
+                return 
+            }
+        
+            if ($data.IsCollapsed)
+            {
+                $form.Height = $data.OriginalHeight
+                $data.IsCollapsed = $false
+                $this.Text = [char]0x25B2  
+            }
+            else
+            {
+                $data.OriginalHeight = $form.Height
+                $form.Height = 25
+                $data.IsCollapsed = $true
+                $this.Text = [char]0x25BC  
+            }
+        })
+    
+    $formData.BtnAdd.Add_Click({
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag -or $form.Tag.IsCollapsed)
+            {
+                return 
+            }
+            $data = $form.Tag
+        
+            if (-not (CheckRateLimit $this.GetHashCode() 200))
+            {
+                return 
+            }
+        
+            if ($data.ExtensionCount -ge 8)
+            {
+                [System.Windows.Forms.MessageBox]::Show('Maximum number of extensions reached.', 'Warning')
+                return
+            }
+        
+            $data.ExtensionCount++
+        
+            InitializeExtensionTracking $data.InstanceId
+        
+            $extNum = GetNextExtensionNumber $data.InstanceId
+        
+            $extData = CreateExtensionPanel $form $currentHeight $extNum $data.InstanceId $data.SelectedWindow
             $extKeyForScriptBlock = "ext_$($data.InstanceId)_$extNum"
-		
-			$profilePrefix = FindOrCreateProfile $data.WindowTitle
-		
-			LoadExtensionSettings $extData $profilePrefix
+        
+            $profilePrefix = FindOrCreateProfile $data.WindowTitle
+        
+            LoadExtensionSettings $extData $profilePrefix
             
             if (-not [string]::IsNullOrEmpty($extData.Hotkey)) {
-				try {
-					$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($extData.InstanceId)' -ExtKey '$($extKeyForScriptBlock)'")
-					$newHotkeyId = Set-Hotkey -KeyCombinationString $extData.Hotkey -Action $scriptBlock -OwnerKey $extKeyForScriptBlock
-					$extData.HotkeyId = $newHotkeyId
-					$extHotKeyIdDisplay = if ($extData.HotkeyId) { $extData.HotkeyId } else { 'None' }
-					Write-Verbose "FTOOL: Registered hotkey $($extData.Hotkey) (ID: $extHotKeyIdDisplay) for extension $($extKeyForScriptBlock) on load."
-				} catch {
+                try {
+                    $scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($extData.InstanceId)' -ExtKey '$($extKeyForScriptBlock)'")
+                    $newHotkeyId = Set-Hotkey -KeyCombinationString $extData.Hotkey -Action $scriptBlock -OwnerKey $extKeyForScriptBlock
+                    $extData.HotkeyId = $newHotkeyId
+                    $extHotKeyIdDisplay = if ($extData.HotkeyId) { $extData.HotkeyId } else { 'None' }
+                    Write-Verbose "FTOOL: Registered hotkey $($extData.Hotkey) (ID: $extHotKeyIdDisplay) for extension $($extKeyForScriptBlock) on load."
+                } catch {
                     Write-Warning "FTOOL: Failed to register hotkey $($extData.Hotkey) for extension $($extKeyForScriptBlock) on load. Error: $_"
                     $extData.HotkeyId = $null 
                 }
             }
-		
-			AddExtensionEventHandlers $extData $data
-		
-			AddFormCleanupHandler $form
-		
-			RepositionExtensions $form $extData.InstanceId
-				
-			$form.Refresh()
-		})
-	
-	$formData.BtnClose.Add_Click({
-			$form = $this.FindForm()
-			if (-not $form -or -not $form.Tag)
-			{
-				return 
-			}
-			$data = $form.Tag
-		
-			CleanupInstanceResources $data.InstanceId
-		
-			if ($global:DashboardConfig.Resources.FtoolForms.Contains($data.InstanceId))
-			{
-				$global:DashboardConfig.Resources.FtoolForms.Remove($data.InstanceId)
-			}
-		
-			$form.Close()
-			$form.Dispose()
-		})
-	
-	$formData.Form.Add_FormClosed({
-			param($src, $e)
-		
-			$instanceId = $src.Tag.InstanceId
-			if ($instanceId)
-			{
-				CleanupInstanceResources $instanceId
-			}
-		})
+        
+            AddExtensionEventHandlers $extData $data
+        
+            AddFormCleanupHandler $form
+        
+            RepositionExtensions $form $extData.InstanceId
+                
+            $form.Refresh()
+        })
+    
+    $formData.BtnClose.Add_Click({
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag)
+            {
+                return 
+            }
+            $data = $form.Tag
+        
+            CleanupInstanceResources $data.InstanceId
+        
+            if ($global:DashboardConfig.Resources.FtoolForms.Contains($data.InstanceId))
+            {
+                $global:DashboardConfig.Resources.FtoolForms.Remove($data.InstanceId)
+            }
+        
+            $form.Close()
+            $form.Dispose()
+        })
+    
+    $formData.Form.Add_FormClosed({
+            param($src, $e)
+        
+            $instanceId = $src.Tag.InstanceId
+            if ($instanceId)
+            {
+                CleanupInstanceResources $instanceId
+            }
+        })
 }
 
 function CreateExtensionPanel
 {
-	param($form, $currentHeight, $extNum, $instanceId, $windowHandle)
-	
-    # --- TOOLTIP FIX START ---
-    # Store the previous global tooltip reference
+    param($form, $currentHeight, $extNum, $instanceId, $windowHandle)
+    
+    
+    
     $previousToolTip = $global:DashboardConfig.UI.ToolTip
     
-    # Temporarily swap to the local form's tooltip
+    
     if ($form.Tag -and $form.Tag.ToolTip) {
         $global:DashboardConfig.UI.ToolTip = $form.Tag.ToolTip
     }
-    # --- TOOLTIP FIX END ---
+    
 
     try {
 
-	    $panelExt = Set-UIElement -type 'Panel' -visible $true -width 190 -height 60 -top 0 -left 40 -bg @(50, 50, 50)
-	    $form.Controls.Add($panelExt)
-	    $panelExt.BringToFront()
-	
-	    $btnKeySelectExt = Set-UIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip 'Click to bind Key'
-	    $panelExt.Controls.Add($btnKeySelectExt)
-	
-	    $intervalExt = Set-UIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Delay in milliseconds'
-	    $panelExt.Controls.Add($intervalExt)
-	
-	    $btnStartExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Start Ftool'
-	    $panelExt.Controls.Add($btnStartExt)
-	
-	    $btnStopExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Stop Ftool'
-	    $btnStopExt.Enabled = $false
-	    $btnStopExt.Visible = $false
-	    $panelExt.Controls.Add($btnStopExt)
+        $panelExt = Set-UIElement -type 'Panel' -visible $true -width 190 -height 60 -top 0 -left 40 -bg @(50, 50, 50)
+        $form.Controls.Add($panelExt)
+        $panelExt.BringToFront()
+    
+        $btnKeySelectExt = Set-UIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip 'Click to bind Key'
+        $panelExt.Controls.Add($btnKeySelectExt)
+    
+        $intervalExt = Set-UIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Delay in milliseconds'
+        $panelExt.Controls.Add($intervalExt)
+    
+        $btnStartExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Start Ftool'
+        $panelExt.Controls.Add($btnStartExt)
+    
+        $btnStopExt = Set-UIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Stop Ftool'
+        $btnStopExt.Enabled = $false
+        $btnStopExt.Visible = $false
+        $panelExt.Controls.Add($btnStopExt)
 
-	    $btnHotKeyExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip 'Assign Hotkey'
-	    $panelExt.Controls.Add($btnHotKeyExt)
-	
-	    $nameExt = Set-UIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text "Name" -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip 'Identification Name'
-	    $panelExt.Controls.Add($nameExt)
-	
-	    $btnRemoveExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 20 -top 35 -left 120 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'Close' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 7)) -tooltip 'Remove this Extension'
-	    $panelExt.Controls.Add($btnRemoveExt)
+        $btnHotKeyExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip 'Assign Hotkey'
+        $panelExt.Controls.Add($btnHotKeyExt)
+    
+        $nameExt = Set-UIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text "Name" -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip 'Identification Name'
+        $panelExt.Controls.Add($nameExt)
+    
+        $btnRemoveExt = Set-UIElement -type 'Button' -visible $true -width 40 -height 20 -top 35 -left 120 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'Close' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 7)) -tooltip 'Remove this Extension'
+        $panelExt.Controls.Add($btnRemoveExt)
 
     } finally {
-        # Restore the global tooltip reference
+        
         $global:DashboardConfig.UI.ToolTip = $previousToolTip
     }
 
-	$extKey = "ext_${instanceId}_$extNum"
-	$instanceKey = "instance_$instanceId"
-	
-	$extData = [PSCustomObject]@{
-		Panel          = $panelExt
-		BtnKeySelect   = $btnKeySelectExt
-		Interval       = $intervalExt
-		BtnStart       = $btnStartExt
-		BtnStop        = $btnStopExt
-		BtnHotKey      = $btnHotKeyExt
-		BtnRemove      = $btnRemoveExt
-		Name           = $nameExt
-		ExtNum         = $extNum
-		InstanceId     = $instanceId
-		WindowHandle   = $windowHandle
-		RunningSpammer = $null
-		Position       = $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions.Count
+    $extKey = "ext_${instanceId}_$extNum"
+    $instanceKey = "instance_$instanceId"
+    
+    $extData = [PSCustomObject]@{
+        Panel          = $panelExt
+        BtnKeySelect   = $btnKeySelectExt
+        Interval       = $intervalExt
+        BtnStart       = $btnStartExt
+        BtnStop        = $btnStopExt
+        BtnHotKey      = $btnHotKeyExt
+        BtnRemove      = $btnRemoveExt
+        Name           = $nameExt
+        ExtNum         = $extNum
+        InstanceId     = $instanceId
+        WindowHandle   = $windowHandle
+        RunningSpammer = $null
+        Position       = $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions.Count
         Hotkey         = $null 
         HotkeyId       = $null 
-	}
-	
-	$global:DashboardConfig.Resources.ExtensionData[$extKey] = $extData
-	
-	if (-not $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions.Contains($extKey))
-	{
-		$global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions += $extKey
-	}
-	
-	return $extData
+    }
+    
+    $global:DashboardConfig.Resources.ExtensionData[$extKey] = $extData
+    
+    if (-not $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions.Contains($extKey))
+    {
+        $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions += $extKey
+    }
+    
+    return $extData
 }
 
 function AddExtensionEventHandlers
 {
-	param($extData, $formData)
-	
-	$extData.Interval.Add_TextChanged({
-			$form = $this.FindForm()
-			if (-not $form -or -not $form.Tag)
-			{
-				return 
-			}
-			$data = $form.Tag
-		
-			if (-not (CheckRateLimit $this.GetHashCode()))
-			{
-				return 
-			}
-		
-			$extKey = FindExtensionKeyByControl $this 'Interval'
-			if (-not $extKey)
-			{
-				return 
-			}
-		
-			if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
-			{
-				return 
-			}
-		
-			$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
-			if (-not $extData)
-			{
-				return 
-			}
-		
-			$intervalValue = 0
-			if (-not [int]::TryParse($this.Text, [ref]$intervalValue) -or $intervalValue -lt 10)
-			{
-				$this.Text = '100'
-				$intervalValue = 100
-			}
-		
-			UpdateSettings $data $extData -forceWrite
-		})
+    param($extData, $formData)
+    
+    $extData.Interval.Add_TextChanged({
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag)
+            {
+                return 
+            }
+            $data = $form.Tag
+        
+            if (-not (CheckRateLimit $this.GetHashCode()))
+            {
+                return 
+            }
+        
+            $extKey = FindExtensionKeyByControl $this 'Interval'
+            if (-not $extKey)
+            {
+                return 
+            }
+        
+            if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+            {
+                return 
+            }
+        
+            $extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+            if (-not $extData)
+            {
+                return 
+            }
+        
+            $intervalValue = 0
+            if (-not [int]::TryParse($this.Text, [ref]$intervalValue) -or $intervalValue -lt 10)
+            {
+                $this.Text = '100'
+                $intervalValue = 100
+            }
+        
+            UpdateSettings $data $extData -forceWrite
+        })
 
-	$extData.Name.Add_TextChanged({
-		$form = $this.FindForm()
-		if (-not $form -or -not $form.Tag)
-		{
-			return 
-		}
-		$data = $form.Tag
-	
-		if (-not (CheckRateLimit $this.GetHashCode()))
-		{
-			return 
-		}
-	
-		$extKey = FindExtensionKeyByControl $this 'Name'
-		if (-not $extKey)
-		{
-			return 
-		}
-	
-		if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
-		{
-			return 
-		}
-	
-		$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
-		if (-not $extData)
-		{
-			return 
-		}
-	
-		UpdateSettings $data $extData -forceWrite
-	})
-	
-	$extData.BtnKeySelect.Add_Click({
-		$form = $this.FindForm()
-		if (-not $form -or -not $form.Tag)
-		{
-			return 
-		}
-		$data = $form.Tag
-		
-		$extKey = FindExtensionKeyByControl $this 'BtnKeySelect'
-		if (-not $extKey)
-		{
-			return 
-		}
-		
-		if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
-		{
-			return 
-		}
-		
-		$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
-		if (-not $extData)
-		{
-			return 
-		}
-		
-		$currentKey = $extData.BtnKeySelect.Text
-		$newKey = Show-KeyCaptureDialog $currentKey
-		
-		if ($newKey -and $newKey -ne $currentKey)
-		{
-			if ($extData.RunningSpammer)
-			{
-				$extData.RunningSpammer.Stop()
-				$extData.RunningSpammer.Dispose()
-				$extData.RunningSpammer = $null
-			}
-			
-			$extData.BtnKeySelect.Text = $newKey
-			UpdateSettings $data $extData -forceWrite
-			
-			ToggleButtonState $extData.BtnStart $extData.BtnStop $false
-		}
-	})
-	
-	$extData.BtnStart.Add_Click({
-			$form = $this.FindForm()
-			if (-not $form -or -not $form.Tag)
-			{
-				return 
-			}
-			$data = $form.Tag
-		
-			if (-not (CheckRateLimit $this.GetHashCode() 500))
-			{
-				return 
-			}
-		
-			$extKey = FindExtensionKeyByControl $this 'BtnStart'
-			if (-not $extKey)
-			{
-				return 
-			}
-		
-			if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
-			{
-				return 
-			}
-		
-			$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
-			if (-not $extData)
-			{
-				return 
-			}
-		
-			$extNum = $extData.ExtNum
-		
-			$keyValue = $extData.BtnKeySelect.Text
-			 if (-not $keyValue -or $keyValue.Trim() -eq '')
-			{
-			 [System.Windows.Forms.MessageBox]::Show('Please select a key', 'Error')
-			 return
-			}
-		
-			$intervalNum = 0
-		
-			if (-not $extData.Interval -or -not $extData.Interval.Text)
-			{
-				$intervalNum = 100
-			}
-			else
-			{
-				if (-not [int]::TryParse($extData.Interval.Text, [ref]$intervalNum) -or $intervalNum -lt 10)
-				{
-					$intervalNum = 100
-					if ($extData.Interval)
-					{
-						$extData.Interval.Text = '100'
-					}
-				}
-			}
-		
-			ToggleButtonState $extData.BtnStart $extData.BtnStop $true
-		
-			$timerKey = "ExtSpammer_$($data.InstanceId)_$extNum"
-			if ($global:DashboardConfig.Resources.Timers.Contains($timerKey))
-			{
-				$existingTimer = $global:DashboardConfig.Resources.Timers[$timerKey]
-				if ($existingTimer)
-				{
-					$existingTimer.Stop()
-					$existingTimer.Dispose()
-					$global:DashboardConfig.Resources.Timers.Remove($timerKey)
-				}
-			}
-		
-			$spamTimer = CreateSpammerTimer $data.SelectedWindow $keyValue $data.InstanceId $intervalNum $extNum $extKey
-		
-			$extData.RunningSpammer = $spamTimer
-			$global:DashboardConfig.Resources.Timers[$timerKey] = $spamTimer
-		})
-	
-	$extData.BtnStop.Add_Click({
-			$form = $this.FindForm()
-			if (-not $form -or -not $form.Tag)
-			{
-				return 
-			}
-			$data = $form.Tag
-		
-			if (-not (CheckRateLimit $this.GetHashCode() 500))
-			{
-				return 
-			}
-		
-			$extKey = FindExtensionKeyByControl $this 'BtnStop'
-			if (-not $extKey)
-			{
-				return 
-			}
-		
-			if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
-			{
-				return 
-			}
-		
-			$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
-			if (-not $extData)
-			{
-				return 
-			}
-		
-			$extNum = $extData.ExtNum
-		
-			if ($extData.RunningSpammer)
-			{
-				$extData.RunningSpammer.Stop()
-				$extData.RunningSpammer.Dispose()
-				$extData.RunningSpammer = $null
-			}
-		
-			ToggleButtonState $extData.BtnStart $extData.BtnStop $false
-		
-			$timerKey = "ExtSpammer_$($data.InstanceId)_$extNum"
-			if ($global:DashboardConfig.Resources.Timers.Contains($timerKey))
-			{
-				$global:DashboardConfig.Resources.Timers.Remove($timerKey)
-			}
-		})
+    $extData.Name.Add_TextChanged({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag)
+        {
+            return 
+        }
+        $data = $form.Tag
+    
+        if (-not (CheckRateLimit $this.GetHashCode()))
+        {
+            return 
+        }
+    
+        $extKey = FindExtensionKeyByControl $this 'Name'
+        if (-not $extKey)
+        {
+            return 
+        }
+    
+        if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+        {
+            return 
+        }
+    
+        $extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+        if (-not $extData)
+        {
+            return 
+        }
+    
+        UpdateSettings $data $extData -forceWrite
+    })
+    
+    $extData.BtnKeySelect.Add_Click({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag)
+        {
+            return 
+        }
+        $data = $form.Tag
+        
+        $extKey = FindExtensionKeyByControl $this 'BtnKeySelect'
+        if (-not $extKey)
+        {
+            return 
+        }
+        
+        if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+        {
+            return 
+        }
+        
+        $extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+        if (-not $extData)
+        {
+            return 
+        }
+        
+        $currentKey = $extData.BtnKeySelect.Text
+        $newKey = Show-KeyCaptureDialog $currentKey
+        
+        if ($newKey -and $newKey -ne $currentKey)
+        {
+            if ($extData.RunningSpammer)
+            {
+                $extData.RunningSpammer.Stop()
+                $extData.RunningSpammer.Dispose()
+                $extData.RunningSpammer = $null
+            }
+            
+            $extData.BtnKeySelect.Text = $newKey
+            UpdateSettings $data $extData -forceWrite
+            
+            ToggleButtonState $extData.BtnStart $extData.BtnStop $false
+        }
+    })
+    
+    $extData.BtnStart.Add_Click({
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag)
+            {
+                return 
+            }
+            $data = $form.Tag
+        
+            if (-not (CheckRateLimit $this.GetHashCode() 500))
+            {
+                return 
+            }
+        
+            $extKey = FindExtensionKeyByControl $this 'BtnStart'
+            if (-not $extKey)
+            {
+                return 
+            }
+        
+            if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+            {
+                return 
+            }
+        
+            $extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+            if (-not $extData)
+            {
+                return 
+            }
+        
+            $extNum = $extData.ExtNum
+        
+            $keyValue = $extData.BtnKeySelect.Text
+             if (-not $keyValue -or $keyValue.Trim() -eq '')
+            {
+             [System.Windows.Forms.MessageBox]::Show('Please select a key', 'Error')
+             return
+            }
+        
+            $intervalNum = 0
+        
+            if (-not $extData.Interval -or -not $extData.Interval.Text)
+            {
+                $intervalNum = 100
+            }
+            else
+            {
+                if (-not [int]::TryParse($extData.Interval.Text, [ref]$intervalNum) -or $intervalNum -lt 10)
+                {
+                    $intervalNum = 100
+                    if ($extData.Interval)
+                    {
+                        $extData.Interval.Text = '100'
+                    }
+                }
+            }
+        
+            ToggleButtonState $extData.BtnStart $extData.BtnStop $true
+        
+            $timerKey = "ExtSpammer_$($data.InstanceId)_$extNum"
+            if ($global:DashboardConfig.Resources.Timers.Contains($timerKey))
+            {
+                $existingTimer = $global:DashboardConfig.Resources.Timers[$timerKey]
+                if ($existingTimer)
+                {
+                    $existingTimer.Stop()
+                    $existingTimer.Dispose()
+                    $global:DashboardConfig.Resources.Timers.Remove($timerKey)
+                }
+            }
+        
+            $spamTimer = CreateSpammerTimer $data.SelectedWindow $keyValue $data.InstanceId $intervalNum $extNum $extKey
+        
+            $extData.RunningSpammer = $spamTimer
+            $global:DashboardConfig.Resources.Timers[$timerKey] = $spamTimer
+        })
+    
+    $extData.BtnStop.Add_Click({
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag)
+            {
+                return 
+            }
+            $data = $form.Tag
+        
+            if (-not (CheckRateLimit $this.GetHashCode() 500))
+            {
+                return 
+            }
+        
+            $extKey = FindExtensionKeyByControl $this 'BtnStop'
+            if (-not $extKey)
+            {
+                return 
+            }
+        
+            if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+            {
+                return 
+            }
+        
+            $extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+            if (-not $extData)
+            {
+                return 
+            }
+        
+            $extNum = $extData.ExtNum
+        
+            if ($extData.RunningSpammer)
+            {
+                $extData.RunningSpammer.Stop()
+                $extData.RunningSpammer.Dispose()
+                $extData.RunningSpammer = $null
+            }
+        
+            ToggleButtonState $extData.BtnStart $extData.BtnStop $false
+        
+            $timerKey = "ExtSpammer_$($data.InstanceId)_$extNum"
+            if ($global:DashboardConfig.Resources.Timers.Contains($timerKey))
+            {
+                $global:DashboardConfig.Resources.Timers.Remove($timerKey)
+            }
+        })
 
-	$extData.BtnHotKey.Add_Click({
-		$form = $this.FindForm()
-		if (-not $form -or -not $form.Tag)
-		{
-			return 
-		}
-		$formData = $form.Tag 
+    $extData.BtnHotKey.Add_Click({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag)
+        {
+            return 
+        }
+        $formData = $form.Tag 
 
-		$extKey = FindExtensionKeyByControl $this 'BtnHotKey'
-		if (-not $extKey)
-		{
-			return 
-		}
-		
-		if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
-		{
-			return 
-		}
-		
-		$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
-		if (-not $extData)
-		{
-			return 
-		}
-		
-		$currentHotkeyText = $extData.BtnHotKey.Text
-		if ($currentHotkeyText -eq "Hotkey") { $currentHotkeyText = $null } 
+        $extKey = FindExtensionKeyByControl $this 'BtnHotKey'
+        if (-not $extKey)
+        {
+            return 
+        }
+        
+        if (-not $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+        {
+            return 
+        }
+        
+        $extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+        if (-not $extData)
+        {
+            return 
+        }
+        
+        $currentHotkeyText = $extData.BtnHotKey.Text
+        if ($currentHotkeyText -eq "Hotkey") { $currentHotkeyText = $null } 
 
         $oldHotkeyIdToUnregister = $extData.HotkeyId
 
-		$newHotkey = Show-KeyCaptureDialog $currentHotkeyText
-		
-		if ($newHotkey -and $newHotkey -ne $currentHotkeyText) { 
+        $newHotkey = Show-KeyCaptureDialog $currentHotkeyText
+        
+        if ($newHotkey -and $newHotkey -ne $currentHotkeyText) { 
 
-			$extData.Hotkey = $newHotkey
-			
-			try {
-				$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($extData.InstanceId)' -ExtKey '$($extKey)'")
-				$extData.HotkeyId = Set-Hotkey -KeyCombinationString $extData.Hotkey -Action $scriptBlock -OwnerKey $extKey -OldHotkeyId $oldHotkeyIdToUnregister
-				$extData.BtnHotKey.Text = $newHotkey 
-				$extHotKeyIdDisplay = if ($extData.HotkeyId) { $extData.HotkeyId } else { 'None' }
-				Write-Verbose "FTOOL: Registered hotkey $($extData.Hotkey) (ID: $extHotKeyIdDisplay) for extension $($extKey)."
-			} catch {
-				Write-Warning "FTOOL: Failed to register hotkey $($extData.Hotkey) for extension $($extKey). Error: $_"
+            $extData.Hotkey = $newHotkey
+            
+            try {
+                $scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($extData.InstanceId)' -ExtKey '$($extKey)'")
+                $extData.HotkeyId = Set-Hotkey -KeyCombinationString $extData.Hotkey -Action $scriptBlock -OwnerKey $extKey -OldHotkeyId $oldHotkeyIdToUnregister
+                $extData.BtnHotKey.Text = $newHotkey 
+                $extHotKeyIdDisplay = if ($extData.HotkeyId) { $extData.HotkeyId } else { 'None' }
+                Write-Verbose "FTOOL: Registered hotkey $($extData.Hotkey) (ID: $extHotKeyIdDisplay) for extension $($extKey)."
+            } catch {
+                Write-Warning "FTOOL: Failed to register hotkey $($extData.Hotkey) for extension $($extKey). Error: $_"
                 $extData.HotkeyId = $null 
                 $extData.Hotkey = $currentHotkeyText
                 $extData.BtnHotKey.Text = $currentHotkeyText -or "Hotkey"
-			}
-			
-			UpdateSettings $formData $extData -forceWrite
-		} elseif (-not $newHotkey -and $oldHotkeyIdToUnregister) { 
-			try {
-				Unregister-HotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $extKey
-				Write-Verbose "FTOOL: Unregistered hotkey (ID: $($oldHotkeyIdToUnregister)) for extension $($extKey) due to user clear."
-			} catch {
-				Write-Warning "FTOOL: Failed to unregister hotkey (ID: $($oldHotkeyIdToUnregister)) for extension $($extKey) on clear. Error: $_"
-			}
+            }
+            
+            UpdateSettings $formData $extData -forceWrite
+        } elseif (-not $newHotkey -and $oldHotkeyIdToUnregister) { 
+            try {
+                Unregister-HotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $extKey
+                Write-Verbose "FTOOL: Unregistered hotkey (ID: $($oldHotkeyIdToUnregister)) for extension $($extKey) due to user clear."
+            } catch {
+                Write-Warning "FTOOL: Failed to unregister hotkey (ID: $($oldHotkeyIdToUnregister)) for extension $($extKey) on clear. Error: $_"
+            }
             $extData.HotkeyId = $null
             $extData.Hotkey = $null
             $extData.BtnHotKey.Text = "Hotkey"
             UpdateSettings $formData $extData -forceWrite
         }
-	})
-	
-	$extData.BtnRemove.Add_Click({
-			try
-			{
-				$form = $this.FindForm()
-				if (-not $form -or -not $form.Tag)
-				{
-					return 
-				}
-			
-				if (-not (CheckRateLimit $this.GetHashCode() 1000))
-				{
-					return 
-				}
-			
-				$extKey = FindExtensionKeyByControl $this 'BtnRemove'
-				if (-not $extKey)
-				{
-					return 
-				}
-			
-				$this.Enabled = $false
-			
-				RemoveExtension $form $extKey
-			
-				$form.Tag.ExtensionCount--
-			}
-			catch
-			{
-				Write-Verbose ("FTOOL: Error in Remove button handler: {0}" -f $_.Exception.Message) -ForegroundColor Red
-			}
-		})
+    })
+    
+    $extData.BtnRemove.Add_Click({
+            try
+            {
+                $form = $this.FindForm()
+                if (-not $form -or -not $form.Tag)
+                {
+                    return 
+                }
+            
+                if (-not (CheckRateLimit $this.GetHashCode() 1000))
+                {
+                    return 
+                }
+            
+                $extKey = FindExtensionKeyByControl $this 'BtnRemove'
+                if (-not $extKey)
+                {
+                    return 
+                }
+            
+                $this.Enabled = $false
+            
+                RemoveExtension $form $extKey
+            
+                $form.Tag.ExtensionCount--
+            }
+            catch
+            {
+                Write-Verbose ("FTOOL: Error in Remove button handler: {0}" -f $_.Exception.Message) -ForegroundColor Red
+            }
+        })
 }
 
 #endregion
 
 #region Module Exports
-
-Export-ModuleMember -Function FtoolSelectedRow, Set-Hotkey, Resume-AllHotkeys, Resume-PausedKeys, Resume-HotkeysForOwner, Remove-AllHotkeys, Test-HotkeyConflict, Invoke-FtoolAction, PauseAllHotkeys, PauseHotkeysForOwner, Unregister-HotkeyInstance, ToggleSpecificFtoolInstance, ToggleInstanceHotkeys, Get-VirtualKeyMappings, NormalizeKeyString, ParseKeyString, Get-KeyCombinationString, IsModifierKeyCode, Show-KeyCaptureDialog, LoadFtoolSettings, FindOrCreateProfile, InitializeExtensionTracking, GetNextExtensionNumber, FindExtensionKeyByControl, LoadExtensionSettings, UpdateSettings, CreatePositionTimer, RepositionExtensions, CreateSpammerTimer, ToggleButtonState, CheckRateLimit, AddFormCleanupHandler, CleanupInstanceResources, Stop-FtoolForm, RemoveExtension, CreateFtoolForm, AddFtoolEventHandlers, CreateExtensionPanel, AddExtensionEventHandlers
-
+Export-ModuleMember -Function *
 #endregion
