@@ -1,119 +1,1372 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="en" data-bs-theme="dark">
 <head>
-
     <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="">
-    <meta name="author" content="">
+    <title>Entropia Dashboard</title>
+    <meta name="description" content="Entropia Dashboard - The ultimate open-source multi-client manager and F-Tool for Flyff. Automate logins, manage profiles, and enhance your gameplay.">
 
-    <title>Entropia Dashboard by Immortal / Divine</title>
+    <!-- Open Graph / Discord & Social Media Embed -->
+    <meta property="og:title" content="Entropia Dashboard">
+    <meta property="og:description" content="The ultimate open-source multi-client manager and F-Tool for Flyff. Automate logins, manage profiles, and enhance your gameplay.">
+    <meta property="og:image" content="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface-start.png">
+    <meta property="og:url" content="https://immortal-divine.github.io/Entropia_Dashboard/">
+    <meta property="og:type" content="website">
+    <meta name="theme-color" content="#00d2ff">
 
-    <!-- Bootstrap Core CSS -->
-    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface-start.png">
 
-    <!-- Custom CSS -->
-    <link href="css/grayscale.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #00d2ff;
+            --secondary-color: #3a7bd5;
+        }
+        html {
+            scroll-behavior: smooth;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #121212;
+            color: #e0e0e0;
+        }
+        .navbar {
+            background-color: rgba(18, 18, 18, 0.95);
+            backdrop-filter: blur(10px);
+        }
+        .brand-gradient {
+            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: bold;
+        }
+        .hero-section {
+            min-height: 60vh;
+            padding-top: 70px;
+            display: flex;
+            align-items: center;
+            background: radial-gradient(circle at center, #1a1a1a 0%, #000000 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: url('https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface-start.png') no-repeat center center;
+            background-size: cover;
+            opacity: 0.1;
+            z-index: 0;
+        }
+        .hero-content {
+            position: relative;
+            z-index: 1;
+        }
+        .btn-primary-custom {
+            background: linear-gradient(45deg, var(--secondary-color), var(--primary-color));
+            border: none;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 30px;
+            font-weight: 600;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .btn-primary-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 210, 255, 0.4);
+            color: white;
+        }
+        .feature-card {
+            background: #1e1e1e;
+            border: 1px solid #333;
+            border-radius: 15px;
+            padding: 1.5rem;
+            transition: transform 0.3s ease;
+            height: 100%;
+        }
+        .feature-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--primary-color);
+        }
+        .img-preview {
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            transition: transform 0.3s ease;
+            cursor: zoom-in;
+        }
+        .img-preview:hover {
+            transform: scale(2);
+            z-index: 9999;
+            position: relative;
+            cursor: zoom-out;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+        }
+        @media (max-width: 992px) {
+            .img-preview:hover {
+                transform: none;
+                cursor: default;
+                z-index: 1;
+            }
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #121212; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #333; 
+            border-radius: 5px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--primary-color); 
+        }
+        /* Selection Color */
+        ::selection {
+            background: var(--primary-color);
+            color: #000;
+        }
+        /* Back to Top Button */
+        .btn-back-to-top {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            color: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            transition: transform 0.3s ease, background 0.3s ease;
+            z-index: 1000;
+            opacity: 0.8;
+        }
+        .btn-back-to-top:hover {
+            transform: translateY(-5px);
+            background: var(--secondary-color);
+            color: #fff;
+            opacity: 1;
+        }
+        section {
+            padding: 50px 0;
+        }
+        footer {
+            background: #0a0a0a;
+            padding: 40px 0;
+            border-top: 1px solid #333;
+        }
+        a { text-decoration: none; color: var(--primary-color); }
+        a:hover { color: var(--secondary-color); }
 
-    <!-- Custom Fonts -->
-    <link href="font-awesome/css/font-awesome.min.css" rel="stylesheet" type="text/css">
-    <link href="http://fonts.googleapis.com/css?family=Lora:400,700,400italic,700italic" rel="stylesheet" type="text/css">
-    <link href="http://fonts.googleapis.com/css?family=Montserrat:400,700" rel="stylesheet" type="text/css">
+        /* CSS-Only Navbar Toggler */
+        #navbar-toggle-cbox { display: none; }
+        #navbar-toggle-cbox:checked ~ .collapse { display: block !important; }
+        
+        /* CSS-Only Tabs */
+        .tabs-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .tab-radio { display: none; }
+        .tab-label {
+            order: 1;
+            cursor: pointer;
+            padding: 12px 30px;
+            border-radius: 30px;
+            font-weight: 600;
+            color: var(--primary-color); /* Default text color */
+            background: transparent;
+            transition: all 0.3s ease;
+            margin: 0 10px 3rem 10px;
+            border: 1px solid transparent;
+        }
+        .tab-label:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .tab-radio:checked + .tab-label {
+            background: linear-gradient(45deg, var(--secondary-color), var(--primary-color));
+            color: white;
+            box-shadow: 0 5px 15px rgba(0, 210, 255, 0.4);
+        }
+        .tab-panel {
+            order: 2;
+            width: 100%;
+            display: none;
+            animation: fadeIn 0.5s ease;
+        }
+        #tab-quick:checked ~ #quick-content,
+        #tab-depth:checked ~ #depth-content {
+            display: block;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
+        /* CSS-Only Accordion (Details/Summary) */
+        summary.accordion-button {
+            list-style: none; /* Hide default triangle */
+            cursor: pointer;
+        }
+        summary.accordion-button::-webkit-details-marker { display: none; }
+        summary.accordion-button::after {
+            /* Re-implement Bootstrap chevron rotation with CSS */
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%233a7bd5'%3e%3cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3e%3c/svg%3e");
+            transform: rotate(-90deg); /* Initial state fix if needed, or rely on bootstrap class */
+            transition: transform 0.2s ease-in-out;
+        }
+        details[open] summary.accordion-button::after { transform: rotate(180deg); }
+        details[open] .accordion-collapse {
+            animation: fadeIn 0.3s ease-out;
+        }
 
+        /* Language Switcher Logic */
+        .lang-radio { display: none; }
+        
+        /* Default State (English) */
+        .lang-de, .lang-pt, .lang-tl { display: none !important; }
+        
+        /* Checked State (German) */
+        #lang-de:checked ~ * .lang-en { display: none !important; }
+        #lang-de:checked ~ * .lang-de { display: unset !important; }
+
+        /* Checked State (Portuguese) */
+        #lang-pt:checked ~ * .lang-en { display: none !important; }
+        #lang-pt:checked ~ * .lang-pt { display: unset !important; }
+
+        /* Checked State (Tagalog) */
+        #lang-tl:checked ~ * .lang-en { display: none !important; }
+        #lang-tl:checked ~ * .lang-tl { display: unset !important; }
+
+        /* Switcher Button Styling */
+        .lang-label {
+            cursor: pointer;
+            width: 32px;
+            height: 22px;
+            border-radius: 4px;
+            background-size: cover;
+            background-position: center;
+            border: 1px solid rgba(255,255,255,0.2);
+            transition: transform 0.2s;
+            display: none;
+        }
+        .lang-label:hover { transform: scale(1.1); border-color: var(--primary-color); }
+
+        #lang-en:checked ~ .navbar .lang-label-en { display: inline-block; background-image: url('https://flagcdn.com/w40/us.png'); }
+        #lang-de:checked ~ .navbar .lang-label-de { display: inline-block; background-image: url('https://flagcdn.com/w40/de.png'); }
+        #lang-pt:checked ~ .navbar .lang-label-pt { display: inline-block; background-image: url('https://flagcdn.com/w40/pt.png'); }
+        #lang-tl:checked ~ .navbar .lang-label-tl { display: inline-block; background-image: url('https://flagcdn.com/w40/ph.png'); }
+
+    </style>
 </head>
+<body>
+    <!-- Language Checkbox -->
+    <input type="radio" name="lang" id="lang-en" class="lang-radio" checked>
+    <input type="radio" name="lang" id="lang-de" class="lang-radio">
+    <input type="radio" name="lang" id="lang-pt" class="lang-radio">
+    <input type="radio" name="lang" id="lang-tl" class="lang-radio">
 
-<body id="page-top" data-spy="scroll" data-target=".navbar-fixed-top">
-
-    <!-- Navigation -->
-    <nav class="navbar navbar-custom navbar-fixed-top" role="navigation">
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark fixed-top">
         <div class="container">
-            <div class="navbar-header">
-                <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-main-collapse">
-                    <i class="fa fa-bars"></i>
-                </button>
-                <a class="navbar-brand page-scroll" href="#page-top">
-                    <i class="fa fa-play-circle"></i>  <span class="light">Entropia</span> Dashboard
-                </a>
-            </div>
-
-            <!-- Collect the nav links, forms, and other content for toggling -->
-            <div class="collapse navbar-collapse navbar-right navbar-main-collapse">
-                <ul class="nav navbar-nav">
-                    <!-- Hidden li included to remove active class from about link when scrolled up past about section -->
-                    <li class="hidden">
-                        <a href="#page-top"></a>
-                    </li>
-                    <li>
-                        <a class="page-scroll" href="#about">About</a>
-                    </li>
-                    <li>
-                        <a class="page-scroll" href="#download">Download</a>
-                    </li>
-                    <li>
-                        <a class="page-scroll" href="#contact">Contact</a>
+            <a class="navbar-brand" href="#page-top">
+                <i class="fa-solid fa-gamepad me-2"></i> <span class="brand-gradient">Entropia Dashboard</span>
+            </a>
+            <input type="checkbox" id="navbar-toggle-cbox">
+            <label for="navbar-toggle-cbox" class="navbar-toggler" style="cursor: pointer;">
+                <span class="navbar-toggler-icon"></span>
+            </label>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link" href="#about">
+						<span class="lang-en">About</span>
+						<span class="lang-de">Info</span>
+						<span class="lang-pt">Sobre</span>
+						<span class="lang-tl">Tungkol</span></a></li>
+                    <li class="nav-item"><a class="nav-link" href="#tutorial">
+						<span class="lang-en">Tutorial</span>
+						<span class="lang-de">Anleitung</span>
+						<span class="lang-pt">Tutorial</span>
+						<span class="lang-tl">Gabay</span></a></li>
+                    <li class="nav-item"><a class="nav-link" href="#download">
+						<span class="lang-en">Download</span>
+						<span class="lang-de">Download</span>
+						<span class="lang-pt">Baixar</span>
+						<span class="lang-tl">I-download</span></a></li>
+                    <li class="nav-item"><a class="nav-link" href="#contact">
+						<span class="lang-en">Contact</span>
+						<span class="lang-de">Kontakt</span>
+						<span class="lang-pt">Contato</span>
+						<span class="lang-tl">Makipag-ugnayan</span></a></li>
+                    <li class="nav-item ms-2 d-flex align-items-center">
+                        <label for="lang-de" class="lang-label lang-label-en" title="Current: English. Click for German."></label>
+                        <label for="lang-pt" class="lang-label lang-label-de" title="Aktuell: Deutsch. Klick für Portugiesisch."></label>
+                        <label for="lang-tl" class="lang-label lang-label-pt" title="Atual: Português. Clique para Tagalog."></label>
+                        <label for="lang-en" class="lang-label lang-label-tl" title="Kasalukuyan: Tagalog. I-click para sa Ingles."></label>
                     </li>
                 </ul>
             </div>
-            <!-- /.navbar-collapse -->
         </div>
-        <!-- /.container -->
     </nav>
 
-    <!-- Intro Header -->
-    <header class="intro">
-        <div class="intro-body">
-            <div class="container">
-                <div class="row">
-                    <div class="col-md-8 col-md-offset-2">
-                        <h1 class="brand-heading">Entropia Dashboard</h1>
-                        <p class="intro-text">A free, multi-purpose application to handle flyff clients.<br>Created by Immortal / Divine.</p>
-                        <a href="#about" class="btn btn-circle page-scroll">
-                            <i class="fa fa-angle-double-down animated"></i>
-                        </a>
-                    </div>
-                </div>
+    <!-- Hero -->
+    <header class="hero-section" id="page-top">
+        <div class="container text-center hero-content">
+            <h1 class="display-2 fw-bold mb-4">
+                <span class="lang-en">Master Your <span class="brand-gradient">Flyff</span> Experience</span>
+                <span class="lang-de">Meistere dein <span class="brand-gradient">Flyff</span> Erlebnis</span>
+                <span class="lang-pt">Domine sua Experiência no <span class="brand-gradient">Flyff</span></span>
+                <span class="lang-tl">Paghusayin ang Iyong <span class="brand-gradient">Flyff</span> Experience</span>
+            </h1>
+            
+            <p class="lead mb-5 text-secondary">
+                <span class="lang-en">The ultimate open-source multi-client manager with F-Tool.</span>
+                <span class="lang-de">Der ultimative Open-Source Multi-Client Manager mit F-Tool.</span>
+                <span class="lang-pt">O melhor gerenciador de multi-clientes open-source com F-Tool.</span>
+                <span class="lang-tl">Ang pinakamahusay na open-source multi-client manager na may F-Tool.</span>
+            </p>
+            
+            <div class="d-flex justify-content-center gap-3">
+                <a href="#download" class="btn btn-primary-custom btn-lg"><i class="fa-solid fa-download me-2"></i> 
+					<span class="lang-en">Download Now</span>
+					<span class="lang-de">Jetzt Herunterladen</span>
+					<span class="lang-pt">Baixar Agora</span>
+					<span class="lang-tl">I-download Ngayon</span></a>
+                <a href="https://github.com/Immortal-Divine/Entropia_Dashboard" class="btn btn-outline-light btn-lg rounded-pill px-4"><i class="fa-brands fa-github me-2"></i>
+					<span class="lang-en">Source Code</span>
+					<span class="lang-de">Quellcode</span>
+					<span class="lang-pt">Código Fonte</span>
+					<span class="lang-tl">Source Code</span></a>
             </div>
         </div>
     </header>
 
-    <!-- About Section -->
-    <section id="about" class="container content-section text-center">
-        <div class="row">
-            <div class="col-lg-8 col-lg-offset-2">
-                <h2>About</h2>
-                <p>Entropia Dashboard is a free app written in Powershell. It can monitor, start and close Flyff clients. The app is open source.</p>
-                <p>This app also features a F-tool that you can configure by your likings.</p>
-				<a href="https://github.com/Immortal-Divine/Entropia_Dashboard" class="btn btn-default btn-lg">View Source Code</a>
-            </div>
-        </div>
-    </section>
-
-    <!-- Download Section -->
-    <section id="download" class="content-section text-center">
-        <div class="download-section">
-            <div class="container">
-                <div class="col-lg-8 col-lg-offset-2">
-                    <h2>Download</h2>
-                    <p>You can download Entropia Dashboard for free.</p>
-                    <a href="https://github.com/Immortal-Divine/Entropia_Dashboard/raw/refs/heads/main/Entropia%20Dashboard.exe" class="btn btn-default btn-lg">Direct Download</a>
+    <!-- About -->
+    <section id="about">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-lg-6">
+                    <h2 class="mb-4">
+						<span class="lang-en">What is</span>
+						<span class="lang-de">Was ist das</span>
+						<span class="lang-pt">O que é o</span>
+						<span class="lang-tl">Ano ang</span> 
+						<span class="brand-gradient">Entropia Dashboard</span>?</h2>
+                    <p class="lead text-secondary">
+                        <span class="lang-en">A powerful, free, and open-source application designed to streamline your Flyff gameplay.</span>
+                        <span class="lang-de">Eine leistungsstarke, kostenlose Open-Source-Anwendung zur Optimierung deines Flyff-Gameplays.</span>
+                        <span class="lang-pt">Uma aplicação poderosa, gratuita e de código aberto projetada para otimizar seu jogo no Flyff.</span>
+                        <span class="lang-tl">Isang malakas, libre, at open-source na aplikasyon na dinisenyo para mapadali ang iyong paglalaro ng Flyff.</span>
+                    </p>
+                    
+                    <p>
+                        <span class="lang-en">Written in PowerShell, it offers robust client management, automated launch and logins, and a customizable F-Tool to enhance your efficiency without compromising security.</span>
+                        <span class="lang-de">Geschrieben in PowerShell, bietet es robustes Client-Management, automatischer Start und Login mit einem anpassbaren F-Tool, um deine Effizienz zu steigern, ohne die Sicherheit zu gefährden.</span>
+                        <span class="lang-pt">Escrito em PowerShell, oferece gerenciamento robusto de clientes, lançamento e logins automatizados, e um F-Tool personalizável para aumentar sua eficiência sem comprometer a segurança.</span>
+                        <span class="lang-tl">Nakasulat sa PowerShell, nag-aalok ito ng matibay na pamamahala ng kliyente, awtomatikong paglunsad at pag-login, at nako-customize na F-Tool upang mapahusay ang iyong kahusayan nang hindi isinasakripisyo ang seguridad.</span>
+                    </p>
+                    <div class="row mt-4">
+                        <div class="col-md-6 mb-3">
+                            <div class="d-flex align-items-center">
+                                <i class="fa-solid fa-check-circle text-success me-2"></i> <span>
+									<span class="lang-en">Multi-Client Support</span>
+									<span class="lang-de">Multi-Client Unterstützung</span>
+									<span class="lang-pt">Suporte Multi-Cliente</span>
+									<span class="lang-tl">Suporta sa Multi-Client</span></span>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="d-flex align-items-center">
+                                <i class="fa-solid fa-check-circle text-success me-2"></i> <span>
+									<span class="lang-en">Auto Launch & Login</span>
+									<span class="lang-de">Auto-Start & Login</span>
+									<span class="lang-pt">Lançamento e Login Automático</span>
+									<span class="lang-tl">Auto Launch at Login</span></span>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="d-flex align-items-center">
+                                <i class="fa-solid fa-check-circle text-success me-2"></i> <span>
+									<span class="lang-en">Custom F-Tool</span>
+									<span class="lang-de">Benutzerdefiniertes F-Tool</span>
+									<span class="lang-pt">F-Tool Personalizado</span>
+									<span class="lang-tl">Pasadyang F-Tool</span></span>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="d-flex align-items-center">
+                                <i class="fa-solid fa-check-circle text-success me-2"></i> <span>
+									<span class="lang-en">Disconnect Monitor</span>
+									<span class="lang-de">Verbindungsüberwachung</span>
+									<span class="lang-pt">Monitor de Desconexão</span>
+									<span class="lang-tl">Monitor ng Disconnect</span></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6 mt-5 mt-lg-0">
+                    <img src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface-start.png" class="img-fluid img-preview" alt="Dashboard Interface">
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Contact Section -->
-    <section id="contact" class="container content-section text-center">
-        <div class="row">
-            <div class="col-lg-8 col-lg-offset-2">
-                <h2>Contact</h2>
-                <p>Feel free to join us to provide some feedback, give us suggestions, or to just say hello!</p>
-                <p><a href="https://entropia.fun/">Entropia Flyff</a>
-                </p>
-				<p><a href="https://discord.gg/zbcVRsC9uN">Divine Discord</a>
-                </p>
+    <!-- Tutorial -->
+    <section id="tutorial" class="bg-dark">
+        <div class="container">
+            <h2 class="text-center mb-4">
+				<span class="lang-en">Guides & Documentation</span>
+				<span class="lang-de">Anleitungen & Dokumentation</span>
+				<span class="lang-pt">Guias e Documentação</span>
+				<span class="lang-tl">Mga Gabay at Dokumentasyon</span></h2>
+            
+            <div class="tabs-container">
+                <!-- Tab Controls -->
+                <input type="radio" name="guideTabs" id="tab-quick" class="tab-radio" checked>
+                <label for="tab-quick" class="tab-label">
+					<span class="lang-en">Quick Start</span>
+					<span class="lang-de">Schnellstart</span>
+					<span class="lang-pt">Início Rápido</span>
+					<span class="lang-tl">Mabilis na Simula</span></label>
+                
+                <!-- Quick Start Tab -->
+                <div class="tab-panel" id="quick-content">
+                    <div class="row g-4">
+                        <!-- Step 1 -->
+                        <div class="col-lg-3 col-md-6">
+                            <div class="feature-card">
+                                <h4><i class="fa-solid fa-gear me-2 brand-gradient"></i> 
+									<span class="lang-en">1. Initial Setup</span>
+									<span class="lang-de">1. Ersteinrichtung</span>
+									<span class="lang-pt">1. Configuração Inicial</span>
+									<span class="lang-tl">1. Paunang Pag-setup</span></h4>
+                                <p>
+									<span class="lang-en">Go to <strong>Settings > General</strong>. Click <strong>Browse</strong> and select your main <code>Launcher.exe</code>. This is the most important step! (Rename it if it has a different name.)</span>
+									<span class="lang-de">Gehe zu <strong>Settings > General</strong>. Klicke auf <strong>Browse</strong> und wähle deine <code>Launcher.exe</code>. Das ist der wichtigste Schritt! (Benenne ihn, falls er anders heißt.)</span>
+									<span class="lang-pt">Vá para <strong>Configurações > Geral</strong>. Clique em <strong>Procurar</strong> e selecione seu <code>Launcher.exe</code> principal. Este é o passo mais importante! (Renomeie se tiver um nome diferente.)</span>
+									<span class="lang-tl">Pumunta sa <strong>Settings > General</strong>. I-click ang <strong>Browse</strong> at piliin ang iyong pangunahing <code>Launcher.exe</code>. Ito ang pinakamahalagang hakbang! (Palitan ang pangalan kung iba ito.)</span></p>
+                                <img src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/settings-general.png" class="img-fluid img-preview mt-3" alt="Settings" loading="lazy">
+                            </div>
+                        </div>
+
+                        <!-- Step 2 -->
+                        <div class="col-lg-3 col-md-6">
+                            <div class="feature-card">
+                                <h4><i class="fa-solid fa-clone me-2 brand-gradient"></i> 
+									<span class="lang-en">2. Create Profiles</span>
+									<span class="lang-de">2. Profile erstellen</span>
+									<span class="lang-pt">2. Criar Perfis</span>
+									<span class="lang-tl">2. Gumawa ng mga Profile</span></h4>
+                                <p>
+									<span class="lang-en">In <strong>Settings</strong>, <strong>Create</strong> lightweight client profiles. After main launcher patches, use <strong>Copy Neuz.exe</strong> to update them all.</span>
+									<span class="lang-de">Erstelle in den <strong>Settings</strong> leichtgewichtige Client-Profile. Nach Patches des Haupt-Launchers nutze <strong>Copy Neuz.exe</strong>, um alle zu Profile zu aktualisieren.</span>
+									<span class="lang-pt">Em <strong>Configurações</strong>, <strong>Crie</strong> perfis de cliente leves. Após atualizações do launcher principal, use <strong>Copiar Neuz.exe</strong> para atualizar todos.</span>
+									<span class="lang-tl">Sa <strong>Settings</strong>, <strong>Gumawa</strong> ng magaan na client profiles. Pagkatapos mag-patch ang main launcher, gamitin ang <strong>Copy Neuz.exe</strong> para i-update ang lahat.</span></p>
+                                <img src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/settings-general.png" class="img-fluid img-preview mt-3" alt="Create Profiles" loading="lazy">
+                            </div>
+                        </div>
+
+                        <!-- Step 3 -->
+                        <div class="col-lg-3 col-md-6">
+                            <div class="feature-card">
+                                <h4><i class="fa-solid fa-crosshairs me-2 brand-gradient"></i> 
+									<span class="lang-en">3. Set Login Points</span>
+									<span class="lang-de">3. Login-Punkte setzen</span>
+									<span class="lang-pt">3. Definir Pontos de Login</span>
+									<span class="lang-tl">3. Itakda ang Login Points</span></h4>
+                                <p>
+									<span class="lang-en">Go to <strong>Settings > Login Settings</strong>. Select a profile, click <strong>Set</strong>, then click on the corresponding button in-game to record its position.</span>
+									<span class="lang-de">Gehe zu <strong>Settings > Login Settings</strong>. Wähle ein Profil, klicke auf <strong>Set</strong> und dann im Spiel auf den entsprechenden Button, um die Position zu speichern.</span>
+									<span class="lang-pt">Vá para <strong>Configurações > Configurações de Login</strong>. Selecione um perfil, clique em <strong>Definir</strong>, depois clique no botão correspondente no jogo para gravar sua posição.</span>
+									<span class="lang-tl">Pumunta sa <strong>Settings > Login Settings</strong>. Pumili ng profile, i-click ang <strong>Set</strong>, tapos i-click ang kaukulang button sa laro para ma-record ang posisyon nito.</span></p>
+                                <img src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/settings-login.png" class="img-fluid img-preview mt-3" alt="Login Config" loading="lazy">
+                            </div>
+                        </div>
+
+                        <!-- Step 4 -->
+                        <div class="col-lg-3 col-md-6">
+                            <div class="feature-card">
+                                <h4><i class="fa-solid fa-keyboard me-2 brand-gradient"></i> 
+									<span class="lang-en">4. Use The F-Tool</span>
+									<span class="lang-de">4. Das F-Tool nutzen</span>
+									<span class="lang-pt">4. Usar o F-Tool</span>
+									<span class="lang-tl">4. Gamitin ang F-Tool</span></h4>
+                                <p>
+									<span class="lang-en">Select a client in the grid and click <strong>F-Tool</strong>. Set a key and interval, then press Start to automate key presses in the background.</span>
+									<span class="lang-de">Wähle einen Client in der Liste und klicke auf <strong>F-Tool</strong>. Setze Taste und Intervall fest, dann drücke Start für automatisierte Tastendrücke im Hintergrund.</span>
+									<span class="lang-pt">Selecione um cliente na grade e clique em <strong>F-Tool</strong>. Defina uma tecla e intervalo, depois pressione Iniciar para automatizar pressionamentos de tecla em segundo plano.</span>
+									<span class="lang-tl">Pumili ng client sa grid at i-click ang <strong>F-Tool</strong>. Magtakda ng key at interval, tapos pindutin ang Start para i-automate ang pagpindot ng key sa background.</span></p>
+                                <img src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/ftool.png" class="img-fluid img-preview mt-3" alt="F-Tool Interface" loading="lazy">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <input type="radio" name="guideTabs" id="tab-depth" class="tab-radio">
+                <label for="tab-depth" class="tab-label">
+					<span class="lang-en">In-Depth Manual</span>
+					<span class="lang-de">Detailliertes Handbuch</span>
+					<span class="lang-pt">Manual Detalhado</span>
+					<span class="lang-tl">Detalyadong Manwal</span></label>
+
+                <!-- In-Depth Manual Tab -->
+                <div class="tab-panel" id="depth-content">
+                    <div class="row justify-content-center">
+                        <div class="col-lg-10 text-start">
+                            <div class="accordion" id="manualAccordion">
+
+                                <!-- Section 1: First-Time Setup -->
+                                <details class="accordion-item bg-dark border-secondary" name="manualAccordion" open>
+                                    <summary class="accordion-header accordion-button bg-dark text-light">
+                                            <i class="fa-solid fa-rocket me-2 text-primary"></i> <strong>
+												<span class="lang-en">Section 1: First-Time Setup (Single Client)</span>
+												<span class="lang-de">Abschnitt 1: Ersteinrichtung (Einzelner Client)</span>
+												<span class="lang-pt">Seção 1: Configuração Inicial (Cliente Único)</span>
+												<span class="lang-tl">Seksyon 1: Unang Pag-setup (Isang Client)</span></strong>
+                                    </summary>
+                                    <div class="accordion-collapse collapse show">
+                                        <div class="accordion-body text-secondary">
+                                            <p>
+                                                <span class="lang-en">This guide will walk you through the essential first steps to get one client running. This is the foundation for all other features.</span>
+                                                <span class="lang-de">Diese Anleitung führt dich durch die ersten Schritte, um einen Client zum Laufen zu bringen. Dies ist die Grundlage für alle weiteren Funktionen.</span>
+                                                <span class="lang-pt">Este guia irá orientá-lo nos primeiros passos essenciais para colocar um cliente em funcionamento. Esta é a base para todos os outros recursos.</span>
+                                                <span class="lang-tl">Gagabayan ka ng gabay na ito sa mahahalagang unang hakbang para mapatakbo ang isang client. Ito ang pundasyon para sa lahat ng iba pang feature.</span>
+                                            </p>
+                                            <ol>
+                                                <li><strong><span class="lang-en">Open Settings:</span>
+															<span class="lang-de">Einstellungen öffnen:</span>
+															<span class="lang-pt">Abrir Configurações:</span>
+															<span class="lang-tl">Buksan ang Settings:</span></strong> 
+															<span class="lang-en">Click the <kbd>Settings</kbd> button on the main dashboard. This is your control center for all configurations.</span>
+															<span class="lang-de">Klicke auf den <kbd>Settings</kbd>-Button im Dashboard. Dies ist deine Zentrale für alle Konfigurationen.</span>
+															<span class="lang-pt">Clique no botão <kbd>Configurações</kbd> no painel principal. Este é o seu centro de controle para todas as configurações.</span>
+															<span class="lang-tl">I-click ang <kbd>Settings</kbd> button sa main dashboard. Ito ang iyong control center para sa lahat ng configuration.</span></li>
+                                                <li>
+                                                    <strong><span class="lang-en">Select Your Launcher:</span>
+															<span class="lang-de">Wähle deinen Launcher:</span>
+															<span class="lang-pt">Selecione Seu Launcher:</span>
+															<span class="lang-tl">Piliin ang Iyong Launcher:</span></strong>
+                                                    <ul>
+                                                        <li><span class="lang-en">In the <strong>General</strong> tab, find "Select Main Launcher".</span>
+															<span class="lang-de">Im Reiter <strong>General</strong>, finde "Select Main Launcher".</span>
+															<span class="lang-pt">Na aba <strong>Geral</strong>, encontre "Selecionar Launcher Principal".</span>
+															<span class="lang-tl">Sa <strong>General</strong> tab, hanapin ang "Select Main Launcher".</span></li>
+                                                        <li><span class="lang-en">Click <kbd>Browse</kbd> and navigate to your Flyff game folder. Select the primary <code>Launcher.exe</code> for your server. Ensure the name is "Launcher".</span>
+															<span class="lang-de">Klicke <kbd>Browse</kbd>, gehe zu deinem Flyff-Ordner und wähle die primäre <code>Launcher.exe</code>. Stelle sicher, dass der Name "Launcher" ist.</span>
+															<span class="lang-pt">Clique em <kbd>Procurar</kbd> e navegue até a pasta do jogo Flyff. Selecione o <code>Launcher.exe</code> primário do seu servidor. Certifique-se de que o nome seja "Launcher".</span>
+															<span class="lang-tl">I-click ang <kbd>Browse</kbd> at pumunta sa iyong Flyff game folder. Piliin ang pangunahing <code>Launcher.exe</code> para sa iyong server. Siguraduhing "Launcher" ang pangalan.</span></li>
+                                                        <li><strong>
+															<span class="lang-en">Why?</span>
+															<span class="lang-de">Warum?</span>
+															<span class="lang-pt">Por quê?</span>
+															<span class="lang-tl">Bakit?</span></strong> 
+															<span class="lang-en">This tells the dashboard what to run. It's used as the "Default" launch path and the source for creating new profiles.</span>
+															<span class="lang-de">Dies sagt dem Dashboard, was gestartet werden soll. Es dient als Standard-Pfad und Quelle für neue Profile.</span>
+															<span class="lang-pt">Isso diz ao dashboard o que executar. É usado como o caminho de lançamento "Padrão" e a fonte para criar novos perfis.</span>
+															<span class="lang-tl">Sinasabi nito sa dashboard kung ano ang patatakbuhin. Ginagamit ito bilang "Default" launch path at pinagmulan para sa paggawa ng mga bagong profile.</span></li>
+                                                    </ul>
+                                                </li>
+                                                <li>
+                                                    <strong><span class="lang-en">Verify Process Name:</span>
+															<span class="lang-de">Prozess-Namen prüfen:</span>
+															<span class="lang-pt">Verificar Nome do Processo:</span>
+															<span class="lang-tl">I-verify ang Process Name:</span></strong>
+                                                    <ul>
+                                                        <li><span class="lang-en">The "Process Name" field should automatically be set to <code>neuz</code>. This is the name of the main game client executable.</span>
+															<span class="lang-de">Das Feld "Process Name" sollte automatisch auf <code>neuz</code> stehen. Dies ist der Name der Spiel-Executable.</span>
+															<span class="lang-pt">O campo "Nome do Processo" deve ser definido automaticamente como <code>neuz</code>. Este é o nome do executável principal do cliente do jogo.</span>
+															<span class="lang-tl">Ang field na "Process Name" ay dapat awtomatikong nakatakda sa <code>neuz</code>. Ito ang pangalan ng main game client executable.</span></li>
+                                                        <li><span class="lang-en">Only change this if your server uses a different process name for the game window.</span>
+															<span class="lang-de">Ändere dies nur, wenn dein Server einen anderen Prozessnamen nutzt.</span>
+															<span class="lang-pt">Altere isso apenas se o seu servidor usar um nome de processo diferente para a janela do jogo.</span>
+															<span class="lang-tl">Baguhin lang ito kung gumagamit ang iyong server ng ibang process name para sa game window.</span></li>
+                                                    </ul>
+                                                </li>
+                                                <li>
+                                                    <strong>
+														<span class="lang-en">Set Max Clients:</span>
+														<span class="lang-de">Max Clients setzen:</span>
+														<span class="lang-pt">Definir Máximo de Clientes:</span>
+														<span class="lang-tl">Itakda ang Max Clients:</span></strong>
+                                                    <ul>
+                                                        <li><span class="lang-en">This number defines the total clients the dashboard will manage for the "Default Launch" sequence. It is recommended to leave it at <code>1</code>.</span>
+															<span class="lang-de">Diese Zahl definiert die Anzahl der Clients für den "Default Start". Es wird empfohlen, sie auf <code>1</code> zu lassen.</span>
+															<span class="lang-pt">Este número define o total de clientes que o dashboard gerenciará para a sequência de "Lançamento Padrão". Recomenda-se deixá-lo em <code>1</code>.</span>
+															<span class="lang-tl">Tinutukoy ng numerong ito ang kabuuang clients na pamamahalaan ng dashboard para sa "Default Launch" sequence. Inirerekomendang iwanan ito sa <code>1</code>.</span></li>
+                                                    </ul>
+                                                </li>
+                                                <li><strong>
+													<span class="lang-en">Save Your Settings:</span>
+													<span class="lang-de">Einstellungen speichern:</span>
+													<span class="lang-pt">Salvar Suas Configurações:</span>
+													<span class="lang-tl">I-save ang Iyong Settings:</span></strong> 
+													<span class="lang-en">Click the green <kbd>Save</kbd> button at the bottom.</span>
+													<span class="lang-de">Klicke den grünen <kbd>Save</kbd>-Button unten.</span>
+													<span class="lang-pt">Clique no botão verde <kbd>Salvar</kbd> na parte inferior.</span>
+													<span class="lang-tl">I-click ang berdeng <kbd>Save</kbd> button sa ibaba.</span></li>
+                                                <li>
+                                                    <strong>
+														<span class="lang-en">Launch Your First Client:</span>
+														<span class="lang-de">Starte deinen ersten Client:</span>
+														<span class="lang-pt">Lançar Seu Primeiro Cliente:</span>
+														<span class="lang-tl">Ilunsad ang Iyong Unang Client:</span></strong>
+                                                    <ul>
+                                                        <li><span class="lang-en">Right-click the <kbd>Launch</kbd> button on the main dashboard.</span>
+															<span class="lang-de">Rechtsklick auf den <kbd>Launch</kbd>-Button im Dashboard.</span>
+															<span class="lang-pt">Clique com o botão direito no botão <kbd>Lançar</kbd> no painel principal.</span>
+															<span class="lang-tl">I-right click ang <kbd>Launch</kbd> button sa main dashboard.</span></li>
+                                                        <li><span class="lang-en">A context menu will appear. Go to <strong>Default / Selected</strong> and click <strong>Start 1x</strong>.</span>
+															<span class="lang-de">Ein Kontextmenü erscheint. Gehe zu <strong>Default / Selected</strong> und klicke <strong>Start 1x</strong>.</span>
+															<span class="lang-pt">Um menu de contexto aparecerá. Vá para <strong>Padrão / Selecionado</strong> e clique em <strong>Iniciar 1x</strong>.</span>
+															<span class="lang-tl">Lilitaw ang isang context menu. Pumunta sa <strong>Default / Selected</strong> at i-click ang <strong>Start 1x</strong>.</span></li>
+                                                        <li><span class="lang-en">Your game launcher should appear. Let it patch and start the game. The client will appear in the dashboard's grid.</span>
+															<span class="lang-de">Dein Launcher sollte erscheinen. Lass ihn patchen und starte das Spiel. Der Client erscheint in der Dashboard-Liste.</span>
+															<span class="lang-pt">Seu launcher do jogo deve aparecer. Deixe-o atualizar e iniciar o jogo. O cliente aparecerá na grade do dashboard.</span>
+															<span class="lang-tl">Dapat lumitaw ang iyong game launcher. Hayaan itong mag-patch at simulan ang laro. Lilitaw ang client sa grid ng dashboard.</span></li>
+                                                    </ul>
+                                                </li>
+                                            </ol>
+                                            <div class="alert alert-success mt-3" role="alert">
+                                                <span class="lang-en"><i class="fa-solid fa-check-circle me-2"></i><strong>Congratulations!</strong> You've successfully launched your first client.</span>
+                                                <span class="lang-de"><i class="fa-solid fa-check-circle me-2"></i><strong>Glückwunsch!</strong> Du hast deinen ersten Client erfolgreich gestartet.</span>
+                                                <span class="lang-pt"><i class="fa-solid fa-check-circle me-2"></i><strong>Parabéns!</strong> Você lançou seu primeiro cliente com sucesso.</span>
+                                                <span class="lang-tl"><i class="fa-solid fa-check-circle me-2"></i><strong>Binabati kita!</strong> Matagumpay mong nailunsad ang iyong unang client.</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- Section 2: Multi-Client Management with Profiles -->
+                                <details class="accordion-item bg-dark border-secondary" name="manualAccordion">
+                                    <summary class="accordion-header accordion-button bg-dark text-light">
+                                            <i class="fa-solid fa-clone me-2 text-primary"></i> <strong>
+												<span class="lang-en">Section 2: Multi-Client Management with Profiles</span>
+												<span class="lang-de">Abschnitt 2: Multi-Client Management mit Profilen</span>
+												<span class="lang-pt">Seção 2: Gerenciamento Multi-Cliente com Perfis</span>
+												<span class="lang-tl">Seksyon 2: Pamamahala ng Multi-Client gamit ang mga Profile</span></strong>
+                                    </summary>
+                                    <div class="accordion-collapse collapse show">
+                                        <div class="accordion-body text-secondary">
+                                            <p>
+                                                <span class="lang-en">Profiles are the core of multi-clienting. Each profile is a lightweight, independent copy of your game client, allowing for separate settings, resolutions, and logins.</span>
+                                                <span class="lang-de">Profile sind der Kern des Multi-Clientings. Jedes Profil ist eine leichtgewichtige, unabhängige Kopie deines Clients, die separate Einstellungen, Auflösungen und Logins ermöglicht.</span>
+                                                <span class="lang-pt">Perfis são o núcleo do multi-cliente. Cada perfil é uma cópia leve e independente do seu cliente de jogo, permitindo configurações, resoluções e logins separados.</span>
+                                                <span class="lang-tl">Ang mga profile ang core ng multi-clienting. Ang bawat profile ay isang magaan at independiyenteng kopya ng iyong game client, na nagbibigay-daan para sa hiwalay na settings, resolutions, at logins.</span>
+                                            </p>
+                                            <h5><span class="lang-en">How it Works: The Magic of Junctions</span>
+												<span class="lang-de">Wie es funktioniert: Die Magie der Junctions</span>
+												<span class="lang-pt">Como Funciona: A Magia das Junções</span>
+												<span class="lang-tl">Paano Ito Gumagana: Ang Mahika ng Junctions</span></h5>
+                                            <p>
+                                                <span class="lang-en">Instead of copying the entire 16GB+ game folder, the dashboard creates <strong>NTFS Junctions</strong>. It links the huge <code>Data</code> and <code>Effect</code> folders back to your main client but creates real copies of essential files like <code>neuz.ini and AccountInformation.bin</code>. This means a new profile only uses about <strong>~300MB</strong> of disk space!</span>
+                                                <span class="lang-de">Statt den ganzen 16GB+ Ordner zu kopieren, erstellt das Dashboard <strong>NTFS Junctions</strong>. Es verlinkt die großen <code>Data</code> und <code>Effect</code> Ordner zum Hauptclient, kopiert aber wichtige Dateien wie <code>neuz.ini und AccountInformation.bin</code>. Ein neues Profil braucht so nur ca. <strong>300MB</strong>!</span>
+                                                <span class="lang-pt">Em vez de copiar toda a pasta do jogo de 16GB+, o dashboard cria <strong>Junções NTFS</strong>. Ele vincula as enormes pastas <code>Data</code> e <code>Effect</code> de volta ao seu cliente principal, mas cria cópias reais de arquivos essenciais como <code>neuz.ini e AccountInformation.bin</code>. Isso significa que um novo perfil usa apenas cerca de <strong>~300MB</strong> de espaço em disco!</span>
+                                                <span class="lang-tl">Sa halip na kopyahin ang buong 16GB+ na game folder, gumagawa ang dashboard ng <strong>NTFS Junctions</strong>. Inili-link nito ang malalaking <code>Data</code> at <code>Effect</code> folders pabalik sa iyong main client pero gumagawa ng totoong kopya ng mahahalagang files tulad ng <code>neuz.ini at AccountInformation.bin</code>. Ibig sabihin, ang isang bagong profile ay gumagamit lang ng humigit-kumulang <strong>~300MB</strong> na disk space!</span>
+                                            </p>
+                                            
+                                            <h5><span class="lang-en">Creating and Managing Profiles:</span>
+												<span class="lang-de">Profile erstellen und verwalten:</span>
+												<span class="lang-pt">Criando e Gerenciando Perfis:</span>
+												<span class="lang-tl">Paggawa at Pamamahala ng mga Profile:</span></h5>
+                                            <ol>
+                                                <li>
+                                                    <strong>
+														<span class="lang-en">Set Profiles Folder:</span>
+														<span class="lang-de">Profil-Ordner setzen:</span>
+														<span class="lang-pt">Definir Pasta de Perfis:</span>
+														<span class="lang-tl">Itakda ang Profiles Folder:</span></strong> 
+														<span class="lang-en">In <strong>Settings > General</strong>, the "Select Profiles Folder" path defaults to <code>%APPDATA%\Entropia_Dashboard\Profiles</code>. You can change this, but the default is recommended.</span>
+														<span class="lang-de">In <strong>Settings > General</strong> ist der Pfad standardmäßig <code>%APPDATA%\Entropia_Dashboard\Profiles</code>. Du kannst dies ändern, Standard wird empfohlen.</span>
+														<span class="lang-pt">Em <strong>Configurações > Geral</strong>, o caminho "Selecionar Pasta de Perfis" é padrão para <code>%APPDATA%\Entropia_Dashboard\Profiles</code>. Você pode alterar isso, mas o padrão é recomendado.</span>
+														<span class="lang-tl">Sa <strong>Settings > General</strong>, ang path ng "Select Profiles Folder" ay naka-default sa <code>%APPDATA%\Entropia_Dashboard\Profiles</code>. Pwede mo itong baguhin, pero inirerekomenda ang default.</span>
+                                                </li>
+                                                <li>
+                                                    <strong>
+														<span class="lang-en">Create a New Profile:</span>
+														<span class="lang-de">Neues Profil erstellen:</span>
+														<span class="lang-pt">Criar um Novo Perfil:</span>
+														<span class="lang-tl">Gumawa ng Bagong Profile:</span></strong> 
+														<span class="lang-en">Click the green <kbd>Create</kbd> button. You'll be prompted to enter a name for your new profile (e.g., "Healer", "Buffer"). The dashboard will then create the lightweight copy for you.</span>
+														<span class="lang-de">Klicke den grünen <kbd>Create</kbd>-Button. Gib einen Namen ein (z.B. "Healer"). Das Dashboard erstellt die Kopie.</span>
+														<span class="lang-pt">Clique no botão verde <kbd>Criar</kbd>. Você será solicitado a inserir um nome para seu novo perfil (ex: "Healer", "Buffer"). O dashboard criará a cópia leve para você.</span>
+														<span class="lang-tl">I-click ang berdeng <kbd>Create</kbd> button. Hihilingin sa iyong maglagay ng pangalan para sa iyong bagong profile (hal., "Healer", "Buffer"). Gagawin ng dashboard ang magaan na kopya para sa iyo.</span>
+                                                </li>
+                                                <li>
+                                                    <strong>
+														<span class="lang-en">The Profile Grid:</span>
+														<span class="lang-de">Die Profil-Liste:</span>
+														<span class="lang-pt">A Grade de Perfis:</span>
+														<span class="lang-tl">Ang Profile Grid:</span></strong> 
+														<span class="lang-en">Your new profile appears in the grid on the right. Here you can:</span>
+														<span class="lang-de">Dein neues Profil erscheint rechts in der Liste. Hier kannst du:</span>
+														<span class="lang-pt">Seu novo perfil aparece na grade à direita. Aqui você pode:</span>
+														<span class="lang-tl">Lilitaw ang iyong bagong profile sa grid sa kanan. Dito maaari mong:</span>
+                                                    <ul>
+														<li><strong>
+															<span class="lang-en">Select:</span>
+															<span class="lang-de">Auswählen:</span>
+															<span class="lang-pt">Selecionar:</span>
+															<span class="lang-tl">Piliin:</span></strong> 
+															<span class="lang-en">Use that profile for the <strong>Default / Selected</strong> Launch.</span>
+															<span class="lang-de">Nutze dieses Profil für den Standard-Start.</span>
+															<span class="lang-pt">Use esse perfil para o Lançamento <strong>Padrão / Selecionado</strong>.</span>
+															<span class="lang-tl">Gamitin ang profile na iyon para sa <strong>Default / Selected</strong> Launch.</span></li>
+                                                        <li><strong>
+															<span class="lang-en">Add:</span>
+															<span class="lang-de">Add:</span>
+															<span class="lang-pt">Adicionar:</span>
+															<span class="lang-tl">Magdagdag:</span></strong> 
+															<span class="lang-en">Manually add an existing folder as a profile.</span>
+															<span class="lang-de">Füge manuell einen existierenden Ordner als Profil hinzu.</span>
+															<span class="lang-pt">Adicionar manualmente uma pasta existente como perfil.</span>
+															<span class="lang-tl">Manu-manong magdagdag ng umiiral na folder bilang profile.</span></li>
+                                                        <li><strong>
+															<span class="lang-en">Rename:</span>
+															<span class="lang-de">Rename:</span>
+															<span class="lang-pt">Renomear:</span>
+															<span class="lang-tl">Palitan ang Pangalan:</span></strong> 
+															<span class="lang-en">Change the name of the selected profile.</span>
+															<span class="lang-de">Ändere den Namen des Profils.</span>
+															<span class="lang-pt">Alterar o nome do perfil selecionado.</span>
+															<span class="lang-tl">Baguhin ang pangalan ng napiling profile.</span></li>
+                                                        <li><strong>
+															<span class="lang-en">Remove:</span>
+															<span class="lang-de">Remove:</span>
+															<span class="lang-pt">Remover:</span>
+															<span class="lang-tl">Alisin:</span></strong> 
+															<span class="lang-en">Removes the profile from the list (does not delete files).</span>
+															<span class="lang-de">Entfernt das Profil aus der Liste (löscht keine Dateien).</span>
+															<span class="lang-pt">Remove o perfil da lista (não exclui arquivos).</span>
+															<span class="lang-tl">Inaalis ang profile sa listahan (hindi binubura ang mga file).</span></li>
+                                                        <li><strong>
+															<span class="lang-en">Delete:</span>
+															<span class="lang-de">Delete:</span>
+															<span class="lang-pt">Excluir:</span>
+															<span class="lang-tl">Burahin:</span></strong> 
+															<span class="text-danger">
+															<span class="lang-en">Permanently deletes the profile folder from your hard drive. Use with caution!</span>
+															<span class="lang-de">Löscht den Profilordner permanent von der Festplatte. Vorsicht!</span>
+															<span class="lang-pt">Exclui permanentemente a pasta do perfil do seu disco rígido. Use com cautela!</span>
+															<span class="lang-tl">Permanenteng binubura ang profile folder mula sa iyong hard drive. Gamitin nang may pag-iingat!</span></span></li>
+                                                        <li><strong>
+															<span class="lang-en">Reconnect?</span>
+															<span class="lang-de">Reconnect?</span>
+															<span class="lang-pt">Reconectar?</span>
+															<span class="lang-tl">Reconnect?</span></strong> <i class="fa-solid fa-circle-info text-info"></i> 
+															<span class="lang-en">(See Section 4) Check this to enable the Smart Reconnect feature for this profile.</span>
+															<span class="lang-de">(Siehe Abschnitt 4) Aktiviere dies für Smart Reconnect.</span>
+															<span class="lang-pt">(Veja Seção 4) Marque isso para ativar o recurso de Reconexão Inteligente para este perfil.</span>
+															<span class="lang-tl">(Tingnan ang Seksyon 4) I-check ito para paganahin ang Smart Reconnect feature para sa profile na ito.</span></li>
+                                                        <li><strong>
+															<span class="lang-en">Hide?</span>
+															<span class="lang-de">Hide?</span>
+															<span class="lang-pt">Ocultar?</span>
+															<span class="lang-tl">Itago?</span></strong> 
+															<span class="lang-en">Check this to hide the client from the taskbar and Alt+Tab view when it's minimized.</span>
+															<span class="lang-de">Versteckt den Client aus Taskleiste und Alt+Tab, wenn minimiert.</span>
+															<span class="lang-pt">Marque isso para ocultar o cliente da barra de tarefas e da visualização Alt+Tab quando minimizado.</span>
+															<span class="lang-tl">I-check ito para itago ang client mula sa taskbar at Alt+Tab view kapag naka-minimize.</span></li>
+                                                    </ul>
+                                                </li>
+                                                <li>
+                                                    <strong><span class="text-warning">
+														<span class="lang-en">CRITICAL STEP AFTER GAME PATCHES:</span>
+														<span class="lang-de">WICHTIG NACH PATCHES:</span>
+														<span class="lang-pt">PASSO CRÍTICO APÓS ATUALIZAÇÕES DO JOGO:</span>
+														<span class="lang-tl">KRITIKAL NA HAKBANG PAGKATAPOS NG GAME PATCHES:</span></span></strong> 
+														<span class="lang-en">If the game updates, your main client's and profiles <code>neuz.exe</code> are not synced, open the main Launcher to patch first. Then click the <kbd>Copy Neuz.exe</kbd> button to distribute the updated executable to all your profiles.</span>
+														<span class="lang-de">Wenn das Spiel updatet, patche erst den Haupt-Launcher. Klicke dann <kbd>Copy Neuz.exe</kbd>, um die neue Datei auf alle Profile zu verteilen.</span>
+														<span class="lang-pt">Se o jogo atualizar, o <code>neuz.exe</code> do seu cliente principal e perfis não estarão sincronizados, abra o Launcher principal para atualizar primeiro. Em seguida, clique no botão <kbd>Copiar Neuz.exe</kbd> para distribuir o executável atualizado para todos os seus perfis.</span>
+														<span class="lang-tl">Kung mag-update ang laro, at hindi naka-sync ang <code>neuz.exe</code> ng iyong main client at mga profile, buksan muna ang main Launcher para mag-patch. Pagkatapos ay i-click ang <kbd>Copy Neuz.exe</kbd> button para ipamahagi ang updated na executable sa lahat ng iyong profile.</span>
+                                                </li>
+                                                <li>
+                                                    <strong><span class="lang-en">Launching a Profile Client:</span>
+															<span class="lang-de">Profil starten:</span>
+															<span class="lang-pt">Lançando um Cliente de Perfil:</span>
+															<span class="lang-tl">Paglulunsad ng Profile Client:</span></strong> 
+															<span class="lang-en">Right-click the <kbd>Launch</kbd> button, find your profile name in the menu (e.g., "Healer"), and select how many instances to start.</span>
+															<span class="lang-de">Rechtsklick auf <kbd>Launch</kbd>, finde dein Profil im Menü und wähle die Anzahl der Clients.</span>
+															<span class="lang-pt">Clique com o botão direito no botão <kbd>Lançar</kbd>, encontre o nome do seu perfil no menu (ex: "Healer") e selecione quantas instâncias iniciar.</span>
+															<span class="lang-tl">I-right click ang <kbd>Launch</kbd> button, hanapin ang pangalan ng iyong profile sa menu (hal., "Healer"), at piliin kung ilang instances ang sisimulan.</span>
+                                                </li>
+                                            </ol>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- Section 3: The Main Dashboard Explained -->
+                                <details class="accordion-item bg-dark border-secondary" name="manualAccordion">
+                                    <summary class="accordion-header accordion-button bg-dark text-light">
+                                            <i class="fa-solid fa-table-columns me-2 text-primary"></i> <strong>
+												<span class="lang-en">Section 3: The Main Dashboard Explained</span>
+												<span class="lang-de">Abschnitt 3: Das Dashboard erklärt</span>
+												<span class="lang-pt">Seção 3: O Painel Principal Explicado</span>
+												<span class="lang-tl">Seksyon 3: Ang Main Dashboard Ipinaliwanag</span></strong>
+                                    </summary>
+                                    <div class="accordion-collapse collapse show">
+                                        <div class="accordion-body text-secondary">
+                                            <h5><span class="lang-en">The Client Grid</span>
+												<span class="lang-de">Die Client-Liste</span>
+												<span class="lang-pt">A Grade de Clientes</span>
+												<span class="lang-tl">Ang Client Grid</span></h5>
+                                            <p>
+                                                <span class="lang-en">This is your main view of all running game clients. It shows:</span>
+                                                <span class="lang-de">Dies ist die Hauptansicht aller laufenden Clients. Sie zeigt:</span>
+                                                <span class="lang-pt">Esta é sua visão principal de todos os clientes de jogo em execução. Ela mostra:</span>
+                                                <span class="lang-tl">Ito ang iyong pangunahing view ng lahat ng tumatakbong game clients. Ipinapakita nito:</span>
+                                            </p>
+                                            <ul>
+                                                <li><strong>#:</strong> 
+													<span class="lang-en">The account number used for login automation (1-10).</span>
+													<span class="lang-de">Die Account-Nummer für den Auto-Login (1-10).</span>
+													<span class="lang-pt">O número da conta usado para automação de login (1-10).</span>
+													<span class="lang-tl">Ang account number na ginagamit para sa login automation (1-10).</span></li>
+                                                <li><strong><span class="lang-en">Title:</span>
+															<span class="lang-de">Titel:</span>
+															<span class="lang-pt">Título:</span>
+															<span class="lang-tl">Pamagat:</span></strong> 
+															<span class="lang-en">The window title. It will show the profile name in brackets, like <code>[Healer]</code>, if applicable.</span>
+															<span class="lang-de">Fenstertitel. Zeigt ggf. den Profilnamen in Klammern, z.B. <code>[Healer]</code>.</span>
+															<span class="lang-pt">O título da janela. Mostrará o nome do perfil entre colchetes, como <code>[Healer]</code>, se aplicável.</span>
+															<span class="lang-tl">Ang pamagat ng window. Ipapakita nito ang pangalan ng profile sa loob ng brackets, tulad ng <code>[Healer]</code>, kung naaangkop.</span></li>
+                                                <li><strong>PID:</strong> 
+															<span class="lang-en">The unique Process ID of the client.</span>
+															<span class="lang-de">Die eindeutige Prozess-ID.</span>
+															<span class="lang-pt">O ID de Processo único do cliente.</span>
+															<span class="lang-tl">Ang natatanging Process ID ng client.</span></li>
+                                                <li><strong><span class="lang-en">State:</span>
+															<span class="lang-de">State:</span>
+															<span class="lang-pt">Estado:</span>
+															<span class="lang-tl">Estado:</span></strong> 
+															<span class="lang-en">The client's current status (e.g., Normal, Minimized, Loading...).</span>
+															<span class="lang-de">Aktueller Status (z.B. Normal, Minimiert, Loading...).</span>
+															<span class="lang-pt">O status atual do cliente (ex: Normal, Minimizado, Carregando...).</span>
+															<span class="lang-tl">Ang kasalukuyang status ng client (hal., Normal, Minimized, Loading...).</span></li>
+												<li><strong><span class="lang-en">Advanced notification:</span>
+															<span class="lang-de">Benachrichtigung:</span>
+															<span class="lang-pt">Notificação Avançada:</span>
+															<span class="lang-tl">Advanced notification:</span></strong> 
+															<span class="lang-en">The client's row will blink yellow if you recieve a message ingame and change its color to red if it gets disconnected.</span>
+															<span class="lang-de">Die Zeile blinkt gelb bei Ingame-Nachrichten und wird rot bei Disconnects.</span>
+															<span class="lang-pt">A linha do cliente piscará em amarelo se você receber uma mensagem no jogo e mudará para vermelho se for desconectado.</span>
+															<span class="lang-tl">Ang row ng client ay kukurap ng dilaw kung makakatanggap ka ng mensahe sa laro at magiging pula kung madidiskonekta ito.</span></li>
+                                            </ul>
+												<span class="lang-en">Interacting with the Grid:</span>
+												<span class="lang-de">Interaktion mit der Liste:</span>
+												<span class="lang-pt">Interagindo com a Grade:</span>
+												<span class="lang-tl">Pakikipag-ugnayan sa Grid:</span></strong></p>
+                                            <ul>
+                                                <li><strong>
+													<span class="lang-en">Selection:</span>
+													<span class="lang-de">Auswahl:</span>
+													<span class="lang-pt">Seleção:</span>
+													<span class="lang-tl">Pagpili:</span></strong> 
+													<span class="lang-en">Click any client to select it. You can select multiple clients by holding <kbd>Ctrl</kbd> while clicking, or select a range of clients by clicking the first one and dragging, or holding <kbd>Shift</kbd>, and clicking the last one. Most actions (Login, F-Tool, Terminate) apply to all selected clients.</span>
+													<span class="lang-de">Klicke zum Auswählen. Halte <kbd>Ctrl</kbd> für Mehrfachauswahl oder <kbd>Shift</kbd>. Aktionen (Login, F-Tool, Beenden) gelten für alle ausgewählten Clients.</span>
+													<span class="lang-pt">Clique em qualquer cliente para selecioná-lo. Você pode selecionar vários clientes segurando <kbd>Ctrl</kbd> enquanto clica, ou selecionar um intervalo de clientes clicando no primeiro e arrastando, ou segurando <kbd>Shift</kbd> e clicando no último. A maioria das ações (Login, F-Tool, Terminar) se aplica a todos os clientes selecionados.</span>
+													<span class="lang-tl">I-click ang anumang client para piliin ito. Maaari kang pumili ng maraming client sa pamamagitan ng pag-hold ng <kbd>Ctrl</kbd> habang nagki-click, o pumili ng range ng clients sa pamamagitan ng pag-click sa una at pag-drag, o pag-hold ng <kbd>Shift</kbd>, at pag-click sa huli. Karamihan sa mga aksyon (Login, F-Tool, Terminate) ay naaangkop sa lahat ng napiling clients.</span></li>
+                                                <li><strong>
+													<span class="lang-en">Double-Click:</span>
+													<span class="lang-de">Doppelklick:</span>
+													<span class="lang-pt">Clique Duplo:</span>
+													<span class="lang-tl">Double-Click:</span></strong> 
+													<span class="lang-en">Double-clicking on any client is a shortcut to bring its window to the foreground (same as the "Show" action).</span>
+													<span class="lang-de">Bringt das Fenster in den Vordergrund (wie "Anzeigen").</span>
+													<span class="lang-pt">Clicar duas vezes em qualquer cliente é um atalho para trazer sua janela para o primeiro plano (o mesmo que a ação "Mostrar").</span>
+													<span class="lang-tl">Ang pag-double click sa anumang client ay shortcut para dalhin ang window nito sa foreground (katulad ng "Show" action).</span></li>
+                                                <li><strong>
+													<span class="lang-en">Right-Click Context Menu:</span>
+													<span class="lang-de">Rechtsklick-Menü:</span>
+													<span class="lang-pt">Menu de Contexto do Botão Direito:</span>
+													<span class="lang-tl">Right-Click Context Menu:</span></strong> 
+													<span class="lang-en">Right-clicking a client gives you quick actions:</span>
+													<span class="lang-de">Rechtsklick auf einen Client bietet Schnellaktionen:</span>
+													<span class="lang-pt">Clicar com o botão direito em um cliente oferece ações rápidas:</span>
+													<span class="lang-tl">Ang pag-right click sa isang client ay nagbibigay sa iyo ng mabilis na mga aksyon:</span>
+                                                    <ul>
+                                                        <li><kbd>
+															<span class="lang-en">Show</span>
+															<span class="lang-de">Show</span>
+															<span class="lang-pt">Mostrar</span>
+															<span class="lang-tl">Ipakita</span></kbd>: 
+															<span class="lang-en">Brings the client window to the foreground.</span>
+															<span class="lang-de">Holt das Fenster nach vorne.</span>
+															<span class="lang-pt">Traz a janela do cliente para o primeiro plano.</span>
+															<span class="lang-tl">Dinadala ang client window sa foreground.</span></li>
+                                               			<li><kbd>
+															<span class="lang-en">Minimize</span>
+															<span class="lang-de">Minimize</span>
+															<span class="lang-pt">Minimizar</span>
+															<span class="lang-tl">I-minimize</span></kbd>: 
+															<span class="lang-en">Minimizes the client window.</span>
+															<span class="lang-de">Minimiert das Fenster.</span>
+															<span class="lang-pt">Minimiza a janela do cliente.</span>
+															<span class="lang-tl">Mini-minimize ang client window.</span></li>
+                                                		<li><kbd>
+															<span class="lang-en">Resize</span>
+															<span class="lang-de">Resize</span>
+															<span class="lang-pt">Redimensionar</span>
+															<span class="lang-tl">I-resize</span></kbd>: 
+															<span class="lang-en">Resizes the window to a standard 1024x768 and centers it, useful for fixing layout issues.</span>
+															<span class="lang-de">Setzt Fenster auf 1024x768 und zentriert es (hilft bei Layout-Problemen).</span>
+															<span class="lang-pt">Redimensiona a janela para um padrão 1024x768 e a centraliza, útil para corrigir problemas de layout.</span>
+															<span class="lang-tl">Rini-resize ang window sa standard na 1024x768 at isinisentro ito, kapaki-pakinabang para sa pag-aayos ng mga isyu sa layout.</span></li>
+                                                	</ul>
+                                                </li>
+												<li><strong>
+													<span class="lang-en">Delete Key</span>
+													<span class="lang-de">Entf-Taste</span>
+													<span class="lang-pt">Tecla Delete</span>
+													<span class="lang-tl">Delete Key</span></strong>: 
+													<span class="lang-en">Moves the selected client to the bottom of the grid.</span>
+													<span class="lang-de">Verschiebt den Client ans Ende der Liste.</span>
+													<span class="lang-pt">Move o cliente selecionado para o final da grade.</span>
+													<span class="lang-tl">Inililipat ang napiling client sa ibaba ng grid.</span></li>
+                                            </ul>
+                                            <h5><span class="lang-en">Action Buttons</span>
+												<span class="lang-de">Aktions-Buttons</span>
+												<span class="lang-pt">Botões de Ação</span>
+												<span class="lang-tl">Action Buttons</span></h5>
+                                            <ul>
+                                                <li><kbd>Launch</kbd>:
+                                                    <ul>
+                                                        <li><strong>
+															<span class="lang-en">Left-Click:</span>
+															<span class="lang-de">Linksklick:</span>
+															<span class="lang-pt">Clique Esquerdo:</span>
+															<span class="lang-tl">Left-Click:</span></strong> 
+															<span class="lang-en">Cancels an active launch sequence. The button will be labeled "Cancel Launch" during a sequence.</span>
+															<span class="lang-de">Bricht Startsequenz ab (Button heißt dann "Cancel Launch").</span>
+															<span class="lang-pt">Cancela uma sequência de lançamento ativa. O botão será rotulado como "Cancelar Lançamento" durante uma sequência.</span>
+															<span class="lang-tl">Kinakansela ang isang aktibong launch sequence. Ang button ay lalagyan ng label na "Cancel Launch" habang may sequence.</span></li>
+                                                        <li><strong>
+															<span class="lang-en">Right-Click:</span>
+															<span class="lang-de">Rechtsklick:</span>
+															<span class="lang-pt">Clique Direito:</span>
+															<span class="lang-tl">Right-Click:</span></strong> 
+															<span class="lang-en">Opens the launch context menu. This menu dynamically shows you options to:</span>
+															<span class="lang-de">Öffnet Start-Menü mit Optionen für:</span>
+															<span class="lang-pt">Abre o menu de contexto de lançamento. Este menu mostra dinamicamente opções para:</span>
+															<span class="lang-tl">Binubuksan ang launch context menu. Ang menu na ito ay dinamikong nagpapakita sa iyo ng mga opsyon upang:</span>
+                                                            <ul>
+                                                                <li><span class="lang-en">Launch the default number of clients for the currently selected profile.</span>
+																	<span class="lang-de">Starten der Standard-Anzahl für das gewählte Profil.</span>
+																	<span class="lang-pt">Lançar o número padrão de clientes para o perfil selecionado atualmente.</span>
+																	<span class="lang-tl">Ilunsad ang default na bilang ng mga client para sa kasalukuyang napiling profile.</span></li>
+                                                                <li><span class="lang-en">Launch a specific number of clients (1-10) for the "Default" client or any named profile via sub-menus.</span>
+																	<span class="lang-de">Starten einer bestimmten Anzahl (1-10) für Standard oder Profile.</span>
+																	<span class="lang-pt">Lançar um número específico de clientes (1-10) para o cliente "Padrão" ou qualquer perfil nomeado via submenus.</span>
+																	<span class="lang-tl">Ilunsad ang isang tiyak na bilang ng mga client (1-10) para sa "Default" client o anumang pinangalanang profile sa pamamagitan ng sub-menus.</span></li>
+                                                                <li><span class="lang-en">Restore a full session using the "Start and Login saved One-Click configuration" option</span>
+																	<span class="lang-de">Wiederherstellen einer Sitzung via "One-Click Konfiguration"</span> <i class="fa-solid fa-circle-info text-info"></i>
+																	<span class="lang-en">(see Section 4).</span>
+																	<span class="lang-de">(siehe Abschnitt 4).</span>
+																	<span class="lang-pt">Restaurar uma sessão completa usando a opção "Iniciar e Logar configuração salva de Um Clique"</span>
+																	<span class="lang-tl">I-restore ang isang buong session gamit ang "Start and Login saved One-Click configuration" option</span></li>
+                                                            </ul>
+                                                        </li>
+                                                    </ul>
+                                                </li>
+                                                <li><kbd>Login</kbd>: 
+													<span class="lang-en">Starts the auto-login sequence for the selected clients in the grid.</span>
+													<span class="lang-de">Startet Auto-Login für ausgewählte Clients.</span>
+													<span class="lang-pt">Inicia a sequência de login automático para os clientes selecionados na grade.</span>
+													<span class="lang-tl">Sinisimulan ang auto-login sequence para sa mga napiling client sa grid.</span></li>
+                                                <li><kbd>F-Tool</kbd>: 
+													<span class="lang-en">Opens the F-Tool window for each selected client.</span>
+													<span class="lang-de">Öffnet F-Tool für gewählte Clients.</span> <i class="fa-solid fa-circle-info text-info"></i>
+													<span class="lang-en">(see Section 5)</span>
+													<span class="lang-de">(siehe Abschnitt 5)</span>
+													<span class="lang-pt">Abre a janela do F-Tool para cada cliente selecionado.</span>
+													<span class="lang-tl">Binubuksan ang F-Tool window para sa bawat napiling client.</span></li>
+                                                <li><kbd>Settings</kbd>: 
+													<span class="lang-en">Opens the main settings window.</span>
+													<span class="lang-de">Öffnet das Einstellungsfenster.</span>
+													<span class="lang-pt">Abre a janela de configurações principais.</span>
+													<span class="lang-tl">Binubuksan ang main settings window.</span></li>
+												<li><kbd>Terminate</kbd>: 
+													<span class="lang-en">Instantly and forcefully closes all selected clients.</span>
+													<span class="lang-de">Schließt gewählte Clients sofort erzwungen.</span>
+													<span class="lang-pt">Fecha instantânea e forçadamente todos os clientes selecionados.</span>
+													<span class="lang-tl">Agad at sapilitang isinasara ang lahat ng napiling client.</span></li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- Section 4: Login Automation -->
+                                <details class="accordion-item bg-dark border-secondary" name="manualAccordion">
+                                    <summary class="accordion-header accordion-button bg-dark text-light">
+                                            <i class="fa-solid fa-right-to-bracket me-2 text-primary"></i> <strong>
+												<span class="lang-en">Section 4: Login Automation Deep Dive</span>
+												<span class="lang-de">Abschnitt 4: Login-Automatisierung Details</span>
+												<span class="lang-pt">Seção 4: Aprofundamento na Automação de Login</span>
+												<span class="lang-tl">Seksyon 4: Malalim na Pagsusuri sa Login Automation</span></strong>
+                                    </summary>
+                                    <div class="accordion-collapse collapse show">
+                                        <div class="accordion-body text-secondary">
+                                            <p>
+                                                <span class="lang-en">The login system is powerful but requires careful setup. It works by recording the screen position of buttons <strong>relative</strong> to the game window, so it works at any resolution.</span>
+                                                <span class="lang-de">Das Login-System ist mächtig, braucht aber Einrichtung. Es speichert Button-Positionen <strong>relativ</strong> zum Fenster, funktioniert also bei jeder Auflösung.</span>
+                                                <span class="lang-pt">O sistema de login é poderoso, mas requer configuração cuidadosa. Ele funciona gravando a posição dos botões na tela <strong>em relação</strong> à janela do jogo, então funciona em qualquer resolução.</span>
+                                                <span class="lang-tl">Ang login system ay malakas pero nangangailangan ng maingat na pag-setup. Gumagana ito sa pamamagitan ng pag-record ng posisyon ng mga button sa screen na <strong>relative</strong> sa game window, kaya gumagana ito sa anumang resolution.</span>
+                                            </p>
+                                            <ol>
+                                                <li><span class="lang-en">Go to <strong>Settings > Login Settings</strong>.</span>
+													<span class="lang-de">Gehe zu <strong>Settings > Login Settings</strong>.</span>
+													<span class="lang-pt">Vá para <strong>Configurações > Configurações de Login</strong>.</span>
+													<span class="lang-tl">Pumunta sa <strong>Settings > Login Settings</strong>.</span></li>
+                                                <li>
+                                                    <strong>
+														<span class="lang-en">Select a Profile to Edit:</span>
+														<span class="lang-de">Profil wählen:</span>
+														<span class="lang-pt">Selecione um Perfil para Editar:</span>
+														<span class="lang-tl">Pumili ng Profile na I-eedit:</span></strong> 
+														<span class="lang-en">Use the "Edit Profile" dropdown to choose which profile's login settings you want to configure. You can have different login coordinates and character choices for each profile!</span>
+														<span class="lang-de">Nutze das Dropdown, um ein Profil zu bearbeiten. Jedes Profil kann eigene Koordinaten und Charaktere haben!</span>
+														<span class="lang-pt">Use o menu suspenso "Editar Perfil" para escolher quais configurações de login de perfil você deseja configurar. Você pode ter diferentes coordenadas de login e escolhas de personagem para cada perfil!</span>
+														<span class="lang-tl">Gamitin ang "Edit Profile" dropdown para piliin kung aling login settings ng profile ang gusto mong i-configure. Pwede kang magkaroon ng magkakaibang login coordinates at character choices para sa bawat profile!</span>
+                                                </li>
+                                                <li>
+                                                    <strong>
+														<span class="lang-en">Set Coordinates:</span>
+														<span class="lang-de">Koordinaten setzen:</span>
+														<span class="lang-pt">Definir Coordenadas:</span>
+														<span class="lang-tl">Itakda ang Coordinates:</span></strong> 
+														<span class="lang-en">For each item (e.g., "Server 1", "Channel 1", "Char Slot 1"), click the <kbd>Set</kbd> button.</span>
+														<span class="lang-de">Klicke für jedes Element (z.B. "Server 1") auf <kbd>Set</kbd>.</span>
+														<span class="lang-pt">Para cada item (ex: "Servidor 1", "Canal 1", "Slot de Personagem 1"), clique no botão <kbd>Definir</kbd>.</span>
+														<span class="lang-tl">Para sa bawat item (hal., "Server 1", "Channel 1", "Char Slot 1"), i-click ang <kbd>Set</kbd> button.</span>
+                                                    <ul>
+                                                        <li><span class="lang-en">A prompt will appear. Click OK.</span>
+															<span class="lang-de">Ein Hinweis erscheint. Klicke OK.</span>
+															<span class="lang-pt">Um aviso aparecerá. Clique em OK.</span>
+															<span class="lang-tl">Lilitaw ang isang prompt. I-click ang OK.</span></li>
+                                                        <li><span class="lang-en">You have <strong>3 seconds</strong> to focus your game client and move your mouse over the target button (e.g., the first server in the list).</span>
+															<span class="lang-de">Du hast <strong>3 Sekunden</strong>, um das Spiel zu fokussieren und die Maus über den Button zu halten.</span>
+															<span class="lang-pt">Você tem <strong>3 segundos</strong> para focar seu cliente de jogo e mover o mouse sobre o botão alvo (ex: o primeiro servidor na lista).</span>
+															<span class="lang-tl">Mayroon kang <strong>3 segundo</strong> para i-focus ang iyong game client at itapat ang iyong mouse sa target button (hal., ang unang server sa listahan).</span></li>
+                                                        <li><span class="lang-en">The dashboard will record the coordinates. Repeat for all necessary buttons.</span>
+															<span class="lang-de">Das Dashboard speichert die Koordinaten. Wiederhole dies für alle Buttons.</span>
+															<span class="lang-pt">O dashboard gravará as coordenadas. Repita para todos os botões necessários.</span>
+															<span class="lang-tl">Ire-record ng dashboard ang coordinates. Ulitin para sa lahat ng kinakailangang buttons.</span></li>
+                                                    </ul>
+                                                </li>
+                                                <li>
+                                                    <strong>
+														<span class="lang-en">Configure Login Grid:</span>
+														<span class="lang-de">Login-Tabelle konfigurieren:</span>
+														<span class="lang-pt">Configurar Grade de Login:</span>
+														<span class="lang-tl">I-configure ang Login Grid:</span></strong> 
+														<span class="lang-en">This grid tells the dashboard which character to log into for each client slot (1 through 10).</span>
+														<span class="lang-de">Diese Tabelle bestimmt, welcher Charakter für welchen Slot (1-10) eingeloggt wird.</span>
+														<span class="lang-pt">Esta grade diz ao dashboard em qual personagem logar para cada slot de cliente (1 a 10).</span>
+														<span class="lang-tl">Sinasabi ng grid na ito sa dashboard kung aling character ang ila-log in para sa bawat client slot (1 hanggang 10).</span>
+                                                    <ul>
+                                                        <li><strong>Client #:</strong> 
+															<span class="lang-en">Corresponds to the account number in your nickname list.</span>
+															<span class="lang-de">Entspricht der Nummer in deiner Account-Liste.</span>
+															<span class="lang-pt">Corresponde ao número da conta na sua lista de apelidos.</span>
+															<span class="lang-tl">Tumutugma sa account number sa iyong nickname list.</span></li>
+                                                        <li><strong>Server/Channel/Character:</strong> 
+															<span class="lang-en">Click these cells to cycle through options (e.g., Server 1/2, Channel 1/2, Character 1/2/3).</span>
+															<span class="lang-de">Klicke zum Durchschalten der Optionen.</span>
+															<span class="lang-pt">Clique nessas células para alternar entre as opções (ex: Servidor 1/2, Canal 1/2, Personagem 1/2/3).</span>
+															<span class="lang-tl">I-click ang mga cell na ito para magpalipat-lipat sa mga opsyon (hal., Server 1/2, Channel 1/2, Character 1/2/3).</span></li>
+                                                        <li><strong>Collecting?:</strong> 
+															<span class="lang-en">If "Yes", the dashboard will perform an extra click on the "Collector Start" coordinates after logging in.</span>
+															<span class="lang-de">Bei "Yes" klickt das Dashboard nach Login zusätzlich auf "Collector Start".</span>
+															<span class="lang-pt">Se "Sim", o dashboard realizará um clique extra nas coordenadas "Iniciar Coletor" após o login.</span>
+															<span class="lang-tl">Kung "Yes", magsasagawa ang dashboard ng dagdag na click sa "Collector Start" coordinates pagkatapos mag-log in.</span></li>
+                                                    </ul>
+                                                </li>
+                                                <li><strong>
+													<span class="lang-en">Save!</span>
+													<span class="lang-de">Speichern!</span>
+													<span class="lang-pt">Salvar!</span>
+													<span class="lang-tl">I-save!</span></strong> 
+													<span class="lang-en">Click the main <kbd>Save</kbd> button.</span>
+													<span class="lang-de">Klicke den <kbd>Save</kbd>-Button.</span>
+													<span class="lang-pt">Clique no botão <kbd>Salvar</kbd> principal.</span>
+													<span class="lang-tl">I-click ang main <kbd>Save</kbd> button.</span></li>
+                                            </ol>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- Section 5: F-Tool and Macros -->
+                                <details class="accordion-item bg-dark border-secondary" name="manualAccordion">
+                                    <summary class="accordion-header accordion-button bg-dark text-light">
+                                            <i class="fa-solid fa-keyboard me-2 text-primary"></i> <strong>
+												<span class="lang-en">Section 5: Mastering the F-Tool</span>
+												<span class="lang-de">Abschnitt 5: Das F-Tool meistern</span>
+												<span class="lang-pt">Seção 5: Dominando o F-Tool</span>
+												<span class="lang-tl">Seksyon 5: Pag-master sa F-Tool</span></strong>
+                                    </summary>
+                                    <div class="accordion-collapse collapse show">
+                                        <div class="accordion-body text-secondary">
+                                            <p>
+                                                <span class="lang-en">The F-Tool sends background keypresses to a specific client, allowing you full control.</span>
+                                                <span class="lang-de">Das F-Tool sendet Hintergrund-Tastendrücke an einen spezifischen Client.</span>
+                                                <span class="lang-pt">O F-Tool envia pressionamentos de tecla em segundo plano para um cliente específico, permitindo controle total.</span>
+                                                <span class="lang-tl">Nagpapadala ang F-Tool ng background keypresses sa isang partikular na client, na nagbibigay sa iyo ng buong kontrol.</span>
+                                            </p>
+                                            <ul>
+                                                <li><strong>
+													<span class="lang-en">Opening the F-Tool:</span>
+													<span class="lang-de">F-Tool öffnen:</span>
+													<span class="lang-pt">Abrindo o F-Tool:</span>
+													<span class="lang-tl">Pagbubukas ng F-Tool:</span></strong> 
+													<span class="lang-en">Select one or more clients in the grid and click the <kbd>F-Tool</kbd> button. A separate tool window will appear for each, attached to its client. All Settings are saved per character!</span>
+													<span class="lang-de">Wähle Clients und klicke <kbd>F-Tool</kbd>. Ein Fenster öffnet sich pro Client. Einstellungen werden pro Charakter gespeichert!</span>
+													<span class="lang-pt">Selecione um ou mais clientes na grade e clique no botão <kbd>F-Tool</kbd>. Uma janela de ferramenta separada aparecerá para cada um, anexada ao seu cliente. Todas as configurações são salvas por personagem!</span>
+													<span class="lang-tl">Pumili ng isa o higit pang client sa grid at i-click ang <kbd>F-Tool</kbd> button. Lilitaw ang isang hiwalay na tool window para sa bawat isa, na nakakabit sa client nito. Ang lahat ng Settings ay naka-save kada character!</span></li>
+                                                <li><strong>
+													<span class="lang-en">Main Ftool:</span>
+													<span class="lang-de">Haupt-Ftool:</span>
+													<span class="lang-pt">Ftool Principal:</span>
+													<span class="lang-tl">Pangunahing Ftool:</span></strong>
+                                                    <ul>
+                                                        <li><kbd>Key</kbd>: 
+															<span class="lang-en">Click to capture a keyboard or mouse button to send to the client.</span>
+															<span class="lang-de">Klicke zum Erfassen einer Taste oder Maustaste.</span>
+															<span class="lang-pt">Clique para capturar um botão do teclado ou mouse para enviar ao cliente.</span>
+															<span class="lang-tl">I-click para i-capture ang keyboard o mouse button na ipapadala sa client.</span></li>
+                                                        <li><kbd>Interval</kbd>: 
+															<span class="lang-en">The delay in milliseconds between each keypress.</span>
+															<span class="lang-de">Verzögerung in Millisekunden.</span>
+															<span class="lang-pt">O atraso em milissegundos entre cada pressionamento de tecla.</span>
+															<span class="lang-tl">Ang delay sa milliseconds sa pagitan ng bawat keypress.</span></li>
+                                                        <li><kbd>Name</kbd>: 
+															<span class="lang-en">The name of this Ftool.</span>
+															<span class="lang-de">Name dieses F-Tools.</span>
+															<span class="lang-pt">O nome deste Ftool.</span>
+															<span class="lang-tl">Ang pangalan ng Ftool na ito.</span></li>
+                                                        <li><kbd>Start/Stop</kbd>: 
+															<span class="lang-en">Manually start or stop the Ftool.</span>
+															<span class="lang-de">Manuelles Starten/Stoppen.</span>
+															<span class="lang-pt">Iniciar ou parar manualmente o Ftool.</span>
+															<span class="lang-tl">Manu-manong simulan o itigil ang Ftool.</span></li>
+                                                        <li><kbd>Hotkey</kbd>: 
+															<span class="lang-en">Assign a hotkey to start/stop this specific Ftool.</span>
+															<span class="lang-de">Taste zum Starten/Stoppen zuweisen.</span>
+															<span class="lang-pt">Atribuir um atalho para iniciar/parar este Ftool específico.</span>
+															<span class="lang-tl">Magtalaga ng hotkey para simulan/itigil ang partikular na Ftool na ito.</span></li>
+                                                    </ul>
+                                                </li>
+                                                <li><strong>
+													<span class="lang-en">Extensions:</span>
+													<span class="lang-de">Erweiterungen:</span>
+													<span class="lang-pt">Extensões:</span>
+													<span class="lang-tl">Extensions:</span></strong> 
+													<span class="lang-en">Click the <kbd>+</kbd> button to add more Ftools to the same client, each with its own key, interval, and hotkey.</span>
+													<span class="lang-de">Klicke <kbd>+</kbd>, um weitere F-Tools für denselben Client hinzuzufügen.</span>
+													<span class="lang-pt">Clique no botão <kbd>+</kbd> para adicionar mais Ftools ao mesmo cliente, cada um com sua própria tecla, intervalo e atalho.</span>
+													<span class="lang-tl">I-click ang <kbd>+</kbd> button para magdagdag ng higit pang Ftools sa parehong client, bawat isa ay may sariling key, interval, at hotkey.</span></li>
+                                                <li><strong>
+													<span class="lang-en">Global Hotkey</span>
+													<span class="lang-de">Globaler Hotkey</span>
+													<span class="lang-pt">Atalho Global</span>
+													<span class="lang-tl">Global Hotkey</span>(<i class="fa-solid fa-keyboard"></i>):</strong> 
+													<span class="lang-en">At the top of the F-Tool window, you can set a "Master Hotkey". It enables or disables ALL other hotkeys for that specific F-Tool instance. This is useful for temporarily typing the Hotkey without stopping the Ftool.</span>
+													<span class="lang-de">Setze oben einen "Master Hotkey". Er aktiviert/deaktiviert ALLE Hotkeys dieser Instanz. Nützlich, um die Taste zu tippen, ohne das Tool zu stoppen.</span>
+													<span class="lang-pt">No topo da janela do F-Tool, você pode definir um "Atalho Mestre". Ele ativa ou desativa TODOS os outros atalhos para essa instância específica do F-Tool. Isso é útil para digitar temporariamente o Atalho sem parar o Ftool.</span>
+													<span class="lang-tl">Sa itaas ng F-Tool window, pwede kang magtakda ng "Master Hotkey". Ineenable o dini-disable nito ang LAHAT ng iba pang hotkeys para sa partikular na F-Tool instance na iyon. Kapaki-pakinabang ito para sa pansamantalang pag-type ng Hotkey nang hindi itinitigil ang Ftool.</span></li>
+                                                <li><strong>
+													<span class="lang-en">Collapse/Expand</span>
+													<span class="lang-de">Einklappen/Ausklappen</span>
+													<span class="lang-pt">Recolher/Expandir</span>
+													<span class="lang-tl">I-collapse/I-expand</span> (<i class="fa-solid fa-chevron-up"></i> / <i class="fa-solid fa-chevron-down"></i>):</strong> 
+													<span class="lang-en">Minimizes the F-Tool window to a small bar.</span>
+													<span class="lang-de">Minimiert das Fenster auf eine Leiste.</span>
+													<span class="lang-pt">Minimiza a janela do F-Tool para uma pequena barra.</span>
+													<span class="lang-tl">Mini-minimize ang F-Tool window sa isang maliit na bar.</span></li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <!-- Section 6: Advanced Features -->
+                                <details class="accordion-item bg-dark border-secondary" name="manualAccordion">
+                                    <summary class="accordion-header accordion-button bg-dark text-light">
+                                            <i class="fa-solid fa-star me-2 text-primary"></i> <strong>
+												<span class="lang-en">Section 6: Advanced Features</span>
+												<span class="lang-de">Abschnitt 6: Erweiterte Funktionen</span>
+												<span class="lang-pt">Seção 6: Recursos Avançados</span>
+												<span class="lang-tl">Seksyon 6: Mga Advanced na Feature</span></strong>
+                                    </summary>
+                                    <div class="accordion-collapse collapse show">
+                                        <div class="accordion-body text-secondary">
+                                            <h5>Smart Reconnect</h5>
+                                            <p>
+                                                <span class="lang-en">The dashboard monitors each client's network connections. If a client who was in-game suddenly loses its connection, a notification will appear.</span>
+                                                <span class="lang-de">Das Dashboard überwacht Verbindungen. Verliert ein Client im Spiel die Verbindung, erscheint eine Benachrichtigung.</span>
+                                                <span class="lang-pt">O dashboard monitora as conexões de rede de cada cliente. Se um cliente que estava no jogo perder repentinamente sua conexão, uma notificação aparecerá.</span>
+                                                <span class="lang-tl">Minomonitor ng dashboard ang network connections ng bawat client. Kung ang isang client na nasa laro ay biglang mawalan ng koneksyon, lilitaw ang isang notification.</span>
+                                            </p>
+                                            <ul>
+                                                <li><strong>
+													<span class="lang-en">Enable:</span>
+													<span class="lang-de">Aktivieren:</span>
+													<span class="lang-pt">Ativar:</span>
+													<span class="lang-tl">I-enable:</span></strong> 
+													<span class="lang-en">In <strong>Settings > General</strong>, check the "Reconnect?" box for each profile you want to enable this feature on.</span>
+													<span class="lang-de">In <strong>Settings > General</strong>, aktiviere "Reconnect?" beim Profil.</span>
+													<span class="lang-pt">Em <strong>Configurações > Geral</strong>, marque a caixa "Reconectar?" para cada perfil em que deseja ativar este recurso.</span>
+													<span class="lang-tl">Sa <strong>Settings > General</strong>, i-check ang "Reconnect?" box para sa bawat profile na gusto mong paganahin ang feature na ito.</span></li>
+                                                <li><strong>
+													<span class="lang-en">Notification:</span>
+													<span class="lang-de">Benachrichtigung:</span>
+													<span class="lang-pt">Notificação:</span>
+													<span class="lang-tl">Notification:</span></strong> 
+													<span class="lang-en">When a disconnect is detected, you'll see a popup with options:</span>
+													<span class="lang-de">Bei Disconnect erscheint ein Popup mit Optionen:</span>
+													<span class="lang-pt">Quando uma desconexão for detectada, você verá um popup com opções:</span>
+													<span class="lang-tl">Kapag may na-detect na disconnect, makakakita ka ng popup na may mga opsyon:</span>
+                                                    <ul>
+                                                        <li><kbd>
+															<span class="lang-en">Reconnect Now</span>
+															<span class="lang-de">Reconnect Now</span>
+															<span class="lang-pt">Reconectar Agora</span>
+															<span class="lang-tl">Reconnect Now</span></kbd>: 
+															<span class="lang-en">Immediately starts the login sequence for that client.</span>
+															<span class="lang-de">Startet sofort den Login.</span>
+															<span class="lang-pt">Inicia imediatamente a sequência de login para aquele cliente.</span>
+															<span class="lang-tl">Agad na sinisimulan ang login sequence para sa client na iyon.</span></li>
+                                                        <li><kbd>
+															<span class="lang-en">Reconnect in 2m</span>
+															<span class="lang-de">Reconnect in 2m</span>
+															<span class="lang-pt">Reconectar em 2m</span>
+															<span class="lang-tl">Reconnect in 2m</span></kbd>: 
+															<span class="lang-en">Delays the reconnect attempt.</span>
+															<span class="lang-de">Verzögert den Versuch.</span>
+															<span class="lang-pt">Atrasa a tentativa de reconexão.</span>
+															<span class="lang-tl">Inaantala ang pagtatangkang mag-reconnect.</span></li>
+                                                        <li><kbd>
+															<span class="lang-en">Dismiss All</span>
+															<span class="lang-de">Dismiss All</span>
+															<span class="lang-pt">Dispensar Tudo</span>
+															<span class="lang-tl">Dismiss All</span></kbd>: 
+															<span class="lang-en">Closes all active disconnect notifications. To stop a single Reconnect, close the notofication with <kbd>X</kbd>.</span>
+															<span class="lang-de">Schließt alle Benachrichtigungen. Einzeln schließen mit <kbd>X</kbd>.</span>
+															<span class="lang-pt">Fecha todas as notificações de desconexão ativas. Para parar uma única Reconexão, feche a notificação com <kbd>X</kbd>.</span>
+															<span class="lang-tl">Isinasara ang lahat ng aktibong disconnect notifications. Para itigil ang isang Reconnect, isara ang notification gamit ang <kbd>X</kbd>.</span></li>
+                                                    </ul>
+                                                </li>
+                                                <li><span class="lang-en">If enabled, the client will automatically try to reconnect after 15 seconds unless you interact with the notification. Else you will just get notified.</span>
+													<span class="lang-de">Wenn aktiv, verbindet der Client nach 15s automatisch neu, außer du interagierst. Sonst kommt nur eine Benachrichtigung.</span>
+													<span class="lang-pt">Se ativado, o cliente tentará reconectar automaticamente após 15 segundos, a menos que você interaja com a notificação. Caso contrário, você apenas será notificado.</span>
+													<span class="lang-tl">Kung naka-enable, awtomatikong susubukan ng client na mag-reconnect pagkalipas ng 15 segundo maliban kung makipag-ugnayan ka sa notification. Kung hindi, aabisuhan ka lang.</span></li>
+                                            </ul>
+                                            <hr class="my-4 border-secondary">
+                                            <h5><span class="lang-en">One-Click Setup (Session Restore)</span>
+												<span class="lang-de">One-Click Setup (Sitzungswiederherstellung)</span>
+												<span class="lang-pt">Configuração de Um Clique (Restauração de Sessão)</span>
+												<span class="lang-tl">One-Click Setup (Session Restore)</span></h5>
+                                            <p>
+                                                <span class="lang-en">This feature lets you save your entire running client setup and restore it with a single click.</span>
+                                                <span class="lang-de">Speichere dein gesamtes Client-Setup und stelle es mit einem Klick wieder her.</span>
+                                                <span class="lang-pt">Este recurso permite salvar toda a configuração do cliente em execução e restaurá-la com um único clique.</span>
+                                                <span class="lang-tl">Hinahayaan ka ng feature na ito na i-save ang iyong buong tumatakbong client setup at i-restore ito sa isang click.</span>
+                                            </p>
+                                            <ol>
+                                                <li><strong>
+													<span class="lang-en">Save State:</span>
+													<span class="lang-de">Zustand speichern:</span>
+													<span class="lang-pt">Salvar Estado:</span>
+													<span class="lang-tl">I-save ang State:</span></strong> 
+													<span class="lang-en">Once you have all your clients launched and logged in exactly as you want them (e.g., 1 main, 3 buffers, 4 vendors), go to <strong>Settings > General</strong> and click <kbd>Save One-Click Setup</kbd>. This saves a snapshot of which profiles are running and which are fully logged in.</span>
+													<span class="lang-de">Wenn alle Clients laufen und eingeloggt sind, gehe zu <strong>Settings > General</strong> und klicke <kbd>Save One-Click Setup</kbd>. Dies speichert Profile und Login-Status.</span>
+													<span class="lang-pt">Depois de ter todos os seus clientes lançados e logados exatamente como você deseja (ex: 1 principal, 3 buffers, 4 vendedores), vá para <strong>Configurações > Geral</strong> e clique em <kbd>Salvar Configuração de Um Clique</kbd>. Isso salva um instantâneo de quais perfis estão sendo executados e quais estão totalmente logados.</span>
+													<span class="lang-tl">Kapag nailunsad at nai-log in mo na ang lahat ng iyong clients nang eksakto kung paano mo sila gusto (hal., 1 main, 3 buffers, 4 vendors), pumunta sa <strong>Settings > General</strong> at i-click ang <kbd>Save One-Click Setup</kbd>. Sine-save nito ang snapshot kung aling mga profile ang tumatakbo at kung alin ang ganap na naka-log in.</span></li>
+                                                <li><strong>
+													<span class="lang-en">Restore State:</span>
+													<span class="lang-de">Wiederherstellen:</span>
+													<span class="lang-pt">Restaurar Estado:</span>
+													<span class="lang-tl">I-restore ang State:</span></strong> 
+													<span class="lang-en">Later, after closing your clients, right-click the <kbd>Launch</kbd> button and select <kbd>Start and Login saved One-Click configuration</kbd>. The dashboard will automatically launch the correct number of clients that are not running at this moment for each profile and then run the login script only for those that were logged in when you saved the state.</span>
+													<span class="lang-de">Rechtsklick auf <kbd>Launch</kbd> und wähle <kbd>Start and Login saved One-Click configuration</kbd>. Das Dashboard startet fehlende Clients und loggt die ein, die beim Speichern eingeloggt waren.</span>
+													<span class="lang-pt">Mais tarde, após fechar seus clientes, clique com o botão direito no botão <kbd>Lançar</kbd> e selecione <kbd>Iniciar e Logar configuração salva de Um Clique</kbd>. O dashboard lançará automaticamente o número correto de clientes que não estão sendo executados neste momento para cada perfil e, em seguida, executará o script de login apenas para aqueles que estavam logados quando você salvou o estado.</span>
+													<span class="lang-tl">Sa huli, pagkatapos isara ang iyong mga client, i-right click ang <kbd>Launch</kbd> button at piliin ang <kbd>Start and Login saved One-Click configuration</kbd>. Awtomatikong ilulunsad ng dashboard ang tamang bilang ng mga client na hindi tumatakbo sa sandaling ito para sa bawat profile at pagkatapos ay patatakbuhin ang login script para lamang sa mga naka-log in noong na-save mo ang state.</span></li>
+                                            </ol>
+                                        </div>
+                                    </div>
+                                </details>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Download -->
+    <section id="download" class="text-center">
+        <div class="container">
+            <div class="p-5 rounded-3" style="background: linear-gradient(135deg, #1e1e1e 0%, #252525 100%); border: 1px solid #333;">
+                <h2 class="mb-4">
+					<span class="lang-en">Get the latest version of Entropia Dashboard</span>
+					<span class="lang-de">Hole dir die neueste Version des Entropia Dashboards</span>
+					<span class="lang-pt">Obtenha a versão mais recente do Entropia Dashboard</span>
+					<span class="lang-tl">Kunin ang pinakabagong bersyon ng Entropia Dashboard</span></h2>
+                <a href="https://github.com/Immortal-Divine/Entropia_Dashboard/raw/refs/heads/main/Entropia%20Dashboard.exe" class="btn btn-primary-custom btn-lg px-5">
+                    <i class="fa-brands fa-windows me-2"></i> 
+					<span class="lang-en">Download for Windows</span>
+					<span class="lang-de">Download für Windows</span>
+					<span class="lang-pt">Baixar para Windows</span>
+					<span class="lang-tl">I-download para sa Windows</span>
+                </a>
+                <p class="mt-3 text-muted small">
+					<span class="lang-en">Requires PowerShell 5.1+ and .NET Framework 4.5+</span>
+					<span class="lang-de">Benötigt PowerShell 5.1+ und .NET Framework 4.5+</span>
+					<span class="lang-pt">Requer PowerShell 5.1+ e .NET Framework 4.5+</span>
+					<span class="lang-tl">Nangangailangan ng PowerShell 5.1+ at .NET Framework 4.5+</span></p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact -->
+    <section id="contact" class="bg-dark">
+        <div class="container text-center">
+            <h2 class="mb-5">
+				<span class="lang-en">Join the Community</span>
+				<span class="lang-de">Tritt der Community bei</span>
+				<span class="lang-pt">Junte-se à Comunidade</span>
+				<span class="lang-tl">Sumali sa Komunidad</span></h2>
+            <div class="row justify-content-center gap-4">
+                <div class="col-md-3">
+                    <a href="https://entropia.fun/" target="_blank" class="text-decoration-none">
+                        <div class="feature-card text-center">
+                            <i class="fa-solid fa-globe fa-3x mb-3 text-primary"></i>
+                            <h5>Entropia Flyff</h5>
+                            <p class="text-muted">
+								<span class="lang-en">Official Website of the supported Server.</span>
+								<span class="lang-de">Offizielle Webseite des unterstützten Servers.</span>
+								<span class="lang-pt">Site oficial do servidor suportado.</span>
+								<span class="lang-tl">Opisyal na Website ng suportadong Server.</span></p>
+                        </div>
+                    </a>
+                </div>
+                <div class="col-md-3">
+                    <a href="https://discord.gg/zbcVRsC9uN" target="_blank" class="text-decoration-none">
+                        <div class="feature-card text-center">
+                            <i class="fa-brands fa-discord fa-3x mb-3" style="color: #5865F2;"></i>
+                            <h5>Discord</h5>
+                            <p class="text-muted">
+								<span class="lang-en">Join our discord for support!</span>
+								<span class="lang-de">Tritt unserem Discord für Support bei!</span>
+								<span class="lang-pt">Junte-se ao nosso discord para suporte!</span>
+								<span class="lang-tl">Sumali sa aming discord para sa suporta!</span></p>
+                        </div>
+                    </a>
+                </div>
             </div>
         </div>
     </section>
@@ -121,10 +1374,12 @@
     <!-- Footer -->
     <footer>
         <div class="container text-center">
-            <p>Copyright &copy; Immortal / Divine 2025</p>
+            <p class="mb-0 text-secondary">Copyright &copy; Immortal / Divine 2026</p>
         </div>
     </footer>
 
-</body>
+    <!-- Back to Top -->
+    <a href="#page-top" class="btn-back-to-top" aria-label="Back to Top"><i class="fa-solid fa-arrow-up"></i></a>
 
+</body>
 </html>
