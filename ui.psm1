@@ -794,8 +794,8 @@ public class FolderBrowser
     $p = &$AddPickerRow "Server 2:" "Server2" ($rowY+55) 1 'Click the second server on the server selection screen.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["Server2"] = $p
     $p = &$AddPickerRow "Channel 1:" "Channel1" ($rowY+80) 1 'Click the first channel on the channel selection screen.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["Channel1"] = $p
     $p = &$AddPickerRow "Channel 2:" "Channel2" ($rowY+105) 1 'Click the second channel on the channel selection screen.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["Channel2"] = $p
-    $p = &$AddPickerRow "First Nickname:" "FirstNick" ($rowY+130) 1 'Click the first character nickname in the character selection list.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["FirstNick"] = $p
-    $p = &$AddPickerRow "Scroll Down Arrow" "ScrollDown"($rowY+155) 1 'Click the scroll-down arrow in the character selection list.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["ScrollDown"] = $p
+    $p = &$AddPickerRow "First Nickname:" "FirstNick" ($rowY+130) 1 'Click the first character nickname in the account selection list.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["FirstNick"] = $p
+    $p = &$AddPickerRow "Scroll Down Arrow" "ScrollDown"($rowY+155) 1 'Click the scroll-down arrow in the account selection list.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["ScrollDown"] = $p
 
     $p = &$AddPickerRow "Char Slot 1:" "Char1" ($rowY+30) 2 'Click the first character slot.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["Char1"] = $p
     $p = &$AddPickerRow "Char Slot 2:" "Char2" ($rowY+55) 2 'Click the second character slot.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers["Char2"] = $p

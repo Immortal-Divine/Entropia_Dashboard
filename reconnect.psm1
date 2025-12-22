@@ -178,7 +178,7 @@ function Global:Show-InteractiveNotification {
     $pnl.Controls.Add($lblMsg)
 
     $timer = New-Object System.Windows.Forms.Timer
-    $timer.Interval = 100
+    $timer.Interval = 200
 
     $startTime = [DateTime]::Now
     $endTime   = $startTime.AddSeconds($TimeoutSeconds)

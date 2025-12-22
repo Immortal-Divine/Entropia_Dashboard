@@ -438,7 +438,7 @@ function LoginSelectedRow {
                             if ($lastLines) { foreach ($str in $SearchStrings) { if ($lastLines -match [regex]::Escape($str)) { return $true } } }
                         } catch {}
                     }
-                    SleepWithCancel -Milliseconds 100
+                    SleepWithCancel -Milliseconds 250
                 }
                 return $false
             }
@@ -459,7 +459,7 @@ function LoginSelectedRow {
                             if ($lines) { $foundCount = ($lines | Select-String -SimpleMatch $searchStr).Count }
                         } catch {}
                     }
-                    SleepWithCancel -Milliseconds 100
+                    SleepWithCancel -Milliseconds 250
                 }
             }
 

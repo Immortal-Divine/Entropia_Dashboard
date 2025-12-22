@@ -1,7 +1,7 @@
 <# datagrid.psm1 #>
 
 #region Global Configuration
-    $script:UpdateInterval = 250
+    $script:UpdateInterval = 1000
 
     $script:States = @{
         Checking  = 'Checking...'
@@ -302,6 +302,13 @@
                      }
 
                     $currentState = $targetRow.Cells[3].Value
+                    # If a login or reconnect sequence is active for this row, don't let the normal state check overwrite the status.
+                    if ($currentState -in @("Reconnecting...", "Queued...", "Cancelled", "Error") -or $currentState -like "Client *") {
+                        # "Client *" is for the login sequence progress text.
+                        # The other statuses are from the reconnect sequence.
+                        return
+                    }
+
                     if ($currentState -ne $finalState) { $targetRow.Cells[3].Value = $finalState }
                 } catch { }
             }
