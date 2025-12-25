@@ -1,14 +1,18 @@
 Author: Immortal / Divine
-Version: 2.1
+Version: 2.2
 Requires: PowerShell 5.1+, .NET Framework 4.5+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 
 [Changelogs]
-- Added:
-  - All features except for Ftool got reworked
-   - Full multi profile support for Clients with non-shared settings
-   - Added support to all client sizes through custom coordinates
-   - Reconnect / Disconnect Notification System
-   - One-Click Start and Login Configuration
-   - Notification support for hidden clients
-   - Multiple bug fixes in all areas (Report in Discord or Github)
+	- Added new notification progress system for all features
+	- Reduced CPU usage
+	- Minimizes clients that timeout now
+	- Added manual reconnect with right click on entrys
+	- Increased login/reconnect speed
+	- Increased window detection to prevent false clicks during login
+	- You can open the profile location by double clicking now
+	- Fixed Ftool settings not being saved
+	- Code cleanup
+
+
+

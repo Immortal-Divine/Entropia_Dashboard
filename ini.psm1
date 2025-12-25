@@ -3,361 +3,489 @@
 
 #region Helper Functions
 
-    function Copy-OrderedDictionary
-    {
+function CopyOrderedDictionary
+{
 
-        param (
-            [Parameter(Mandatory = $true)]
-            [ValidateNotNull()]
-            [System.Collections.IDictionary]$Dictionary
-        )
+	param (
+		[Parameter(Mandatory = $true)]
+		[ValidateNotNull()]
+		[System.Collections.IDictionary]$Dictionary
+	)
 
-            $copy = [ordered]@{}
-        try
-        {
-            foreach ($key in $Dictionary.Keys)
-            {
-                if ($Dictionary[$key] -is [System.Collections.IDictionary])
-                {
-                    $copy[$key] = Copy-OrderedDictionary -Dictionary $Dictionary[$key]
-                }
-                else
-                {
-                    $copy[$key] = $Dictionary[$key]
-                }
-            }
-        }
-        catch
-        {
-            Write-Verbose "  Failed to copy dictionary element with key '$key': $_" -ForegroundColor Red
+	$copy = [ordered]@{}
+	try
+	{
+		foreach ($key in $Dictionary.Keys)
+		{
+			if ($Dictionary[$key] -is [System.Collections.IDictionary])
+			{
+				$copy[$key] = CopyOrderedDictionary -Dictionary $Dictionary[$key]
+			}
+			else
+			{
+				$copy[$key] = $Dictionary[$key]
+			}
+		}
+	}
+	catch
+	{
+		Write-Verbose "  Failed to copy dictionary element with key '$key': $_"
 
-            throw "Failed to complete dictionary copy."
-        }
-        return $copy
-    }
+		throw 'Failed to complete dictionary copy.'
+	}
+	return $copy
+}
 
-    function Get-IniFileContent
-    {
+function GetIniFileContent
+{
 
-        [CmdletBinding()]
-        [OutputType([ordered])]
-        param(
-            [Parameter(Mandatory = $true)]
-            [string]$IniPath
-        )
+	[CmdletBinding()]
+	[OutputType([ordered])]
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$IniPath
+	)
 
-        $result = [ordered]@{}
-        try
-        {
-            if (-not (Test-Path -Path $IniPath -PathType Leaf))
-            {
-                Write-Verbose "  INI: (Get-IniFileContent): File not found at '$IniPath'." -ForegroundColor Yellow
-                return $result
-            }
-
-            if (-not ([System.Reflection.Assembly]::LoadWithPartialName('System.Collections.Specialized'))) {
-                Add-Type -AssemblyName System.Collections.Specialized
-            }
-            if (-not ([System.Reflection.Assembly]::LoadWithPartialName('System.IO'))) {
-                Add-Type -AssemblyName System.IO
-            }
+	$result = [ordered]@{}
+	try
+	{
+		if (-not (Test-Path -Path $IniPath -PathType Leaf))
+		{
+			Write-Verbose "  INI: (GetIniFileContent): File not found at '$IniPath'."
+			return $result
+		}
 
 
-            $iniHandler = New-Object -TypeName IniFile -ArgumentList $IniPath
+		$iniHandler = New-Object -TypeName IniFile -ArgumentList $IniPath
 
-            $iniContent = $iniHandler.ReadIniFile()
+		$iniContent = $iniHandler.ReadIniFile()
 
-            if ($null -ne $iniContent)
-            {
-                foreach ($section in $iniContent.Keys)
-                {
-                    $result[$section] = [ordered]@{}
-                    $sectionDict = $iniContent[$section]
+		if ($null -ne $iniContent)
+		{
+			foreach ($section in $iniContent.Keys)
+			{
+				$result[$section] = [ordered]@{}
+				$sectionDict = $iniContent[$section]
 
-                    if ($sectionDict -is [System.Collections.IDictionary]) {
-                        foreach ($key in $sectionDict.Keys)
-                        {
-                            $result[$section][$key] = $sectionDict[$key]
-                        }
-                    } else {
-                        Write-Verbose "  INI: (Get-IniFileContent): Section '[$section]' in '$IniPath' does not contain expected key-value pairs." -ForegroundColor Yellow
-                    }
-                }
-            }
-        }
-        catch
-        {
-            Write-Verbose "  INI: (Get-IniFileContent): Failed to read INI file '$IniPath'. Error: $($_.Exception.Message)" -ForegroundColor Red
-        }
-        return $result
-    }
+				if ($sectionDict -is [System.Collections.IDictionary])
+				{
+					foreach ($key in $sectionDict.Keys)
+					{
+						$result[$section][$key] = $sectionDict[$key]
+					}
+				}
+				else
+				{
+					Write-Verbose "  INI: (GetIniFileContent): Section '[$section]' in '$IniPath' does not contain expected key-value pairs."
+				}
+			}
+		}
+	}
+	catch
+	{
+		Write-Verbose "  INI: (GetIniFileContent): Failed to read INI file '$IniPath'. Error: $($_.Exception.Message)"
+	}
+	return $result
+}
 
-    function LoadDefaultConfigOnError
-    {
+function LoadDefaultConfigOnError
+{
 
-        param(
-            [Parameter(Mandatory = $true)]
-            [string]$Reason
-        )
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$Reason
+	)
 
-        try
-        {
-            Write-Verbose "  INI: (Read-Config): Loading default configuration because: $Reason" -ForegroundColor Yellow
-            $global:DashboardConfig.Config = Copy-OrderedDictionary -Dictionary $global:DashboardConfig.DefaultConfig -ErrorAction Stop
-            return $false
-        }
-        catch
-        {
-            Write-Verbose "  INI: (Read-Config): CRITICAL ERROR - Failed even to load default configuration! Error: $($_.Exception.Message)" -ForegroundColor Red
+	try
+	{
+		Write-Verbose "  INI: (ReadConfig): Loading default configuration because: $Reason"
+		$global:DashboardConfig.Config = CopyOrderedDictionary -Dictionary $global:DashboardConfig.DefaultConfig -ErrorAction Stop
+		return $false
+	}
+	catch
+	{
+		Write-Verbose "  INI: (ReadConfig): CRITICAL ERROR - Failed even to load default configuration! Error: $($_.Exception.Message)"
 
-            $global:DashboardConfig.Config = [ordered]@{}
-            return $false
-        }
-    }
+		$global:DashboardConfig.Config = [ordered]@{}
+		return $false
+	}
+}
 
 #endregion
 
 #region Core Configuration Functions
 
-    function Initialize-IniConfig
+function InitializeIniConfig
+{
+	[CmdletBinding()]
+	[OutputType([bool])]
+	param()
+
+	Write-Verbose '  INI: (InitializeIniConfig): Initializing configuration...'
+
+	if (-not $global:DashboardConfig.Paths.Ini)
 	{
-		[CmdletBinding()]
-		[OutputType([bool])]
-		param()
+		Write-Verbose '  INI: (InitializeIniConfig): INI path not defined in global config.'
+		return $false
+	}
 
-		Write-Verbose "  INI: (Initialize-IniConfig): Initializing configuration..." -ForegroundColor Cyan
-
-		if (-not $global:DashboardConfig.Paths.Ini) {
-			Write-Verbose "  INI: (Initialize-IniConfig): INI path not defined in global config." -ForegroundColor Red
+	$iniDir = Split-Path -Path $global:DashboardConfig.Paths.Ini -Parent
+	if (-not (Test-Path -Path $iniDir -PathType Container))
+	{
+		try
+		{
+			New-Item -Path $iniDir -ItemType Directory -Force | Out-Null
+			Write-Verbose "  INI: (InitializeIniConfig): Created config directory: $iniDir"
+		}
+		catch
+		{
+			Write-Verbose "  INI: (InitializeIniConfig): Failed to create config directory. Error: $($_.Exception.Message)"
 			return $false
 		}
+	}
 
-		$iniDir = Split-Path -Path $global:DashboardConfig.Paths.Ini -Parent
-		if (-not (Test-Path -Path $iniDir -PathType Container)) {
-			try {
-				New-Item -Path $iniDir -ItemType Directory -Force | Out-Null
-				Write-Verbose "  INI: (Initialize-IniConfig): Created config directory: $iniDir" -ForegroundColor Green
-			} catch {
-				Write-Verbose "  INI: (Initialize-IniConfig): Failed to create config directory. Error: $($_.Exception.Message)" -ForegroundColor Red
-				return $false
+	$configLoaded = $false
+	if (Test-Path -Path $global:DashboardConfig.Paths.Ini -PathType Leaf)
+	{
+		if (ReadConfig -ConfigPath $global:DashboardConfig.Paths.Ini)
+		{
+			Write-Verbose '  INI: (InitializeIniConfig): Successfully read existing config.'
+			$configLoaded = $true
+		}
+		else
+		{
+			Write-Verbose '  INI: (InitializeIniConfig): Failed to read existing config. Loading defaults.'
+		}
+	}
+ else
+	{
+		Write-Verbose '  INI: (InitializeIniConfig): Config file not found. Loading defaults.'
+	}
+
+	if (-not $configLoaded)
+	{
+		Write-Verbose "  INI: (InitializeIniConfig): No $global:DashboardConfig.Config"
+		$global:DashboardConfig.Config = CopyOrderedDictionary -Dictionary $global:DashboardConfig.DefaultConfig
+
+	}
+
+	$configChanged = $false
+
+	if (-not $global:DashboardConfig.DefaultConfig)
+	{
+		Write-Verbose '  INI: (InitializeIniConfig): DefaultConfig is missing. Skipping verification.'
+		return $true
+	}
+
+	Write-Verbose '  INI: (InitializeIniConfig): Verifying config structure against defaults...'
+
+	foreach ($sectionName in $global:DashboardConfig.DefaultConfig.Keys)
+	{
+		if (-not $global:DashboardConfig.Config.Contains($sectionName))
+		{
+			$global:DashboardConfig.Config[$sectionName] = [ordered]@{}
+			Write-Verbose "  INI: (InitializeIniConfig): Adding missing section '[$sectionName]'."
+			$configChanged = $true
+		}
+
+		$defaultSection = $global:DashboardConfig.DefaultConfig[$sectionName]
+		if ($defaultSection -is [System.Collections.IDictionary])
+		{
+			foreach ($keyName in $defaultSection.Keys)
+			{
+				if ($sectionName -eq 'LoginConfig')
+				{
+					$existsInDefault = ($global:DashboardConfig.Config[$sectionName].Contains('Default') -and $global:DashboardConfig.Config[$sectionName]['Default'].Contains($keyName))
+
+					if (-not $existsInDefault)
+					{
+						if (-not $global:DashboardConfig.Config[$sectionName].Contains('Default'))
+						{
+							$global:DashboardConfig.Config[$sectionName]['Default'] = [ordered]@{}
+						}
+						$global:DashboardConfig.Config[$sectionName]['Default'][$keyName] = $defaultSection[$keyName]
+						Write-Verbose "  INI: (InitializeIniConfig): Adding missing key '$keyName' to 'Default' profile in section '[LoginConfig]'."
+						$configChanged = $true
+					}
+				}
+				elseif (-not $global:DashboardConfig.Config[$sectionName].Contains($keyName))
+				{
+					$global:DashboardConfig.Config[$sectionName][$keyName] = $defaultSection[$keyName]
+					Write-Verbose "  INI: (InitializeIniConfig): Adding missing key '$keyName' in section '[$sectionName]' from defaults."
+					$configChanged = $true
+				}
 			}
 		}
+	}
 
-		$configLoaded = $false
-		if (Test-Path -Path $global:DashboardConfig.Paths.Ini -PathType Leaf) {
-			if (Read-Config -ConfigPath $global:DashboardConfig.Paths.Ini) {
-				Write-Verbose "  INI: (Initialize-IniConfig): Successfully read existing config." -ForegroundColor Green
-				$configLoaded = $true
-			} else {
-				Write-Verbose "  INI: (Initialize-IniConfig): Failed to read existing config. Loading defaults." -ForegroundColor Yellow
-			}
-		} else {
-			Write-Verbose "  INI: (Initialize-IniConfig): Config file not found. Loading defaults." -ForegroundColor Yellow
+	if ($configChanged)
+	{
+		Write-Verbose '  INI: (InitializeIniConfig): Configuration updated with missing defaults. Writing changes...'
+		WriteConfig -ConfigPath $global:DashboardConfig.Paths.Ini
+	}
+
+	return $true
+}
+
+function ReadConfig
+{
+	[CmdletBinding()]
+	[OutputType([bool])]
+	param(
+		[Parameter()]
+		[string]$ConfigPath
+	)
+
+	if ([string]::IsNullOrWhiteSpace($ConfigPath))
+	{
+		$ConfigPath = $global:DashboardConfig.Paths.Ini
+	}
+
+	if ([string]::IsNullOrWhiteSpace($ConfigPath))
+	{
+		Write-Verbose '  INI: (ReadConfig): Configuration path is not defined.'
+		return (LoadDefaultConfigOnError -Reason 'Configuration path not defined')
+	}
+	Write-Verbose "  INI: (ReadConfig): Reading config from '$ConfigPath'"
+
+	try
+	{
+		if (-not (Test-Path -Path $ConfigPath -PathType Leaf))
+		{
+			Write-Verbose "  INI: (ReadConfig): Config file not found at '$ConfigPath'."
+			return (LoadDefaultConfigOnError -Reason 'Config file not found')
 		}
 
-		if (-not $configLoaded) {
-			Write-Verbose "  INI: (Initialize-IniConfig): No $global:DashboardConfig.Config" -ForegroundColor Yellow
-			$global:DashboardConfig.Config = Copy-OrderedDictionary -Dictionary $global:DashboardConfig.DefaultConfig
+		$iniHandler = [Custom.IniFile]::new($ConfigPath)
+		$readConfig = $iniHandler.ReadIniFile()
 
-		}
+		$global:DashboardConfig.Config = [ordered]@{}
 
-		$configChanged = $false
+		if ($null -ne $readConfig)
+		{
+			foreach ($section in $readConfig.Keys)
+			{
+				if ($section -eq 'LoginConfig')
+				{
+					$global:DashboardConfig.Config[$section] = [ordered]@{}
+					$sourceSection = $readConfig[$section]
 
-		if (-not $global:DashboardConfig.DefaultConfig) {
-			Write-Verbose "  INI: (Initialize-IniConfig): DefaultConfig is missing. Skipping verification." -ForegroundColor Yellow
-			return $true
-		}
+					if ($sourceSection -is [System.Collections.IDictionary])
+					{
+						foreach ($flattenedKey in $sourceSection.Keys)
+						{
+							if ($flattenedKey -match '^([^_]+)_(.+)$')
+							{
+								$profileName = $Matches[1]
+								$settingName = $Matches[2]
+								$settingValue = $sourceSection[$flattenedKey]
 
-		Write-Verbose "  INI: (Initialize-IniConfig): Verifying config structure against defaults..." -ForegroundColor DarkGray
-
-		foreach ($sectionName in $global:DashboardConfig.DefaultConfig.Keys) {
-			if (-not $global:DashboardConfig.Config.Contains($sectionName)) {
-				$global:DashboardConfig.Config[$sectionName] = [ordered]@{}
-				Write-Verbose "  INI: (Initialize-IniConfig): Adding missing section '[$sectionName]'." -ForegroundColor Yellow
-				$configChanged = $true
-			}
-
-			$defaultSection = $global:DashboardConfig.DefaultConfig[$sectionName]
-			if ($defaultSection -is [System.Collections.IDictionary]) {
-				foreach ($keyName in $defaultSection.Keys) {
-					if ($sectionName -eq 'LoginConfig') {
-						$existsInDefault = ($global:DashboardConfig.Config[$sectionName].Contains('Default') -and $global:DashboardConfig.Config[$sectionName]['Default'].Contains($keyName))
-
-						if (-not $existsInDefault) {
-							if (-not $global:DashboardConfig.Config[$sectionName].Contains('Default')) {
-								$global:DashboardConfig.Config[$sectionName]['Default'] = [ordered]@{}
+								if (-not $global:DashboardConfig.Config[$section].Contains($profileName))
+								{
+									$global:DashboardConfig.Config[$section][$profileName] = [ordered]@{}
+								}
+								$global:DashboardConfig.Config[$section][$profileName][$settingName] = $settingValue
+								Write-Verbose "  INI: (ReadConfig): Loaded LoginConfig - Profile '$profileName', Setting '$settingName'"
 							}
-							$global:DashboardConfig.Config[$sectionName]['Default'][$keyName] = $defaultSection[$keyName]
-							Write-Verbose "  INI: (Initialize-IniConfig): Adding missing key '$keyName' to 'Default' profile in section '[LoginConfig]'." -ForegroundColor Yellow
-							$configChanged = $true
+							else
+							{
+								$profileName = 'Default'
+								$settingName = $flattenedKey
+								$settingValue = $sourceSection[$flattenedKey]
+
+								if (-not $global:DashboardConfig.Config[$section].Contains($profileName))
+								{
+									$global:DashboardConfig.Config[$section][$profileName] = [ordered]@{}
+								}
+
+								if (-not $global:DashboardConfig.Config[$section][$profileName].Contains($settingName))
+								{
+									$global:DashboardConfig.Config[$section][$profileName][$settingName] = $settingValue
+									Write-Verbose "  INI: (ReadConfig): Mapped flat key '$settingName' to Profile 'Default'."
+								}
+							}
 						}
 					}
-					elseif (-not $global:DashboardConfig.Config[$sectionName].Contains($keyName)) {
-						$global:DashboardConfig.Config[$sectionName][$keyName] = $defaultSection[$keyName]
-						Write-Verbose "  INI: (Initialize-IniConfig): Adding missing key '$keyName' in section '[$sectionName]' from defaults." -ForegroundColor Yellow
-						$configChanged = $true
+				}
+				else
+				{
+					$global:DashboardConfig.Config[$section] = [ordered]@{}
+					if ($readConfig[$section] -is [System.Collections.IDictionary])
+					{
+						foreach ($key in $readConfig[$section].Keys)
+						{
+							$global:DashboardConfig.Config[$section][$key] = $readConfig[$section][$key]
+						}
 					}
 				}
 			}
 		}
-
-		if ($configChanged) {
-			Write-Verbose "  INI: (Initialize-IniConfig): Configuration updated with missing defaults. Writing changes..." -ForegroundColor Cyan
-			Write-Config -ConfigPath $global:DashboardConfig.Paths.Ini
+		else
+		{
+			Write-Verbose '  INI: (ReadConfig): Reading returned null.'
+			return (LoadDefaultConfigOnError -Reason 'Reading config returned null')
 		}
 
+		Write-Verbose '  INI: (ReadConfig): Config loaded successfully.'
 		return $true
 	}
-
-function Read-Config
-{
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter()]
-        [string]$ConfigPath
-    )
-
-    if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-        $ConfigPath = $global:DashboardConfig.Paths.Ini
-    }
-
-    if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-        Write-Verbose "  INI: (Read-Config): Configuration path is not defined." -ForegroundColor Red
-        Return (LoadDefaultConfigOnError -Reason "Configuration path not defined")
-    }
-    Write-Verbose "  INI: (Read-Config): Reading config from '$ConfigPath'" -ForegroundColor Cyan
-
-    try
-    {
-        if (-not (Test-Path -Path $ConfigPath -PathType Leaf)) {
-            Write-Verbose "  INI: (Read-Config): Config file not found at '$ConfigPath'." -ForegroundColor Yellow
-            Return (LoadDefaultConfigOnError -Reason "Config file not found")
-        }
-
-        $iniHandler = [Custom.IniFile]::new($ConfigPath)
-        $readConfig = $iniHandler.ReadIniFile()
-
-        $global:DashboardConfig.Config = [ordered]@{}
-
-        if ($null -ne $readConfig) {
-            foreach ($section in $readConfig.Keys)
-            {
-                if ($section -eq "LoginConfig") {
-                    $global:DashboardConfig.Config[$section] = [ordered]@{}
-                    $sourceSection = $readConfig[$section]
-
-                    if ($sourceSection -is [System.Collections.IDictionary]) {
-                        foreach ($flattenedKey in $sourceSection.Keys) {
-                            if ($flattenedKey -match "^([^_]+)_(.+)$") {
-                                $profileName = $Matches[1]
-                                $settingName = $Matches[2]
-                                $settingValue = $sourceSection[$flattenedKey]
-
-                                if (-not $global:DashboardConfig.Config[$section].Contains($profileName)) {
-                                    $global:DashboardConfig.Config[$section][$profileName] = [ordered]@{}
-                                }
-                                $global:DashboardConfig.Config[$section][$profileName][$settingName] = $settingValue
-                                Write-Verbose "  INI: (Read-Config): Loaded LoginConfig - Profile '$profileName', Setting '$settingName'" -ForegroundColor DarkGray
-                            }
-                            else {
-                                $profileName = "Default"
-                                $settingName = $flattenedKey
-                                $settingValue = $sourceSection[$flattenedKey]
-
-                                if (-not $global:DashboardConfig.Config[$section].Contains($profileName)) {
-                                    $global:DashboardConfig.Config[$section][$profileName] = [ordered]@{}
-                                }
-
-                                if (-not $global:DashboardConfig.Config[$section][$profileName].Contains($settingName)) {
-                                    $global:DashboardConfig.Config[$section][$profileName][$settingName] = $settingValue
-                                    Write-Verbose "  INI: (Read-Config): Mapped flat key '$settingName' to Profile 'Default'." -ForegroundColor DarkGray
-                                }
-                            }
-                        }
-                    }
-                }
-                else {
-                    $global:DashboardConfig.Config[$section] = [ordered]@{}
-                    if ($readConfig[$section] -is [System.Collections.IDictionary]) {
-                        foreach ($key in $readConfig[$section].Keys)
-                        {
-                            $global:DashboardConfig.Config[$section][$key] = $readConfig[$section][$key]
-                        }
-                    }
-                }
-            }
-        } else {
-            Write-Verbose "  INI: (Read-Config): Reading returned null." -ForegroundColor Red
-            Return (LoadDefaultConfigOnError -Reason "Reading config returned null")
-        }
-
-        Write-Verbose "  INI: (Read-Config): Config loaded successfully." -ForegroundColor Green
-        return $true
-    }
-    catch
-    {
-        Write-Verbose "  INI: (Read-Config): Failed to read/process config. Error: $($_.Exception.Message)" -ForegroundColor Red
-        Return (LoadDefaultConfigOnError -Reason "Exception: $($_.Exception.Message)")
-    }
+	catch
+	{
+		Write-Verbose "  INI: (ReadConfig): Failed to read/process config. Error: $($_.Exception.Message)"
+		return (LoadDefaultConfigOnError -Reason "Exception: $($_.Exception.Message)")
+	}
 }
 
-function Write-Config
+#region Function: WriteConfig
+function WriteConfig
 {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter()]
-        [string]$ConfigPath
-    )
+	<#
+        .SYNOPSIS
+            Writes a configuration dictionary to an INI file with specialized LoginConfig handling.
+        .DESCRIPTION
+            Takes a PowerShell ordered dictionary and writes it to an INI file.
+            - Handles nested 'LoginConfig' sections by flattening profile dictionaries.
+            - Converts array values to comma-separated strings.
+            - Automatically creates the destination directory if missing.
+            - Supports -WhatIf and -Confirm.
+        .PARAMETER Config
+            [System.Collections.IDictionary] The configuration data. Defaults to $global:DashboardConfig.Config.
+        .PARAMETER ConfigPath
+            [string] The full path to the INI file. Defaults to $global:DashboardConfig.Paths.Ini.
+        .OUTPUTS
+            [bool] Returns $true if written successfully.
+    #>
+	[CmdletBinding(SupportsShouldProcess = $true)]
+	[OutputType([bool])]
+	param(
+		[Parameter()]
+		[System.Collections.IDictionary]$Config = $global:DashboardConfig.Config,
 
-    if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-        $ConfigPath = $global:DashboardConfig.Paths.Ini
-    }
+		[Parameter()]
+		[string]$ConfigPath = $global:DashboardConfig.Paths.Ini
+	)
 
-    Write-Verbose "  INI: (Write-Config): Saving configuration to '$ConfigPath'..." -ForegroundColor Cyan
+	
+	if ([string]::IsNullOrWhiteSpace($ConfigPath))
+	{
+		Write-Verbose '  INI: (WriteConfig): Configuration path is not defined.'
+		return $false
+	}
+	if ($null -eq $Config)
+	{
+		Write-Verbose '  INI: (WriteConfig): Configuration data is null.' -ForegroundColor Red
+		return $false
+	}
 
-    if (-not $global:DashboardConfig.Config) {
-        Write-Verbose "  INI: (Write-Config): No configuration to save." -ForegroundColor Red
-        return $false
-    }
+	if (-not $pscmdlet.ShouldProcess($ConfigPath, 'Write Configuration to INI file'))
+	{
+		return $false
+	}
 
-    try {
-        $iniHandler = [Custom.IniFile]::new($ConfigPath)
+	
+	try
+	{
+		$configDir = Split-Path -Path $ConfigPath -Parent
+		if (-not (Test-Path -Path $configDir -PathType Container))
+		{
+			Write-Verbose "  INI: (WriteConfig): Creating directory '$configDir'." -ForegroundColor DarkGray
+			$null = New-Item -ItemType Directory -Path $configDir -Force -ErrorAction Stop
+		}
+	}
+	catch
+	{
+		Write-Verbose "  INI: (WriteConfig): Failed to create directory. Error: $($_.Exception.Message)" -ForegroundColor Red
+		return $false
+	}
 
-        $configToSave = [ordered]@{}
+	
+	$configToWrite = New-Object System.Collections.Specialized.OrderedDictionary
 
-        foreach ($section in $global:DashboardConfig.Config.Keys) {
-            $configToSave[$section] = [ordered]@{}
-            $memSection = $global:DashboardConfig.Config[$section]
+	try
+	{
+		foreach ($sectionKey in $Config.Keys)
+		{
+			$sectionName = $sectionKey.ToString()
+			$sectionValue = $Config[$sectionKey]
 
-            if ($section -eq 'LoginConfig') {
-                foreach ($profKey in $memSection.Keys) {
-                    $profileData = $memSection[$profKey]
-                    if ($profileData -is [System.Collections.IDictionary]) {
-                        foreach ($settingKey in $profileData.Keys) {
-                            $flatKey = "${profKey}_${settingKey}"
-                            $configToSave[$section][$flatKey] = $profileData[$settingKey]
-                        }
-                    }
-                }
-            }
-            else {
-                foreach ($key in $memSection.Keys) {
-                    $configToSave[$section][$key] = $memSection[$key]
-                }
-            }
-        }
+			if ($sectionValue -isnot [System.Collections.IDictionary])
+			{
+				Write-Verbose "  INI: (WriteConfig): Section '$sectionName' is not a dictionary, skipping." -ForegroundColor Yellow
+				continue
+			}
 
-        $iniHandler.WriteIniFile($configToSave)
-        Write-Verbose "  INI: (Write-Config): Configuration saved successfully." -ForegroundColor Green
-        return $true
-    }
-    catch {
-        Write-Verbose "  INI: (Write-Config): Failed to save config. Error: $($_.Exception.Message)" -ForegroundColor Red
-        return $false
-    }
+			$sectionData = New-Object System.Collections.Specialized.OrderedDictionary
+
+			
+			if ($sectionName -eq 'LoginConfig')
+			{
+				foreach ($profKey in $sectionValue.Keys)
+				{
+					$profileData = $sectionValue[$profKey]
+					
+					if ($profileData -is [System.Collections.IDictionary])
+					{
+						foreach ($settingKey in $profileData.Keys)
+						{
+							$flatKey = "${profKey}_$($settingKey)"
+							$rawValue = $profileData[$settingKey]
+							
+							
+							$preparedValue = if ($rawValue -is [Array]) { ($rawValue | Where-Object { $_ -ne $null }) -join ',' }
+							else { if ($null -ne $rawValue) { $rawValue.ToString() } else { '' } }
+							
+							$sectionData.Add($flatKey, $preparedValue)
+						}
+					}
+					else
+					{
+						
+						$preparedValue = if ($profileData -is [Array]) { ($profileData | Where-Object { $_ -ne $null }) -join ',' }
+						else { if ($null -ne $profileData) { $profileData.ToString() } else { '' } }
+						$sectionData.Add($profKey.ToString(), $preparedValue)
+					}
+				}
+			}
+			
+			else
+			{
+				foreach ($itemKey in $sectionValue.Keys)
+				{
+					$value = $sectionValue[$itemKey]
+					
+					
+					$preparedValue = if ($value -is [Array]) { ($value | Where-Object { $_ -ne $null }) -join ',' }
+					else { if ($null -ne $value) { $value.ToString() } else { '' } }
+					
+					$sectionData.Add($itemKey.ToString(), $preparedValue)
+				}
+			}
+
+			$configToWrite.Add($sectionName, $sectionData)
+		}
+	}
+	catch
+	{
+		Write-Verbose "  INI: (WriteConfig): Failed to prepare data. Error: $($_.Exception.Message)" -ForegroundColor Red
+		return $false
+	}
+
+	
+	try
+	{
+		$iniFile = [Custom.IniFile]::new($ConfigPath)
+		$iniFile.WriteIniFile($configToWrite)
+
+		Write-Verbose "  INI: (WriteConfig): Config written successfully to '$ConfigPath'." -ForegroundColor Green
+		return $true
+	}
+	catch
+	{
+		Write-Verbose "  INI: (WriteConfig): C# Class failed to write file. Error: $($_.Exception.Message)" -ForegroundColor Red
+		return $false
+	}
 }
+#endregion
 
 #endregion
 
