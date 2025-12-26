@@ -50,8 +50,7 @@ function StartClientLaunch
 
 	if ($global:DashboardConfig.State.LaunchActive -and -not $FromSequence)
 	{
-		[System.Windows.Forms.MessageBox]::Show('Launch operation already in progress', 'Information',
-			[System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+		[Custom.DarkMessageBox]::Show('Launch operation already in progress', 'Launch', 'Ok', 'Information')
 		return
 	}
 
@@ -238,7 +237,7 @@ function StartClientLaunch
 			if ($CancellationContext.IsCancelled) { throw 'LaunchCancelled' }
 		}
 
-		function Report-LaunchProgress
+		function ReportLaunchProgress
 		{
 			param($Action, $Step, $TotalSteps)
 			$pct = [int](($Step / $TotalSteps) * 100)
@@ -316,13 +315,13 @@ function StartClientLaunch
 			{
 				CheckCancel
 				$currentStep++
-				Report-LaunchProgress -Action "Client $attempt/$ClientsToLaunch Starting Launch Process..." -Step $currentStep -TotalSteps $totalSteps
+				ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Starting Launch Process..." -Step $currentStep -TotalSteps $totalSteps
 
 				$launcherRunning = $null -ne (Get-Process -Name $launcherName -ErrorAction SilentlyContinue)
 				$currentStep++
 				if ($launcherRunning)
 				{
-					Report-LaunchProgress -Action "Client $attempt/$ClientsToLaunch Waiting for Launcher..." -Step $currentStep -TotalSteps $totalSteps
+					ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Waiting for Launcher..." -Step $currentStep -TotalSteps $totalSteps
 					$launcherTimeout = New-TimeSpan -Seconds 60
 					$launcherStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 					$progressReported = @(5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60)
@@ -350,18 +349,18 @@ function StartClientLaunch
 				}
 				else
 				{
-					Report-LaunchProgress -Action "Client $attempt/$ClientsToLaunch Launcher Ready..." -Step $currentStep -TotalSteps $totalSteps
+					ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Launcher Ready..." -Step $currentStep -TotalSteps $totalSteps
 				}
 
 				CheckCancel
 				$currentStep++
-				Report-LaunchProgress -Action "Client $attempt/$ClientsToLaunch Executing Launcher..." -Step $currentStep -TotalSteps $totalSteps 
+				ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Executing Launcher..." -Step $currentStep -TotalSteps $totalSteps 
 				$launcherProcess = Start-Process -FilePath $LauncherPath -WorkingDirectory $launcherDir -PassThru
 				$launcherPID = $launcherProcess.Id
 				Write-Verbose "LAUNCH: PID: $launcherPID"
 
 				$currentStep++
-				Report-LaunchProgress -Action "Client $attempt/$ClientsToLaunch Initializing Client..." -Step $currentStep -TotalSteps $totalSteps 
+				ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Initializing Client..." -Step $currentStep -TotalSteps $totalSteps 
 				SleepWithCancel -Milliseconds 1000
 
 				$timeout = New-TimeSpan -Minutes 2
@@ -371,7 +370,7 @@ function StartClientLaunch
 				$progressReported = @(1, 5, 15, 30, 60, 90, 120)
 
 				$currentStep++
-				Report-LaunchProgress -Action "Client $attempt/$ClientsToLaunch Monitoring/Patching..." -Step $currentStep -TotalSteps $totalSteps 
+				ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Monitoring/Patching..." -Step $currentStep -TotalSteps $totalSteps 
 				while (-not $launcherClosed -and $stopwatch.Elapsed -lt $timeout)
 				{
 					CheckCancel
@@ -379,7 +378,7 @@ function StartClientLaunch
 					if ($elapsedSeconds -in $progressReported)
 					{
 						$progressReported = $progressReported | Where-Object { $_ -ne $elapsedSeconds }
-						Report-LaunchProgress -Action "Patching... ($elapsedSeconds s / 120)" -Step $currentStep -TotalSteps $totalSteps 
+						ReportLaunchProgress -Action "Patching... ($elapsedSeconds s / 120)" -Step $currentStep -TotalSteps $totalSteps 
 
 					}
 
@@ -430,7 +429,7 @@ function StartClientLaunch
 				$progressReported = @(5, 10, 15, 20, 25)
 
 				$currentStep++
-				Report-LaunchProgress -Action "Client $attempt/$ClientsToLaunch Waiting for Client Process..." -Step $currentStep -TotalSteps $totalSteps 
+				ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Waiting for Client Process..." -Step $currentStep -TotalSteps $totalSteps 
 				while (-not $clientStarted -and $stopwatch.Elapsed -lt $clientDetectionTimeout)
 				{
 					CheckCancel
@@ -476,7 +475,7 @@ function StartClientLaunch
 							$innerStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 							$currentStep++
-							Report-LaunchProgress -Action "Client $attempt/$ClientsToLaunch Waiting for Window..." -Step $currentStep -TotalSteps $totalSteps 
+							ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Waiting for Window..." -Step $currentStep -TotalSteps $totalSteps 
 							while (-not $windowReady -and $innerStopwatch.Elapsed -lt $innerTimeout)
 							{
 								CheckCancel
@@ -509,7 +508,7 @@ function StartClientLaunch
 								{
 									$currentWindowHandle = $clientWindowHandle
 									$windowReady = $true
-									$currentStep++; Report-LaunchProgress -Action "Client $attempt/$ClientsToLaunch Finalizing..." -Step $currentStep -TotalSteps $totalSteps
+									$currentStep++; ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Finalizing..." -Step $currentStep -TotalSteps $totalSteps
 									SleepWithCancel -Milliseconds 500
 									[Custom.Native]::ShowWindow($clientWindowHandle, [Custom.Native]::SW_MINIMIZE)
 									try { [Custom.Native]::EmptyWorkingSet($clientHandle) } catch {}
@@ -661,12 +660,12 @@ function InvokeSavedLaunchSequence
 
 	if (-not $global:DashboardConfig.Config['SavedLaunchConfig'] -or $global:DashboardConfig.Config['SavedLaunchConfig'].Count -eq 0)
 	{
-		[System.Windows.Forms.MessageBox]::Show('No saved configuration found.', 'Error', 'OK', 'Warning')
+		[Custom.DarkMessageBox]::Show("No saved configuration found.`nPlease setup your clients first and create a One-Click Setup!", 'One-Click Setup', 'OK', 'Warning')
 		return
 	}
 	if ($global:DashboardConfig.State.LaunchActive)
 	{
-		[System.Windows.Forms.MessageBox]::Show('Launch in progress.', 'Busy', 'OK', 'Warning')
+		[Custom.DarkMessageBox]::Show('Launch operation already in progress', 'One-Click Setup', 'Ok', 'Information')
 		return
 	}
 
@@ -754,7 +753,7 @@ function InvokeSavedLaunchSequence
 	if ($launchQueue.Count -eq 0)
 	{
 		Write-Verbose 'LAUNCH SEQUENCE: State matches saved config. No action.'
-		[System.Windows.Forms.MessageBox]::Show('All clients match the saved configuration.', 'Done', 'OK', 'Information')
+		[Custom.DarkMessageBox]::Show('All clients already match the saved configuration.', 'One-Click Setup', 'OK', 'Information')
 		$global:DashboardConfig.State.LaunchActive = $false
 		$global:DashboardConfig.State.SequenceActive = $false
 		return
@@ -1084,7 +1083,7 @@ function StopClientLaunch
 
 		
 		$psInstance = $global:LaunchResources.PowerShellInstance
-		$runspace = $global:LaunchResources.Runspace
+		$null = $runspace; $runspace = $global:LaunchResources.Runspace
 		$asyncResult = $global:LaunchResources.AsyncResult
 
 		if ($asyncResult -and -not $asyncResult.IsCompleted)

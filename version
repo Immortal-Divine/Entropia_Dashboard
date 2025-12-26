@@ -4,14 +4,23 @@ Requires: PowerShell 5.1+, .NET Framework 4.5+, Administrator privileges, Bypass
 
 
 [Changelogs]
-	- Added new notification progress system for all features
-	- Reduced CPU usage
+   - Added:
+    - New Hotkey Manager in the settings to edit all current active Hotkeys
+	- New notification progress system for all features
+	- Manual reconnect with right click on entrys
+	- Set Hotkey in DataGrid Contextmenu to bring the saved clients to front
+
+   - Fixed:
 	- Minimizes clients that timeout now
-	- Added manual reconnect with right click on entrys
-	- Increased login/reconnect speed
+	- Increased login/reconnect speed again
 	- Increased window detection to prevent false clicks during login
 	- You can open the profile location by double clicking now
-	- Fixed Ftool settings not being saved
+	- Ftool settings were not being saved, fixed
+	- Reduced CPU usage
+
+   - More:
+    - Redesigned the Message windows, who even likes being blinded?
+	- Full Dark Mode
 	- Code cleanup
 
 

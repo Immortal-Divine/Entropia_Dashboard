@@ -3,6 +3,7 @@
 
 #region Helper Functions
 
+
 function GetNeuzResolution
 {
 	param([string]$ProfilePath)
@@ -155,6 +156,145 @@ function RefreshLoginProfileSelector
 	}
 }
 
+function RefreshHotkeysList
+{
+	[CmdletBinding()]
+	param()
+
+	try
+	{
+		$grid = $global:DashboardConfig.UI.HotkeysGrid
+		if (-not $grid) { return }		
+		$grid.Rows.Clear()
+
+		# Combine registered and paused hotkeys for a complete view
+		$allHotkeys = @{}
+		if ($global:RegisteredHotkeys)
+		{
+			foreach ($id in $global:RegisteredHotkeys.Keys)
+			{
+				$allHotkeys[$id] = $global:RegisteredHotkeys[$id]
+			}
+		}
+		if ($global:PausedRegisteredHotkeys)
+		{
+			foreach ($id in $global:PausedRegisteredHotkeys.Keys)
+			{
+				# Paused hotkeys have negative IDs, so they won't conflict
+				$allHotkeys[$id] = $global:PausedRegisteredHotkeys[$id]
+			}
+		}
+
+		if ($allHotkeys.Count -gt 0)
+		{
+			$sortedKeys = $allHotkeys.Keys | Sort-Object { $allHotkeys[$_].KeyString }
+			
+			$GetDecoratedTitle = {
+				param($pidStr)
+				$title = ''
+				$g = $global:DashboardConfig.UI.DataGridFiller
+				if ($g)
+				{
+					$r = $g.Rows | Where-Object { $_.Cells[2].Value.ToString() -eq $pidStr } | Select-Object -First 1
+					if ($r)
+					{
+						$title = $r.Cells[1].Value
+					}
+				}
+				return $title
+			}
+
+			foreach ($id in $sortedKeys)
+			{
+				$meta = $allHotkeys[$id]
+				$keyString = $meta.KeyString
+				$isPaused = $id -lt 0
+				
+				if ($meta.Owners)
+				{
+					foreach ($ownerKey in $meta.Owners.Keys)
+					{
+						$displayOwner = $ownerKey
+						$displayAction = ''
+						
+						if ($ownerKey -match '^global_toggle_(.+)')
+      {
+							$instanceId = $Matches[1]
+							$displayOwner = "Ftool Global Toggle: $instanceId"
+							$displayAction = 'Enable/Disable hotkeys'
+							
+							$decoratedTitle = &$GetDecoratedTitle $instanceId
+							if (-not [string]::IsNullOrEmpty($decoratedTitle)) { $displayOwner = "Ftool Global Toggle: $decoratedTitle" }
+						}
+						elseif ($ownerKey -match '^ext_(.+)_\d+')
+						{
+							$instanceId = $Matches[1]
+							$extKey = $ownerKey
+							$displayOwner = "Ftool Extension: $instanceId"
+							$displayAction = 'Start/Stop'
+
+							if ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+							{
+								$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+								if ($form -and $form.Tag)
+								{
+									$decoratedTitle = &$GetDecoratedTitle $instanceId
+									
+									if ($global:DashboardConfig.Resources.ExtensionData -and $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+         {
+										$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+										$extName = if ($extData.Name -and $extData.Name.Text) { $extData.Name.Text } else { "Ext $($extData.ExtNum)" }
+										$displayOwner = "Ftool $decoratedTitle - $extName"
+										$spammedKey = if ($extData.BtnKeySelect -and $extData.BtnKeySelect.Text) { $extData.BtnKeySelect.Text } else { 'none' }
+										$displayAction = "Ftool Key: $spammedKey"
+									}
+								}
+							}
+						}
+						elseif ($ownerKey -match '^GroupHotkey_(.+)')
+						{
+							$groupName = $Matches[1]
+							$displayOwner = "Window Group: $groupName"
+							$memberString = 'N/A'
+							if ($global:DashboardConfig.Config.Contains('HotkeyGroups') -and $global:DashboardConfig.Config['HotkeyGroups'].Contains($groupName))
+							{
+								$memberString = $global:DashboardConfig.Config['HotkeyGroups'][$groupName]
+							}
+							$displayAction = 'Show Windows'
+						}
+						elseif ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($ownerKey))
+						{
+							$instanceId = $ownerKey
+							$displayOwner = "Ftool Instance: $instanceId"
+							$displayAction = 'Start/Stop'
+
+							$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+							if ($form -and $form.Tag)
+							{
+								$decoratedTitle = &$GetDecoratedTitle $instanceId
+								$ftoolName = if ($form.Tag.Name -and $form.Tag.Name.Text) { $form.Tag.Name.Text } else { 'Main' }
+								$displayOwner = "Ftool $decoratedTitle - $ftoolName"
+								$spammedKey = if ($form.Tag.BtnKeySelect -and $form.Tag.BtnKeySelect.Text) { $form.Tag.BtnKeySelect.Text } else { 'none' }
+								$displayAction = "Ftool Key: $spammedKey"
+							}
+						}
+						
+						$finalKeyString = if ($isPaused) { "$keyString (Paused)" } else { $keyString }
+						$rowIndex = $grid.Rows.Add($finalKeyString, $displayOwner, $displayAction)
+						$grid.Rows[$rowIndex].Tag = @{ Id = $id; OwnerKey = $ownerKey }
+						if ($isPaused)
+						{
+							$grid.Rows[$rowIndex].DefaultCellStyle.ForeColor = [System.Drawing.Color]::Gray
+						}
+					}
+				}
+			}
+			$grid.ClearSelection()
+		}
+	}
+	catch { Write-Verbose "UI: Failed to refresh hotkeys list: $_" }
+}
+
 function ShowInputBox
 {
 	param(
@@ -235,6 +375,25 @@ function ShowInputBox
 	{
 		return $null
 	}
+}
+
+function Get-RowIdentity
+{
+	param($Row)
+	if (-not $Row -or -not $Row.Cells[1].Value) { return '' }
+	
+	$fullTitle = $Row.Cells[1].Value.ToString()
+	$p = 'Default'
+	$title = $fullTitle
+
+	# Extract profile from [ProfileName] prefix
+	if ($fullTitle -match '^\[([^\]]+)\]\s*(.*)')
+	{
+		$p = $Matches[1]
+		$title = $Matches[2].Trim()
+	}
+
+	return "[$p]$title"
 }
 
 function SyncUIToConfig
@@ -593,6 +752,25 @@ function InitializeUI
 	$toolTipMain.InitialDelay = 100
 	$toolTipMain.ReshowDelay = 10
 	$toolTipMain.ShowAlways = $true
+	$toolTipMain.OwnerDraw = $true
+	$toolTipMain.Add_Draw({
+			param($s, $e)
+			$g = $e.Graphics
+			$b = $e.Bounds
+			$bg = [System.Drawing.Color]::FromArgb(30, 30, 30)
+			$fg = [System.Drawing.Color]::FromArgb(240, 240, 240)
+			$border = [System.Drawing.Color]::FromArgb(100, 100, 100)
+			$brush = New-Object System.Drawing.SolidBrush($bg)
+			$g.FillRectangle($brush, $b)
+			$brush.Dispose()
+			$pen = New-Object System.Drawing.Pen($border)
+			$g.DrawRectangle($pen, $b.X, $b.Y, $b.Width - 1, $b.Height - 1)
+			$pen.Dispose()
+			$textBrush = New-Object System.Drawing.SolidBrush($fg)
+			$g.DrawString($e.ToolTipText, $e.Font, $textBrush, [System.Drawing.PointF]::new(2, 2))
+			$textBrush.Dispose()
+		})
+	$toolTipMain.Add_Popup({ param($s, $e) $e.ToolTipSize = [System.Drawing.Size]::new($e.ToolTipSize.Width + 4, $e.ToolTipSize.Height + 4) })
 
 	$global:DashboardConfig.UI | Add-Member -MemberType NoteProperty -Name ToolTip -Value $toolTipMain -Force
 
@@ -630,6 +808,7 @@ function InitializeUI
 
 	$LaunchContextMenu = New-Object System.Windows.Forms.ContextMenuStrip
 	$LaunchContextMenu.Name = 'LaunchContextMenu'
+	$LaunchContextMenu.Renderer = New-Object Custom.DarkRenderer
 	$LaunchContextMenu.Items.Add('Loading...') | Out-Null
 	$btnLaunch.ContextMenuStrip = $LaunchContextMenu
 
@@ -649,7 +828,7 @@ function InitializeUI
 	$DataGridFiller = SetUIElement @p
 
 	$mainGridCols = @(
-		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'Index'; HeaderText = '#'; FillWeight = 10; SortMode = 'NotSortable';}),
+		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'Index'; HeaderText = '#'; FillWeight = 12; SortMode = 'NotSortable';}),
 		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'Titel'; HeaderText = 'Titel'; SortMode = 'NotSortable';}),
 		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'ID'; HeaderText = 'PID'; FillWeight = 20; SortMode = 'NotSortable';}),
 		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ Name = 'State'; HeaderText = 'State'; FillWeight = 30; SortMode = 'NotSortable';})    )
@@ -663,6 +842,25 @@ function InitializeUI
 	$toolTipSettings.InitialDelay = 100
 	$toolTipSettings.ReshowDelay = 10
 	$toolTipSettings.ShowAlways = $true
+	$toolTipSettings.OwnerDraw = $true
+	$toolTipSettings.Add_Draw({
+			param($s, $e)
+			$g = $e.Graphics
+			$b = $e.Bounds
+			$bg = [System.Drawing.Color]::FromArgb(30, 30, 30)
+			$fg = [System.Drawing.Color]::FromArgb(240, 240, 240)
+			$border = [System.Drawing.Color]::FromArgb(100, 100, 100)
+			$brush = New-Object System.Drawing.SolidBrush($bg)
+			$g.FillRectangle($brush, $b)
+			$brush.Dispose()
+			$pen = New-Object System.Drawing.Pen($border)
+			$g.DrawRectangle($pen, $b.X, $b.Y, $b.Width - 1, $b.Height - 1)
+			$pen.Dispose()
+			$textBrush = New-Object System.Drawing.SolidBrush($fg)
+			$g.DrawString($e.ToolTipText, $e.Font, $textBrush, [System.Drawing.PointF]::new(2, 2))
+			$textBrush.Dispose()
+		})
+	$toolTipSettings.Add_Popup({ param($s, $e) $e.ToolTipSize = [System.Drawing.Size]::new($e.ToolTipSize.Width + 4, $e.ToolTipSize.Height + 4) })
 
 	$global:DashboardConfig.UI.ToolTip = $toolTipSettings
 
@@ -678,8 +876,12 @@ function InitializeUI
 	$tabLoginSettings.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
 	$tabLoginSettings.AutoScroll = $true
 
+	$tabHotkeys = New-Object System.Windows.Forms.TabPage 'Hotkeys'
+	$tabHotkeys.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+
 	$settingsTabs.TabPages.Add($tabGeneral)
 	$settingsTabs.TabPages.Add($tabLoginSettings)
+	$settingsTabs.TabPages.Add($tabHotkeys)
 
 	$settingsForm.Controls.Add($settingsTabs)
 
@@ -886,6 +1088,26 @@ function InitializeUI
 
 	$tabLoginSettings.Controls.Add($LoginConfigGrid)
 
+	$p = @{ type = 'DataGridView'; width = 560; height = 450; top = 10; left = 10; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'HotkeysGrid'; text = ''; font = (New-Object System.Drawing.Font('Segoe UI', 9)) }
+	$HotkeysGrid = SetUIElement @p
+	$HotkeysGrid.AllowUserToAddRows = $false
+	$HotkeysGrid.RowHeadersVisible = $false
+	$HotkeysGrid.EditMode = 'EditProgrammatically'
+	$HotkeysGrid.SelectionMode = 'FullRowSelect'
+	$HotkeysGrid.AutoSizeColumnsMode = 'Fill'
+	$HotkeysGrid.ColumnHeadersHeight = 30
+	$HotkeysGrid.RowTemplate.Height = 25	
+	$HotkeysGrid.MultiSelect = $true
+	$colHKKey = New-Object System.Windows.Forms.DataGridViewTextBoxColumn; $colHKKey.HeaderText = 'Key Combination'; $colHKKey.FillWeight = 25; $colHKKey.ReadOnly = $true
+	$colHKOwner = New-Object System.Windows.Forms.DataGridViewTextBoxColumn; $colHKOwner.HeaderText = 'Assigned To'; $colHKOwner.FillWeight = 45; $colHKOwner.ReadOnly = $true
+	$colHKAction = New-Object System.Windows.Forms.DataGridViewTextBoxColumn; $colHKAction.HeaderText = 'Action'; $colHKAction.FillWeight = 30; $colHKAction.ReadOnly = $true
+	$HotkeysGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]@($colHKKey, $colHKOwner, $colHKAction))
+	$tabHotkeys.Controls.Add($HotkeysGrid)
+
+	$p = @{ type = 'Button'; width = 200; height = 40; top = 470; left = 195; bg = @(150, 50, 50); fg = @(240, 240, 240); id = 'UnregisterHotkey'; text = 'Unregister and delete selected Hotkeys permanently'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = 'Unregister and delete selected Hotkeys permanently.' }
+	$btnUnregisterHotkey = SetUIElement @p
+	$tabHotkeys.Controls.Add($btnUnregisterHotkey)
+
 	$p = @{ type = 'Button'; width = 120; height = 40; top = 585; left = 20; bg = @(35, 175, 75); fg = @(240, 240, 240); id = 'Save'; text = 'Save'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = 'Save all settings' }
 	$btnSave = SetUIElement @p
 
@@ -899,11 +1121,13 @@ function InitializeUI
 	$topBar.Controls.AddRange(@($titleLabelForm, $copyrightLabelForm, $btnMinimizeForm, $btnCloseForm))
 
 	$ctxMenu = New-Object System.Windows.Forms.ContextMenuStrip
+	$ctxMenu.Renderer = New-Object Custom.DarkRenderer
 	$itmFront = New-Object System.Windows.Forms.ToolStripMenuItem('Show')
 	$itmBack = New-Object System.Windows.Forms.ToolStripMenuItem('Minimize')
 	$itmResizeCenter = New-Object System.Windows.Forms.ToolStripMenuItem('Resize')
 	$itmRelog = New-Object System.Windows.Forms.ToolStripMenuItem('Relog after Disconnect')
-	$ctxMenu.Items.AddRange(@($itmFront, $itmBack, $itmResizeCenter, $itmRelog))
+	$itmSetHotkey = New-Object System.Windows.Forms.ToolStripMenuItem('Set Hotkey')
+	$ctxMenu.Items.AddRange(@($itmFront, $itmBack, $itmResizeCenter, $itmRelog, $itmSetHotkey))
 	$DataGridMain.ContextMenuStrip = $ctxMenu
 	$DataGridFiller.ContextMenuStrip = $ctxMenu
 
@@ -948,12 +1172,15 @@ function InitializeUI
 		InputPostLoginDelay                = $txtPostLoginDelay
 		LoginProfileSelector               = $ddlLoginProfile
 		ResolutionSelector                 = $ddlResolution
+		HotkeysGrid                        = $HotkeysGrid
+		UnregisterHotkey                   = $btnUnregisterHotkey
 
 		Save                               = $btnSave
 		Cancel                             = $btnCancel
 		ContextMenuFront                   = $itmFront
 		ContextMenuBack                    = $itmBack
 		ContextMenuResizeAndCenter         = $itmResizeCenter
+		SetHotkey                          = $itmSetHotkey
 		Relog                              = $itmRelog
 	}
 	if ($null -ne $uiPropertiesToAdd)
@@ -966,6 +1193,55 @@ function InitializeUI
 	RegisterUIEventHandlers
 	return $true
 }
+
+function RegisterStoredHotkeys
+{
+	Write-Verbose 'HOTKEYS: Registering group hotkeys from config...'
+	
+	$config = $global:DashboardConfig.Config
+	if (-not $config.Contains('Hotkeys') -or -not $config.Contains('HotkeyGroups')) { return }
+
+	$hotkeys = $config['Hotkeys']
+	$groups = $config['HotkeyGroups']
+
+	foreach ($groupName in $hotkeys.Keys)
+	{
+		$keyCombo = $hotkeys[$groupName]
+		$memberString = $groups[$groupName]
+
+		if ([string]::IsNullOrWhiteSpace($keyCombo) -or $keyCombo -eq 'none' -or [string]::IsNullOrWhiteSpace($memberString))
+		{
+			continue
+		}
+
+		# Split members into an array for quick lookup
+		$memberList = $memberString -split ','
+		$ownerKey = "GroupHotkey_$groupName"
+
+		SetHotkey -KeyCombinationString $keyCombo -OwnerKey $ownerKey -Action ({
+				# This block runs when the hotkey is pressed
+				$targetMembers = $memberList
+				$grid = $global:DashboardConfig.UI.DataGridFiller
+				if (-not $grid) { return }
+
+				foreach ($row in $grid.Rows)
+				{
+					$identity = Get-RowIdentity -Row $row
+					if ($targetMembers -contains $identity)
+					{
+						if ($row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
+						{
+							$h = $row.Tag.MainWindowHandle
+							SetWindowToolStyle -hWnd $h -Hide $false
+							[Custom.Native]::BringToFront($h)
+							SetWindowToolStyle -hWnd $h -Hide $false
+						}
+					}
+				}
+			}.GetNewClosure())
+	}
+}
+
 
 function RegisterUIEventHandlers
 {
@@ -989,6 +1265,9 @@ function RegisterUIEventHandlers
 						}
 					}
 					SyncConfigToUI
+					RegisterStoredHotkeys
+					RefreshHotkeysList
+					
 				}
 
 				$script:initialControlProps = @{}
@@ -1020,6 +1299,7 @@ function RegisterUIEventHandlers
 			}
 			FormClosing = {
 				param($src, $e)
+				if (Get-Command RemoveAllHotkeys -ErrorAction SilentlyContinue) { RemoveAllHotkeys }
 				if (Get-Command StopDashboard -ErrorAction SilentlyContinue) { StopDashboard }
 			}
 			Resize      = {
@@ -1093,7 +1373,7 @@ function RegisterUIEventHandlers
 				$grid = $global:DashboardConfig.UI.DataGridFiller
 				if ($grid.Rows.Count -eq 0)
 				{
-					[System.Windows.Forms.MessageBox]::Show('The client list is empty.', 'Save State', 'OK', 'Information')
+					[Custom.DarkMessageBox]::Show("You can't save an empty list.", 'One-Click Setup', 'OK', 'Warning')
 					return
 				}
 
@@ -1181,9 +1461,9 @@ function RegisterUIEventHandlers
 
 				$sb.AppendLine('==============================')
 				$sb.AppendLine("Total: $($detailedStateList.Count) clients.")
-				$sb.Append("Use 'Launch -> Start and Login saved configuration' to restore.")
+				$sb.Append("Use 'Launch' -> 'Start and Login saved configuration' to restore the session.")
 
-				[System.Windows.Forms.MessageBox]::Show($sb.ToString(), 'Configuration Saved', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+				[Custom.DarkMessageBox]::Show($sb.ToString(), 'One-Click Setup Saved', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information, 'success')
 			}
 		}
 		LaunchContextMenu          = @{
@@ -1279,7 +1559,7 @@ function RegisterUIEventHandlers
 		}
 
 		SettingsForm               = @{
-			Load = { SyncConfigToUI }
+			Load = { SyncConfigToUI; RefreshHotkeysList }
 			Move = {
 				$sf = $global:DashboardConfig.UI.SettingsForm
 				$mf = $global:DashboardConfig.UI.MainForm
@@ -1291,12 +1571,14 @@ function RegisterUIEventHandlers
 				}
 			}
 		}
-		settingsTabs               = @{ MouseDown = { param($src, $e); [Custom.Native]::ReleaseCapture(); [Custom.Native]::SendMessage($global:DashboardConfig.UI.SettingsForm.Handle, 0xA1, 0x2, 0) } }
+		settingsTabs               = @{ 
+			MouseDown = { param($src, $e); [Custom.Native]::ReleaseCapture(); [Custom.Native]::SendMessage($global:DashboardConfig.UI.SettingsForm.Handle, 0xA1, 0x2, 0) } 
+		}
 
 		MinForm                    = @{ Click = { $global:DashboardConfig.UI.MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Minimized } }
 		CloseForm                  = @{ Click = { $global:DashboardConfig.UI.MainForm.Close() } }
 		TopBar                     = @{ MouseDown = { param($src, $e); [Custom.Native]::ReleaseCapture(); [Custom.Native]::SendMessage($global:DashboardConfig.UI.MainForm.Handle, 0xA1, 0x2, 0) } }
-		Settings                   = @{ Click = { ShowSettingsForm } }
+		Settings                   = @{ Click = { ShowSettingsForm; RefreshHotkeysList } }
 		Save                       = @{
 			Click = {
 				SyncUIToConfig
@@ -1336,12 +1618,12 @@ function RegisterUIEventHandlers
 
 				if ([string]::IsNullOrWhiteSpace($srcExe) -or -not (Test-Path $srcExe))
 				{
-					[System.Windows.Forms.MessageBox]::Show('Please select a valid Launcher executable first.', 'Error', 'OK', 'Error')
+					[Custom.DarkMessageBox]::Show("Please select a valid Launcher executable first with the first Browse button.`nYou must select the Main Launcher!", 'Wrong Launcher.exe', 'OK', 'Error')
 					return
 				}
 				if ([string]::IsNullOrWhiteSpace($baseParentDir))
 				{
-					[System.Windows.Forms.MessageBox]::Show('Please select a destination folder.', 'Error', 'OK', 'Error')
+					[Custom.DarkMessageBox]::Show('Please select a destination folder.', 'Error', 'OK', 'Error')
 					return
 				}
 
@@ -1371,7 +1653,7 @@ function RegisterUIEventHandlers
 					}
 					else
 					{
-						[System.Windows.Forms.MessageBox]::Show("The profile name '$userProvidedProfileName' already exists. Falling back to default naming scheme.", 'Name Exists', 'OK', 'Warning')
+						[Custom.DarkMessageBox]::Show("The profile name '$userProvidedProfileName' already exists. Using default naming scheme.", 'Profile already exists', 'OK', 'Warning')
 						$baseNameFallback = "${folderName}_Copy"
 						$counter = 1
 						$destDirFallback = Join-Path $baseParentDir $baseNameFallback
@@ -1400,7 +1682,7 @@ function RegisterUIEventHandlers
 
 				if ([string]::IsNullOrWhiteSpace($finalDestDir) -or [string]::IsNullOrWhiteSpace($finalProfileName))
 				{
-					[System.Windows.Forms.MessageBox]::Show('Failed to determine a valid profile name or destination directory.', 'Error', 'OK', 'Error')
+					[Custom.DarkMessageBox]::Show('Failed to determine a valid profile name or destination directory.', 'Error', 'OK', 'Error')
 					return
 				}
 
@@ -1410,13 +1692,13 @@ function RegisterUIEventHandlers
 					$destFull = $finalDestDir.TrimEnd('\')
 					if ($destFull -eq $sourceFull -or $destFull.StartsWith($sourceFull + '\', [StringComparison]::OrdinalIgnoreCase))
 					{
-						[System.Windows.Forms.MessageBox]::Show("The destination folder cannot be inside the source game folder.`nThis would create an endless copy loop.", 'Invalid Destination', 'OK', 'Error')
+						[Custom.DarkMessageBox]::Show("The destination folder cannot be inside the source game folder.`nThis would create an endless copy loop.`n`nEither use a valid folder outside the source or use the default path by deleting the path in the textbox.", 'Invalid Destination', 'OK', 'Error')
 						return
 					}
 				}
 				catch {}
 
-				$confirm = [System.Windows.Forms.MessageBox]::Show("This will create Junctions for 'Data' and 'Effect'. Also a copy of all other files from the $folderName directory to:`n$finalDestDir`n`nProceed?", 'Confirm Junction & Copy', 'YesNo', 'Question')
+				$confirm = [Custom.DarkMessageBox]::Show("This will create Junctions for the folders 'Data' and 'Effect'.`nAlso a copy of all other files from the $folderName directory to:`n$finalDestDir`n`nProceed?", 'Confirm Junction & Copy', 'YesNo', 'Question')
 
 				if ($confirm -eq 'Yes')
 				{
@@ -1453,15 +1735,16 @@ function RegisterUIEventHandlers
 						$global:DashboardConfig.UI.SettingsForm.Cursor = [System.Windows.Forms.Cursors]::Default
 
 						$global:DashboardConfig.UI.ProfileGrid.Rows.Add($finalProfileName, $finalDestDir) | Out-Null
-						[System.Windows.Forms.MessageBox]::Show("Junctions created and Profile '$finalProfileName' added successfully.`nPlease remember that 'neuz.exe' must be manually patched for each profile on new Flyff update.", 'Success', 'OK', 'Information')
+						[Custom.DarkMessageBox]::Show("Junctions created and Profile '$finalProfileName' added successfully.`nPlease remember that 'neuz.exe' must be manually patched for each profile on new Patches.", 'Profile Created', 'OK', 'Information', 'success')
 						SyncProfilesToConfig
 						RefreshLoginProfileSelector
+						WriteConfig
 
 					}
 					catch
 					{
 						$global:DashboardConfig.UI.SettingsForm.Cursor = [System.Windows.Forms.Cursors]::Default
-						[System.Windows.Forms.MessageBox]::Show("An error occurred:`n$($_.Exception.Message)`n`nNote: Creating Junctions may require running the Dashboard as Administrator.", 'Error', 'OK', 'Error')
+						[Custom.DarkMessageBox]::Show("An error occurred:`n$($_.Exception.Message)`n`nNote: Creating Junctions may require running the Dashboard as Administrator.`nBe sure you used the correct paths and have enough disk space.", 'Error', 'OK', 'Error')
 					}
 				}
 			}
@@ -1482,6 +1765,7 @@ function RegisterUIEventHandlers
 						$global:DashboardConfig.UI.ProfileGrid.Rows.Add($profName, $path) | Out-Null
 						SyncProfilesToConfig
 						RefreshLoginProfileSelector
+						WriteConfig
 					}
 				}
 			}
@@ -1513,7 +1797,7 @@ function RegisterUIEventHandlers
 				}
 				else
 				{
-					[System.Windows.Forms.MessageBox]::Show('Please select a profile to rename.', 'Rename Profile', 'OK', 'Warning')
+					[Custom.DarkMessageBox]::Show('Please select a profile first.', 'Select Profile', 'OK', 'Warning')
 				}
 			}
 		}
@@ -1524,7 +1808,7 @@ function RegisterUIEventHandlers
 				{
 					$profileName = $row.Cells[0].Value.ToString()
 					$profilePath = $row.Cells[1].Value.ToString()
-					$logDir = Join-Path $profilePath 'Log'
+					$null = $logDir; $logDir = Join-Path $profilePath 'Log'
 
 
 					if ($global:DashboardConfig.Config['LoginConfig'].Contains($profileName))
@@ -1544,11 +1828,11 @@ function RegisterUIEventHandlers
 				$rowsToDelete = $global:DashboardConfig.UI.ProfileGrid.SelectedRows | ForEach-Object { $_ }
 				if ($rowsToDelete.Count -eq 0)
 				{
-					[System.Windows.Forms.MessageBox]::Show('Please select a profile to delete.', 'Delete Profile', 'OK', 'Warning')
+					[Custom.DarkMessageBox]::Show('Please select a profile first.', 'Select Profile', 'OK', 'Warning')
 					return
 				}
 
-				$confirm = [System.Windows.Forms.MessageBox]::Show("Are you sure you want to PERMANENTLY DELETE the selected profile(s) from the hard drive?`n`nThis action cannot be undone.", 'Confirm Delete', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+				$confirm = [Custom.DarkMessageBox]::Show("Are you sure you want to PERMANENTLY DELETE the selected profile(s) from the hard drive?`n`nThis action cannot be undone.", 'Are You Sure?', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
 
 				if ($confirm -eq 'Yes')
 				{
@@ -1556,7 +1840,7 @@ function RegisterUIEventHandlers
 					{
 						$profileName = $row.Cells[0].Value.ToString()
 						$profilePath = $row.Cells[1].Value.ToString()
-						$logDir = Join-Path $profilePath 'Log'
+						$null = $logDir; $logDir = Join-Path $profilePath 'Log'
 
 						try
 						{
@@ -1566,7 +1850,7 @@ function RegisterUIEventHandlers
 						}
 						catch
 						{
-							[System.Windows.Forms.MessageBox]::Show("Failed to delete profile '$profileName' at '$profilePath'.`nError: $($_.Exception.Message)", 'Delete Error', 'OK', 'Error')
+							[Custom.DarkMessageBox]::Show("Failed to delete profile '$profileName' at '$profilePath'.`nError: $($_.Exception.Message)", 'Delete Error', 'OK', 'Error')
 						}
 					}
 					SyncProfilesToConfig
@@ -1661,12 +1945,147 @@ function RegisterUIEventHandlers
 				}
 			}
 		}
+		SetHotkey                  = @{
+			Click = {
+				$grid = $global:DashboardConfig.UI.DataGridFiller
+				$selectedRows = $grid.SelectedRows
+				if ($selectedRows.Count -eq 0) { return }
+
+				# 1. Identify selected members
+				$identities = @()
+				foreach ($row in $selectedRows)
+				{
+					$id = Get-RowIdentity -Row $row
+					if (-not [string]::IsNullOrEmpty($id)) { $identities += $id }
+				}
+
+				# 2. Ask for a Group Name (e.g., "Farmers", "Healers")
+				$defaultName = 'NewGroup'
+				if ($identities.Count -eq 1)
+				{
+					$defaultName = ($identities[0] -split ':')[0] 
+				}
+				
+				$groupName = ShowInputBox -Title 'Hotkey Group' -Prompt 'Enter a name for this selection group:' -DefaultText $defaultName
+				if ([string]::IsNullOrWhiteSpace($groupName)) { return }
+
+				# 3. Get Key Combination (Manual check since ?: is not used)
+				$currentKey = 'none'
+				if ($global:DashboardConfig.Config.Contains('Hotkeys'))
+				{
+					if ($global:DashboardConfig.Config['Hotkeys'].Contains($groupName))
+					{
+						$currentKey = $global:DashboardConfig.Config['Hotkeys'][$groupName]
+					}
+				}
+
+				$newKey = Show-KeyCaptureDialog -currentKey $currentKey
+				
+				# If user cancelled or didn't change anything, exit
+				if ($null -eq $newKey -or ($newKey -eq $currentKey -and $currentKey -ne 'none')) { return }
+
+				# 4. Save to Config Sections
+				if (-not $global:DashboardConfig.Config.Contains('Hotkeys'))
+				{ 
+					$global:DashboardConfig.Config['Hotkeys'] = [ordered]@{} 
+				}
+				if (-not $global:DashboardConfig.Config.Contains('HotkeyGroups'))
+				{ 
+					$global:DashboardConfig.Config['HotkeyGroups'] = [ordered]@{} 
+				}
+
+				$global:DashboardConfig.Config['Hotkeys'][$groupName] = $newKey
+				$global:DashboardConfig.Config['HotkeyGroups'][$groupName] = ($identities -join ',')
+
+				# Persist to config.ini
+				if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
+
+				# 5. Register/Update immediately
+				RegisterStoredHotkeys
+				RefreshHotkeysList
+				
+				[Custom.DarkMessageBox]::Show("Hotkey '$newKey' assigned as '$groupName' to:`n$($identities -join "`n")", 'Hotkeys Created', 'Ok', 'Information', 'success')
+			}
+		}
+		UnregisterHotkey           = @{
+			Click = {
+				$grid = $global:DashboardConfig.UI.HotkeysGrid
+				if (-not $grid) { return }
+				
+				$selectedRows = $grid.SelectedRows
+				if ($selectedRows.Count -eq 0) { return }
+
+				if ([Custom.DarkMessageBox]::Show("Are you sure you want to unregister and delete $($selectedRows.Count) hotkey(s)?", 'Confirm Unregister', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question) -ne 'Yes') { return }
+
+				foreach ($row in $selectedRows)
+				{
+					if ($row.Tag)
+					{
+						$id = $row.Tag.Id
+						$ownerKey = $row.Tag.OwnerKey
+						
+						if (Get-Command UnregisterHotkeyInstance -ErrorAction SilentlyContinue)
+						{
+							UnregisterHotkeyInstance -Id $id -OwnerKey $ownerKey
+						}
+						
+						if ($ownerKey -match '^GroupHotkey_(.+)')
+						{
+							$groupName = $Matches[1]
+							if ($global:DashboardConfig.Config.Contains('Hotkeys') -and $global:DashboardConfig.Config['Hotkeys'].Contains($groupName))
+							{
+								$global:DashboardConfig.Config['Hotkeys'].Remove($groupName)
+							}
+							if ($global:DashboardConfig.Config.Contains('HotkeyGroups') -and $global:DashboardConfig.Config['HotkeyGroups'].Contains($groupName))
+							{
+								$global:DashboardConfig.Config['HotkeyGroups'].Remove($groupName)
+							}
+						}
+						
+						if ($global:DashboardConfig.Resources.FtoolForms)
+						{
+							if ($ownerKey -match '^global_toggle_(.+)')
+							{
+								$instanceId = $Matches[1]
+								if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+								{
+									$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+									if ($form -and -not $form.IsDisposed)
+									{
+										$data = $form.Tag; $data.GlobalHotkey = $null; $data.GlobalHotkeyId = $null
+										if (Get-Command UpdateSettings -ErrorAction SilentlyContinue) { UpdateSettings $data -forceWrite }
+									}
+								}
+							}
+							elseif ($ownerKey -match '^ext_(.+)_\d+')
+							{
+								if ($global:DashboardConfig.Resources.ExtensionData.Contains($ownerKey))
+								{
+									$extData = $global:DashboardConfig.Resources.ExtensionData[$ownerKey]
+									$extData.Hotkey = $null; $extData.HotkeyId = $null; $extData.BtnHotKey.Text = 'Hotkey'
+									$form = $extData.Panel.FindForm()
+									if ($form -and $form.Tag) { if (Get-Command UpdateSettings -ErrorAction SilentlyContinue) { UpdateSettings $form.Tag $extData -forceWrite } }
+								}
+							}
+							elseif ($global:DashboardConfig.Resources.FtoolForms.Contains($ownerKey))
+							{
+								$form = $global:DashboardConfig.Resources.FtoolForms[$ownerKey]
+								if ($form -and -not $form.IsDisposed) { $data = $form.Tag; $data.Hotkey = $null; $data.HotkeyId = $null; $data.BtnHotKey.Text = 'Hotkey'; if (Get-Command UpdateSettings -ErrorAction SilentlyContinue) { UpdateSettings $data -forceWrite } }
+							}
+						}
+					}
+				}
+				if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
+				RefreshHotkeysList
+			}
+		}
+
 
 		Launch                     = @{
 			Click = {
 				if ($global:DashboardConfig.State.LaunchActive)
 				{
-					try { StopClientLaunch } catch { [System.Windows.Forms.MessageBox]::Show($_.Exception.Message) }
+					try { StopClientLaunch } catch { [Custom.DarkMessageBox]::Show($_.Exception.Message) }
 				}
 				else
 				{
@@ -1686,7 +2105,7 @@ function RegisterUIEventHandlers
 				{
 					$errorMessage = "Login action failed.`n`nCould not find or execute the 'LoginSelectedRow' function. The 'login.psm1' module may have failed to load correctly.`n`nTechnical Details: $($_.Exception.Message)"
 					try { ShowErrorDialog -Message $errorMessage }
-					catch { [System.Windows.Forms.MessageBox]::Show($errorMessage, 'Login Error', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) }
+					catch { [Custom.DarkMessageBox]::Show($errorMessage, 'Login Error', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) }
 				}
 			}
 		}
@@ -1697,11 +2116,11 @@ function RegisterUIEventHandlers
 				param($s, $e)
 				if ($e.Button -eq 'Left')
 				{
-					if ([System.Windows.Forms.MessageBox]::Show('Terminate selected?','Confirm',[System.Windows.Forms.MessageBoxButtons]::YesNo) -eq 'Yes') { $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { Stop-Process -Id $_.Tag.Id -Force -EA 0 } }
+					if ([Custom.DarkMessageBox]::Show('Are you sure you want to close the selected Clients?','Confirm',[System.Windows.Forms.MessageBoxButtons]::YesNo, 'Error') -eq 'Yes') { $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { Stop-Process -Id $_.Tag.Id -Force -EA 0 } }
 				}
 				elseif ($e.Button -eq 'Right')
 				{
-					if ([System.Windows.Forms.MessageBox]::Show('Destroy connections for selected?','Confirm',[System.Windows.Forms.MessageBoxButtons]::YesNo) -eq 'Yes')
+					if ([Custom.DarkMessageBox]::Show('Are you sure you want to disconnect the selected Clients?','Confirm',[System.Windows.Forms.MessageBoxButtons]::YesNo, 'Warning') -eq 'Yes')
 					{
 						$global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object {
 							$pidInt = $_.Tag.Id
@@ -1716,14 +2135,14 @@ function RegisterUIEventHandlers
 			}
 		}
 		CopyNeuz                   = @{ Click = {
-				$confirm = [System.Windows.Forms.MessageBox]::Show("This will copy neuz.exe from your main client's bin32 and bin64 folders to all your defined profiles. Profiles that use a custom or different neuz.exe might break. Proceed?", 'Confirm Neuz.exe Copy', 'YesNo', 'Warning')
+				$confirm = [Custom.DarkMessageBox]::Show("Do you want to copy the 'neuz.exe' from your main client's bin32 and bin64 folders to all your profiles.`nProfiles that were not created through junctions or have a different neuz.exe might break.`n`nThis action is only working if you patched your Main Launcher folder first!`nProcced?", 'Confirm Neuz.exe Copy', 'YesNo', 'Warning')
 
 				if ($confirm -eq 'Yes')
 				{
 					$mainLauncherPath = $global:DashboardConfig.UI.InputLauncher.Text
 					if ([string]::IsNullOrWhiteSpace($mainLauncherPath) -or -not (Test-Path $mainLauncherPath))
 					{
-						[System.Windows.Forms.MessageBox]::Show('Please select a valid Main Launcher Path first in the settings.', 'Error', 'OK', 'Error')
+						[Custom.DarkMessageBox]::Show('Please select a valid Main Launcher Path first.', 'Error', 'OK', 'Error')
 						return
 					}
 
@@ -1734,7 +2153,7 @@ function RegisterUIEventHandlers
 					$profiles = $global:DashboardConfig.Config['Profiles']
 					if (-not $profiles -or $profiles.Count -eq 0)
 					{
-						[System.Windows.Forms.MessageBox]::Show('No profiles defined. Please create or add profiles first.', 'Information', 'OK', 'Information')
+						[Custom.DarkMessageBox]::Show('No profiles found. Please create or add profiles first.', 'No Profiles found', 'OK', 'Information')
 						return
 					}
 
@@ -1777,11 +2196,11 @@ function RegisterUIEventHandlers
 
 					if ($failedCopies.Count -eq 0)
 					{
-						[System.Windows.Forms.MessageBox]::Show("Successfully copied neuz.exe to $copiedCount locations.", 'Success', 'OK', 'Information')
+						[Custom.DarkMessageBox]::Show("Successfully copied neuz.exe to $copiedCount locations.", 'Patch complete!', 'OK', 'Information', 'success')
 					}
 					else
 					{
-						[System.Windows.Forms.MessageBox]::Show("Copied neuz.exe to $($copiedCount - $failedCopies.Count) locations. Failed to copy to the following profiles:`n" + ($failedCopies -join "`n"), 'Partial Success/Error', 'OK', 'Warning')
+						[Custom.DarkMessageBox]::Show("Copied neuz.exe to $($copiedCount - $failedCopies.Count) locations.`n`nFailed to copy to the following profiles:`n" + ($failedCopies -join "`n"), 'Patch Error', 'OK', 'Warning')
 					}
 				}
 			}
@@ -1800,7 +2219,7 @@ function RegisterUIEventHandlers
 				param($s, $e)
 				$targetTxt = $s.Tag
 				$global:DashboardConfig.UI.SettingsForm.Visible = $false
-				[System.Windows.Forms.MessageBox]::Show("1. Focus client.`n2. Hover target.`n3. Wait 3s.`n`nClick OK and then click Client.", 'Picker')
+				[Custom.DarkMessageBox]::Show("1. Click on your client. It must be in focus!`n2. Hover with the mouse above the target button.`n3. Wait 3 seconds until the settings page opens again.`n`nClick OK to start the timer.", 'Set Profile Coordinates', 'Information')
 				Start-Sleep -Seconds 3
 				$cursorPos = [System.Windows.Forms.Cursor]::Position
 				$hWnd = [Custom.Native]::GetForegroundWindow()
@@ -1950,6 +2369,7 @@ function HideSettingsForm
 				$global:fadeOutTimer.Dispose()
 				$global:fadeOutTimer = $null
 				$global:DashboardConfig.UI.SettingsForm.Hide()
+				$global:DashboardConfig.UI.MainForm.Show()
 			}
 		})
 	$global:fadeOutTimer.Start()
@@ -1995,7 +2415,7 @@ function SetUIElement
 		'Panel' { New-Object System.Windows.Forms.Panel }
 		'Button' { New-Object System.Windows.Forms.Button }
 		'Label' { New-Object System.Windows.Forms.Label }
-		'DataGridView' { New-Object System.Windows.Forms.DataGridView }
+		'DataGridView' { New-Object Custom.DarkDataGridView }
 		'TextBox' { New-Object System.Windows.Forms.TextBox }
 		'ComboBox' { New-Object System.Windows.Forms.ComboBox }
 		'Custom.DarkComboBox' { New-Object Custom.DarkComboBox }
@@ -2022,6 +2442,7 @@ function SetUIElement
 		$el.CellBorderStyle = 'SingleHorizontal'
 		$el.ColumnHeadersBorderStyle = 'Single'
 		$el.EditMode = 'EditProgrammatically'
+		$el.ShowCellToolTips = $true
 		$el.ColumnHeadersHeightSizeMode = 'DisableResizing'
 		$el.RowHeadersWidthSizeMode = 'DisableResizing'
 		$el.DefaultCellStyle.Alignment = 'MiddleCenter'

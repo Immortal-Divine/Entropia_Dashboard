@@ -208,10 +208,14 @@ $global:DashboardConfig = @{
 		'MaxClients'        = [ordered]@{ 'MaxClients' = '1' }
 		'Login'             = [ordered]@{ 'NeverRestartingCollectorLogin' = '0' }
 		'Ftool'             = [ordered]@{}
-		'Options'           = [ordered]@{}
+		'Profiles'          = [ordered]@{}
+		'Options'           = [ordered]@{ 'SelectedProfile' = '' }
+		'HideProfiles'      = [ordered]@{}
 		'Paths'             = [ordered]@{ 'JunctionTarget' = (Join-Path $env:APPDATA 'Entropia_Dashboard\Profiles') }
 		'ReconnectProfiles' = [ordered]@{} 
 		'LoginConfig'       = [ordered]@{ 'PostLoginDelay' = '0'; 'Server1Coords' = '0,0'; 'Server2Coords' = '0,0'; 'Channel1Coords' = '0,0'; 'Channel2Coords' = '0,0'; 'FirstNickCoords' = '0,0'; 'ScrollDownCoords' = '0,0'; 'Char1Coords' = '0,0'; 'Char2Coords' = '0,0'; 'Char3Coords' = '0,0'; 'CollectorStartCoords' = '0,0'; 'DisconnectOKCoords' = '0,0'; 'LoginDetailsOKCoords' = '0,0' }
+		'Hotkeys'           = [ordered]@{}
+		'HotkeyGroups'      = [ordered]@{}
 	}
 	Config           = [ordered]@{}
 	ConfigWriteTimer = @{}
@@ -242,6 +246,13 @@ AAABAAEAICAAAAEAIACoEAAAFgAAACgAAAAgAAAAQAAAAAEAIAAAAAAAABAAACMuAAAjLgAAAAAAAAAA
 	'ini.psm1'             = @{ 
 		Priority = 'Critical'; Order = 4; Dependencies = @('classes.psm1') 
 		FilePath = (Join-Path $global:DashboardConfig.Paths.Source 'ini.psm1') 
+		Base64Content = '
+
+			'
+	}
+	'hotkeys.psm1'         = @{ 
+		Priority = 'Important'; Order = 5; Dependencies = @('ftool.dll', 'classes.psm1', 'ini.psm1') 
+		FilePath = (Join-Path $global:DashboardConfig.Paths.Source 'hotkeys.psm1') 
 		Base64Content = '
 
 			'
@@ -319,7 +330,14 @@ function ShowErrorDialog
 		{
 			InitializeClassesModule
 		}
-		[System.Windows.Forms.MessageBox]::Show($Message, 'Entropia Dashboard Error', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+		if ('Custom.DarkMessageBox' -as [Type])
+		{
+			[Custom.DarkMessageBox]::Show($Message, 'Entropia Dashboard Error', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+		}
+		else
+		{
+			[System.Windows.Forms.MessageBox]::Show($Message, 'Entropia Dashboard Error', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+		}
 	}
  catch
 	{
@@ -1381,6 +1399,10 @@ function Import-DashboardModules
 								{ 
 									$keyFunctionsToCapture = @('CopyOrderedDictionary','GetIniFileContent','LoadDefaultConfigOnError','InitializeIniConfig','ReadConfig','WriteConfig') 
 								}
+								elseif ($moduleFileName -in @('hotkeys.psm1', 'hotkeys'))
+								{ 
+									$keyFunctionsToCapture = @() 
+								}
 								elseif ($moduleFileName -in @('ui.psm1', 'ui'))
 								{ 
 									$keyFunctionsToCapture = @('InitializeUI','RegisterUIEventHandlers','ShowSettingsForm','HideSettingsForm','SetUIElement','SyncConfigToUI','SyncUIToConfig','ShowInputBox','RefreshLoginProfileSelector','SyncProfilesToConfig') 
@@ -1511,6 +1533,10 @@ function Import-DashboardModules
 						if ($moduleFileName -in @('ini.psm1', 'ini'))
 						{ 
 							$keyFunctionsToCapture = @('CopyOrderedDictionary','GetIniFileContent','LoadDefaultConfigOnError','InitializeIniConfig','ReadConfig','WriteConfig') 
+						}
+						elseif ($moduleFileName -in @('hotkeys.psm1', 'hotkeys'))
+						{ 
+							$keyFunctionsToCapture = @() 
 						}
 						elseif ($moduleFileName -in @('ui.psm1', 'ui'))
 						{ 
@@ -2381,6 +2407,48 @@ function StopDashboard
 
 #endregion UI and Application Lifecycle Functions
 
+#region Hotkey Registration
+function RegisterWindowHotkeys
+{
+	[CmdletBinding()]
+	param()
+
+	Write-Verbose 'Registering window hotkeys from configuration...'
+	if (-not (Get-Command SetHotkey -ErrorAction SilentlyContinue))
+	{
+		Write-Verbose '  SetHotkey command not found. Skipping hotkey registration.'
+		return
+	}
+
+	$hotkeyConfig = $global:DashboardConfig.Config['Hotkeys']
+	if (-not $hotkeyConfig -or $hotkeyConfig.Count -eq 0)
+	{
+		Write-Verbose '  No window hotkeys found in configuration.'
+		return
+	}
+
+	foreach ($entry in $hotkeyConfig.GetEnumerator())
+	{
+		$windowTitle = $entry.Key
+		$keyCombination = $entry.Value
+
+		if ([string]::IsNullOrWhiteSpace($windowTitle) -or [string]::IsNullOrWhiteSpace($keyCombination))
+		{
+			continue
+		}
+
+		try
+		{
+			$actionScript = "[Custom.Native]::BringToFront((Get-Process | Where-Object { `$_.MainWindowTitle -eq '$($windowTitle.Replace("'", "''"))' } | Select-Object -First 1).MainWindowHandle)"
+			$action = [scriptblock]::Create($actionScript)
+			SetHotkey -KeyCombinationString $keyCombination -Action $action -OwnerKey $windowTitle
+			Write-Verbose "  Registered hotkey '$keyCombination' for window '$windowTitle'."
+		}
+		catch { Write-Verbose "  Failed to register hotkey '$keyCombination' for window '$windowTitle'. Error: $($_.Exception.Message)" -ForegroundColor Yellow }
+	}
+}
+#endregion
+
 #region Main Execution Block
 
 
@@ -2407,6 +2475,9 @@ Write-Verbose '=== Initializing Entropia Dashboard ==='
 Write-Verbose "=== Timestamp: $TS ===" 
 Write-Verbose '=========================================' 
 
+Add-Type -AssemblyName System.Windows.Forms
+try { [System.Windows.Forms.Application]::EnableVisualStyles() } catch {}
+try { [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false) } catch {}
 
 try
 {
@@ -2563,8 +2634,8 @@ try
 							
 							$promptMsg = "A newer version ($remoteVersion) of Entropia Dashboard is available.`nYou have $localVersion.$changelogDisplay`n`nPress 'Yes' to download the update and restart automatically.`nPress 'No' to continue without updating."
 							$caption = 'Entropia Dashboard - Update Available'
-								
-							$resp = [System.Windows.Forms.MessageBox]::Show($promptMsg, $caption, [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Information)
+							
+							$resp = [Custom.DarkMessageBox]::Show($promptMsg, $caption, [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Information)
 								
 							if ($resp -eq [System.Windows.Forms.DialogResult]::Yes)
 							{
@@ -2591,7 +2662,7 @@ try
 								{
 									$errMsg = "Failed to download update. Please download manually from GitHub.`nError: $($_.Exception.Message)"
 									Write-Verbose "  $errMsg" 
-									[System.Windows.Forms.MessageBox]::Show($errMsg, 'Update Failed', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+									[Custom.DarkMessageBox]::Show($errMsg, 'Update Failed', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
 									
 									Start-Process 'https://github.com/Immortal-Divine/Entropia_Dashboard'
 									return 
@@ -2619,8 +2690,7 @@ start "" "$executablePath"
 del "%~f0"
 "@
 								Set-Content -Path $batchPath -Value $batchContent -Encoding ASCII
-
-								
+								[Custom.DarkMessageBox]::Show("Update successfully downloaded!`nRestarting now." , 'Update Complete', [System.Windows.Forms.MessageBoxButtons]::Ok, [System.Windows.Forms.MessageBoxIcon]::Information, 'success')
 								Write-Verbose '  Starting updater script and exiting...' 
 								& $updateSplash 'Restarting to apply update' 40
 								Start-Process -FilePath $batchPath -WindowStyle Hidden
@@ -2677,8 +2747,14 @@ del "%~f0"
 	else { Write-Verbose 'InitializeIniConfig not found. Skipping INI load.'  }
         
 	
+	Write-Verbose '--- Step 4.5: Registering Window Hotkeys ---' 
+	& $updateSplash 'Registering hotkeys' 80
+	RegisterWindowHotkeys
+	if (Get-Command RegisterStoredHotkeys -ErrorAction SilentlyContinue) { RegisterStoredHotkeys }
+        
+	
 	Write-Verbose '--- Step 5: Starting Dashboard UI ---' 
-	& $updateSplash 'Building main user interface' 90
+	& $updateSplash 'Building user interface' 90
 	if (-not (StartDashboard)) { throw 'StartDashboard returned failure. Cannot continue.' }
 	Write-Verbose '[OK] Dashboard UI started.' 
 	if (Get-Command StartDataGridUpdateTimer -ErrorAction SilentlyContinue)

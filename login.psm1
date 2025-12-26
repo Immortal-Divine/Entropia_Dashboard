@@ -7,6 +7,7 @@ $global:LoginCancellation = [hashtable]::Synchronized(@{
 		ScriptInitiatedMove = $false
 	})
 $TOTAL_STEPS_PER_CLIENT = 15
+$script:LastToastUpdateTime = $null
 
 if (-not $global:LoginResources)
 {
@@ -40,9 +41,6 @@ if (-not ('System.Windows.Forms.Form' -as [Type]))
 	try { InitializeClassesModule } catch { Write-Verbose "LOGIN: InitializeClassesModule failed: $($_.Exception.Message)" }
 }
 #endregion
-
-
-$script:LastToastUpdateTime = $null
 
 #region Helper Functions
 
@@ -157,7 +155,7 @@ function LoginSelectedRow
 
 	try 
 	{
-		$rowsToProcess = @()
+		$null = $rowsToProcess; $rowsToProcess = @()
 		$rawSelection = @()
 
 		if ($RowInput)
@@ -451,7 +449,7 @@ function LoginSelectedRow
 				catch {}
 			}
 
-			function Ensure-WindowState
+			function EnsureWindowState
 			{
 				$hWnd = $Global:CurrentActiveWindowHandle
 				if ($hWnd -eq [IntPtr]::Zero) { return }
@@ -550,7 +548,7 @@ function LoginSelectedRow
 				param([int]$X, [int]$Y)
 				CheckCancel; EnsureWindowResponsive; CheckCancel
                 
-				Ensure-WindowState
+				EnsureWindowState
 
 				$CancellationContext.ScriptInitiatedMove = $true
 				try
@@ -564,7 +562,7 @@ function LoginSelectedRow
 				catch { Write-Verbose "Mouse click failed: $_" } finally
 				{ 
 					Start-Sleep -Milliseconds 50; $CancellationContext.ScriptInitiatedMove = $false; CheckCancel 
-					Ensure-WindowState
+					EnsureWindowState
 				}
 			}
 
@@ -573,7 +571,7 @@ function LoginSelectedRow
 				param([int]$VirtualKeyCode)
 				CheckCancel; EnsureWindowResponsive; CheckCancel
                 
-				Ensure-WindowState
+				EnsureWindowState
 
 				try
 				{
@@ -584,7 +582,7 @@ function LoginSelectedRow
 				}
 				catch { if ($_.Exception.Message -eq 'LoginCancelled') { throw }; throw "KeyPress Failed: $($_.Exception.Message)" }
                 
-				Ensure-WindowState
+				EnsureWindowState
 			}
 
 			function Set-WindowForeground
@@ -636,8 +634,8 @@ function LoginSelectedRow
 				if ($Config['WorldLoadLogThreshold']) { $threshold = [int]$Config['WorldLoadLogThreshold'] }
 				if ($Config['WorldLoadLogEntry']) { $searchStr = $Config['WorldLoadLogEntry'] }
 				$foundCount = 0; $timeout = New-TimeSpan -Minutes 2; $sw = [System.Diagnostics.Stopwatch]::StartNew()
-				$pct = 0; if ($TotalSteps -gt 0) { $pct = [int](($CurrentStep / $TotalSteps) * 100) }
-				$currentStep++; Report-LoginProgress -Action 'Waiting for World Load...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+				$null = $pct; $pct = 0; if ($TotalSteps -gt 0) { $pct = [int](($CurrentStep / $TotalSteps) * 100) }
+				$currentStep++; ReportLoginProgress -Action 'Waiting for World Load...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 				while ($foundCount -lt $threshold)
 				{
 					if ($sw.Elapsed -gt $timeout) { throw 'World load timeout' }
@@ -684,7 +682,7 @@ function LoginSelectedRow
 				}
 			}
 
-			function Report-LoginProgress
+			function ReportLoginProgress
 			{
 				param($Action, $Step, $TotalSteps, $ClientIdx, $ClientCount, $EntryNum, $ProfileName)
 				$pct = 0; if ($TotalSteps -gt 0) { $pct = [int](($Step / $TotalSteps) * 100) }
@@ -719,7 +717,7 @@ function LoginSelectedRow
 					$stepBase = ($currentClientIndex - 1) * $TotalStepsPerClient
 					$currentStep = $stepBase
 
-					$currentStep++; Report-LoginProgress -Action 'Starting Login Process...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+					$currentStep++; ReportLoginProgress -Action 'Starting Login Process...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
                 
 					
 					Wait-ForDashboardClientReady -ProcessId $processId
@@ -739,8 +737,8 @@ function LoginSelectedRow
 					Write-LogWithRetry -FilePath $logPath -Value ''
 					$workingHwnd = if ($explicitHandle -ne [IntPtr]::Zero) { $explicitHandle } else { $process.MainWindowHandle }
 					$Global:CurrentActiveWindowHandle = $workingHwnd
-					$currentStep++; Report-LoginProgress -Action 'Getting Client ready...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-					Ensure-WindowState
+					$currentStep++; ReportLoginProgress -Action 'Getting Client ready...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+					EnsureWindowState
 
 					CheckCancel; EnsureWindowResponsive; CheckCancel; SleepWithCancel -Milliseconds 50
 
@@ -762,7 +760,7 @@ function LoginSelectedRow
 						$CancellationContext.ScriptInitiatedMove = $false
 					}
 
-					$currentStep++; Report-LoginProgress -Action "Log into Account $($entryNumber)..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+					$currentStep++; ReportLoginProgress -Action "Log into Account $($entryNumber)..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 
 					$firstNickCoords = ParseCoordinates $config['FirstNickCoords']
 					$scrollDownCoords = ParseCoordinates $config['ScrollDownCoords']
@@ -820,7 +818,7 @@ function LoginSelectedRow
 						$coords = ParseCoordinates $config["Server${serverID}Coords"]
 						if ($coords)
 						{
-							$currentStep++; Report-LoginProgress -Action "Selecting Server $serverID..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+							$currentStep++; ReportLoginProgress -Action "Selecting Server $serverID..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
 							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
 							SleepWithCancel -Milliseconds 50
@@ -834,14 +832,14 @@ function LoginSelectedRow
 						$coords = ParseCoordinates $config["Channel${channelID}Coords"]
 						if ($coords)
 						{
-							$currentStep++; Report-LoginProgress -Action "Selecting Channel $channelID..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+							$currentStep++; ReportLoginProgress -Action "Selecting Channel $channelID..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
 							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
 							SleepWithCancel -Milliseconds 50
 						}
 					}
 					SleepWithCancel -Milliseconds 50; CheckCancel; EnsureWindowResponsive; CheckCancel
-					$currentStep++; Report-LoginProgress -Action 'Entering Character Selection...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+					$currentStep++; ReportLoginProgress -Action 'Entering Character Selection...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 					Invoke-KeyPress -VirtualKeyCode 0x0D
 
 					$currentStep++
@@ -855,7 +853,7 @@ function LoginSelectedRow
 						$coords = ParseCoordinates $config["Char${charSlot}Coords"]
 						if ($coords)
 						{
-							$currentStep++; Report-LoginProgress -Action "Selecting Character in Slot $charSlot" -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+							$currentStep++; ReportLoginProgress -Action "Selecting Character in Slot $charSlot" -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
 							SleepWithCancel -Milliseconds 50
 						}
@@ -871,7 +869,7 @@ function LoginSelectedRow
 					CheckCancel; EnsureWindowResponsive; CheckCancel
                 
 					$delay = if ($config['PostLoginDelay']) { [int]$config['PostLoginDelay'] } else { 1 }
-					$currentStep++; Report-LoginProgress -Action "Post Login Delay ($delay s)" -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+					$currentStep++; ReportLoginProgress -Action "Post Login Delay ($delay s)" -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 					SleepWithCancel -Milliseconds ($delay * 1000)
 					CheckCancel; EnsureWindowResponsive; CheckCancel
 
@@ -881,17 +879,17 @@ function LoginSelectedRow
 						$coords = ParseCoordinates $config['CollectorStartCoords']
 						if ($coords)
 						{
-							$currentStep++; Report-LoginProgress -Action 'Starting Collector...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+							$currentStep++; ReportLoginProgress -Action 'Starting Collector...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
 							SleepWithCancel -Milliseconds 1000
 						}
 					}
 
-					$currentStep++; Report-LoginProgress -Action 'Minimizing...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+					$currentStep++; ReportLoginProgress -Action 'Minimizing...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 					[Custom.Native]::SendMessage($workingHwnd, 0x0112, 0xF020, 0)
-					$currentStep++; Report-LoginProgress -Action 'Optimizing...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+					$currentStep++; ReportLoginProgress -Action 'Optimizing...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 					[Custom.Native]::EmptyWorkingSet($process.Handle)
-					$currentStep++; Report-LoginProgress -Action 'Finished...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+					$currentStep++; ReportLoginProgress -Action 'Finished...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 
 				}
 			}

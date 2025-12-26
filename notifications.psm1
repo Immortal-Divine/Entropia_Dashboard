@@ -104,7 +104,6 @@ function ShowToast
 			if ($pnl)
 			{
 				$msgLabel = $null
-				$hasCloseBtn = $false
 				foreach ($ctrl in $pnl.Controls)
 				{
 					if ($ctrl -is [System.Windows.Forms.Label])
@@ -375,7 +374,7 @@ function ShowInteractiveNotification
 		$totalWidth = 300 
 		$margin = 3
 		$totalButtonWidth = $totalWidth
-		if ($nonFullWidthCount > 1) { $totalButtonWidth = $totalWidth - ($margin * ($nonFullWidthCount - 1)) }
+		if ($nonFullWidthCount -gt 1) { $totalButtonWidth = $totalWidth - ($margin * ($nonFullWidthCount - 1)) }
 		$baseWidth = if ($nonFullWidthCount -gt 0) { [math]::Floor($totalButtonWidth / $nonFullWidthCount) } else { 0 }
 		$remainder = if ($nonFullWidthCount -gt 0) { $totalButtonWidth % $nonFullWidthCount } else { 0 }
 
@@ -427,7 +426,7 @@ function ShowInteractiveNotification
 				}
 
 				
-				$localAction = $action
+				$null = $localAction; $localAction = $action
 
 				
 				$btn.Add_Click({ param($s,$e) try

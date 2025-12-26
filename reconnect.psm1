@@ -7,7 +7,7 @@ if (-not $global:DashboardConfig)
 	$global:DashboardConfig = @{
 		Settings = @{ Paths = @{ GameLogFile = $null } }
 		State    = @{}
-		Config   = @{ Profiles = @{}; Options = @{ AutoReconnect = '0' } }
+		Config   = @{ Profiles = @{} }
 	}
 }
 
@@ -127,7 +127,7 @@ function EnsureWindowResponsive
 	try { $proc.WaitForInputIdle(20) | Out-Null } catch {}
 }
 
-function Ensure-WindowState
+function EnsureWindowState
 {
 	$hWnd = $Global:CurrentActiveWindowHandle
 	if ($hWnd -eq [IntPtr]::Zero) { return }
@@ -226,7 +226,7 @@ function Invoke-MouseClick
 	param([int]$X, [int]$Y)
 	CheckCancel; EnsureWindowResponsive; CheckCancel
                 
-	Ensure-WindowState
+	EnsureWindowState
 
 	$CancellationContext.ScriptInitiatedMove = $true
 	try
@@ -240,7 +240,7 @@ function Invoke-MouseClick
  catch { Write-Verbose "Mouse click failed: $_" } finally
 	{ 
 		Start-Sleep -Milliseconds 50; $CancellationContext.ScriptInitiatedMove = $false; CheckCancel 
-		Ensure-WindowState
+		EnsureWindowState
 	}
 }
 
@@ -249,7 +249,7 @@ function Invoke-KeyPress
 	param([int]$VirtualKeyCode)
 	CheckCancel; EnsureWindowResponsive; CheckCancel
                 
-	Ensure-WindowState
+	EnsureWindowState
 
 	try
 	{
@@ -260,7 +260,7 @@ function Invoke-KeyPress
 	}
  catch { if ($_.Exception.Message -eq 'LoginCancelled') { throw }; throw "KeyPress Failed: $($_.Exception.Message)" }
                 
-	Ensure-WindowState
+	EnsureWindowState
 }
 
 function ParseCoordinates
@@ -301,8 +301,8 @@ function Wait-UntilWorldLoaded
 	if ($Config['WorldLoadLogThreshold']) { $threshold = [int]$Config['WorldLoadLogThreshold'] }
 	if ($Config['WorldLoadLogEntry']) { $searchStr = $Config['WorldLoadLogEntry'] }
 	$foundCount = 0; $timeout = New-TimeSpan -Minutes 2; $sw = [System.Diagnostics.Stopwatch]::StartNew()
-	$pct = [int](($CurrentStep / $TotalSteps) * 100)
-	$currentStep++; Report-LoginProgress -Action 'Waiting for World Load...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+	$null = $pct; $pct = [int](($CurrentStep / $TotalSteps) * 100)
+	$currentStep++; ReportLoginProgress -Action 'Waiting for World Load...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 	while ($foundCount -lt $threshold)
 	{
 		if ($sw.Elapsed -gt $timeout) { throw 'World load timeout' }
@@ -327,7 +327,7 @@ function Write-LogWithRetry
 	for ($i = 0; $i -lt 5; $i++) { try { Set-Content -Path $FilePath -Value $Value -Force -ErrorAction Stop; return } catch { Start-Sleep -Milliseconds 50 } }
 }
 
-function Report-LoginProgress
+function ReportLoginProgress
 {
 	param($Action, $Step, $TotalSteps, $ClientIdx, $ClientCount, $EntryNum, $ProfileName)
 	$pct = [int](($Step / $TotalSteps) * 100)
@@ -397,7 +397,7 @@ function StartDisconnectWatcher
 								$profileName = [string]$row.Cells[1].Value
 								$pName = 'Default'; $wTitle = $profileName
 								if ($profileName -match '^\[(.*?)\](.*)') { $pName = $matches[1]; $wTitle = $matches[2] }
-								$launcherPath = if ($global:DashboardConfig.Config['LauncherPath'] -and $global:DashboardConfig.Config['LauncherPath']['LauncherPath']) { $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] } else { '' }
+								$null = $launcherPath; $launcherPath = if ($global:DashboardConfig.Config['LauncherPath'] -and $global:DashboardConfig.Config['LauncherPath']['LauncherPath']) { $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] } else { '' }
 									
 								$isProfileAutoReconnect = $false
 								$rp = $global:DashboardConfig.Config['ReconnectProfiles']
@@ -457,12 +457,6 @@ function StartDisconnectWatcher
 				$WasInGame = $global:DashboardConfig.State.WasInGamePids
 				$Flashing = $global:DashboardConfig.State.FlashingPids
 				$Cooldowns = $global:DashboardConfig.State.PidCooldowns
-
-				$globalAutoSetting = $false
-				if ($global:DashboardConfig.Config['Options'] -and $global:DashboardConfig.Config['Options']['AutoReconnect'])
-				{
-					if ("$($global:DashboardConfig.Config['Options']['AutoReconnect'])" -match '1|true') { $globalAutoSetting = $true }
-				}
 
 				foreach ($row in $global:DashboardConfig.UI.DataGridFiller.Rows)
 				{
@@ -553,11 +547,6 @@ function StartDisconnectWatcher
 							}
 						}
 
-						if (-not $rp -and $globalAutoSetting)
-						{
-							$isProfileAutoReconnect = $true
-						}
-
 						$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
 						$details = "Profile: $pName | Title: $wTitle`nPID: $pidInt | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $(Get-Date -Format 'HH:mm:ss')"
 
@@ -645,7 +634,7 @@ function StartDisconnectWatcher
 								$profileName = [string]$row.Cells[1].Value
 								$pName = 'Default'; $wTitle = $profileName
 								if ($profileName -match '^\[(.*?)\](.*)') { $pName = $matches[1]; $wTitle = $matches[2] }
-								$launcherPath = if ($global:DashboardConfig.Config['LauncherPath'] -and $global:DashboardConfig.Config['LauncherPath']['LauncherPath']) { $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] } else { '' }
+								$null = $launcherPath; $launcherPath = if ($global:DashboardConfig.Config['LauncherPath'] -and $global:DashboardConfig.Config['LauncherPath']['LauncherPath']) { $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] } else { '' }
                                 
 								$isProfileAutoReconnect = $false
 								$rp = $global:DashboardConfig.Config['ReconnectProfiles']
