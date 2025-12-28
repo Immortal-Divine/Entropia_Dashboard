@@ -50,7 +50,7 @@ function StartClientLaunch
 
 	if ($global:DashboardConfig.State.LaunchActive -and -not $FromSequence)
 	{
-		[Custom.DarkMessageBox]::Show('Launch operation already in progress', 'Launch', 'Ok', 'Information')
+		Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'Launch operation already in progress' 'Launch' 'Ok' 'Information'
 		return
 	}
 
@@ -242,7 +242,6 @@ function StartClientLaunch
 			param($Action, $Step, $TotalSteps)
 			$pct = [int](($Step / $TotalSteps) * 100)
 			$msg = "Total: $pct% | $Action"
-			Write-Progress -Activity 'Launch' -Status $msg -PercentComplete $pct
 			Write-Verbose -Message $msg
 			Write-Information -MessageData @{ Text = $msg; Percent = $pct } -Tags 'LaunchStatus'
 		}
@@ -265,11 +264,6 @@ function StartClientLaunch
 			CheckCancel
 			Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 
-			if (-not ('Custom.ColorWriter' -as [Type]))
-			{
-				InitializeClassesModule
-			}
-
 			function Write-Verbose
 			{
 				[CmdletBinding()]
@@ -282,14 +276,7 @@ function StartClientLaunch
 				$prefix = " | $dateStr - $paddedCaller - "
 				$finalMsg = "$prefix$Message"
 
-				if ('Custom.ColorWriter' -as [Type])
-				{
-					[Custom.ColorWriter]::WriteColored($finalMsg, $ForegroundColor)
-				}
-				else
-				{
-					Write-Host $finalMsg -ForegroundColor $ForegroundColor
-				}
+				Write-Host $finalMsg -ForegroundColor $ForegroundColor
 			}
 
 			$launcherDir = [System.IO.Path]::GetDirectoryName($LauncherPath)
@@ -660,12 +647,12 @@ function InvokeSavedLaunchSequence
 
 	if (-not $global:DashboardConfig.Config['SavedLaunchConfig'] -or $global:DashboardConfig.Config['SavedLaunchConfig'].Count -eq 0)
 	{
-		[Custom.DarkMessageBox]::Show("No saved configuration found.`nPlease setup your clients first and create a One-Click Setup!", 'One-Click Setup', 'OK', 'Warning')
+		Show-DarkMessageBox $global:DashboardConfig.UI.MainForm "No saved configuration found.`nPlease setup your clients first and create a One-Click Setup!" 'One-Click Setup' 'OK' 'Warning' 
 		return
 	}
 	if ($global:DashboardConfig.State.LaunchActive)
 	{
-		[Custom.DarkMessageBox]::Show('Launch operation already in progress', 'One-Click Setup', 'Ok', 'Information')
+		Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'Launch operation already in progress' 'One-Click Setup' 'Ok' 'Information'
 		return
 	}
 
@@ -753,7 +740,7 @@ function InvokeSavedLaunchSequence
 	if ($launchQueue.Count -eq 0)
 	{
 		Write-Verbose 'LAUNCH SEQUENCE: State matches saved config. No action.'
-		[Custom.DarkMessageBox]::Show('All clients already match the saved configuration.', 'One-Click Setup', 'OK', 'Information')
+		Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'All clients already match the saved configuration.' 'One-Click Setup' 'OK' 'Information'
 		$global:DashboardConfig.State.LaunchActive = $false
 		$global:DashboardConfig.State.SequenceActive = $false
 		return
@@ -1099,9 +1086,22 @@ function StopClientLaunch
 				}
 			}
 		}
+		$localRes = $global:LaunchResources.Clone()
 
-		
-		DisposeManagedRunspace -JobResource $global:LaunchResources
+		[System.Threading.Tasks.Task]::Run([Action]{
+			try
+			{
+				$ps = $localRes.PowerShellInstance; $rs = $localRes.Runspace; $ar = $localRes.AsyncResult
+				if ($ps)
+				{
+					try { if ($ps.InvocationStateInfo.State -eq 'Running') { $ps.Stop() } } catch {}
+					if ($ar) { try { $ps.EndInvoke($ar) } catch {} }
+					try { $ps.Dispose() } catch {}
+				}
+				if ($rs) { try { $rs.Dispose() } catch {} }
+			} catch {}
+		}) | Out-Null
+
 		if ($global:DashboardConfig.Resources.Timers.Contains('launchSafetyTimer'))
 		{
 			try

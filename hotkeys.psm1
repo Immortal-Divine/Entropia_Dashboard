@@ -1,7 +1,5 @@
 <# hotkeys.psm1 #>
 
-if (-not ('Custom.HotkeyManager' -as [Type])) { try { InitializeClassesModule } catch { Write-Verbose "HOTKEYS: InitializeClassesModule failed: $($_.Exception.Message)" } }
-
 if (-not $global:RegisteredHotkeys) { $global:RegisteredHotkeys = @{} }
 if (-not $global:RegisteredHotkeyByString) { $global:RegisteredHotkeyByString = @{} }
 if (-not $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys = @{} }
@@ -1150,282 +1148,298 @@ function IsModifierKeyCode
 
 function Show-KeyCaptureDialog
 {
-	param(
-		[string]$currentKey = '' 
-	)
-	try
-	{
-		PauseAllHotkeys
-		$script:KeyCapture_PausedSnapshot = @()
-		if ($global:PausedRegisteredHotkeys) { $script:KeyCapture_PausedSnapshot = @($global:PausedRegisteredHotkeys.Keys) }
-	}
-	catch
-	{
-		Write-Verbose ('HOTKEYS: Pause-AllHotkeys failed: {0}' -f $_.Exception.Message)
-	}
+    param(
+        [string]$currentKey = '',
+        [System.Windows.Forms.IWin32Window]$Owner = $null,
+        [System.Windows.Forms.Form]$OwnerForm
+    )
+    try
+    {
+        PauseAllHotkeys
+        $script:KeyCapture_PausedSnapshot = @()
+        if ($global:PausedRegisteredHotkeys) { $script:KeyCapture_PausedSnapshot = @($global:PausedRegisteredHotkeys.Keys) }
+    }
+    catch
+    {
+        Write-Verbose ('HOTKEYS: Pause-AllHotkeys failed: {0}' -f $_.Exception.Message)
+    }
 
-	$script:capturedModifierKeys = @()
-	$script:capturedPrimaryKey = $null
-
-   
-	if (-not [string]::IsNullOrEmpty($currentKey) -and $currentKey -ne 'Hotkey' -and $currentKey -ne 'none')
-	{
-		$parts = $currentKey.Split(' ')
-		foreach ($part in $parts)
-		{
-			switch ($part.ToUpper())
-			{
-				'ALT' { if ($script:capturedModifierKeys -notcontains 'Alt') { $script:capturedModifierKeys += 'Alt' } }
-				'CTRL' { if ($script:capturedModifierKeys -notcontains 'Ctrl') { $script:capturedModifierKeys += 'Ctrl' } }
-				'SHIFT' { if ($script:capturedModifierKeys -notcontains 'Shift') { $script:capturedModifierKeys += 'Shift' } }
-				'WIN' { if ($script:capturedModifierKeys -notcontains 'Win') { $script:capturedModifierKeys += 'Win' } }
-				default { if ([string]::IsNullOrEmpty($script:capturedPrimaryKey)) { $script:capturedPrimaryKey = $part }; break } 
-			}
-		}
-	}
-
-	$captureForm = New-Object System.Windows.Forms.Form
-	$captureForm.Text = 'Capture Input'
-	$captureForm.Size = New-Object System.Drawing.Size(340, 180)
-	$captureForm.StartPosition = 'CenterParent'
-	$captureForm.FormBorderStyle = 'FixedDialog'
-	$captureForm.MaximizeBox = $false
-	$captureForm.MinimizeBox = $false
-	$captureForm.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 48)
-	$captureForm.ForeColor = [System.Drawing.Color]::White
-	$captureForm.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-
-	$label = New-Object System.Windows.Forms.Label
-	$label.Text = 'Press any key combination or click a mouse button inside this window.'
-	$label.Size = New-Object System.Drawing.Size(300, 60)
-	$label.Location = New-Object System.Drawing.Point(10, 10)
-	$label.TextAlign = 'MiddleCenter'
-	$label.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-	$label.ForeColor = [System.Drawing.Color]::White
-	$label.Enabled = $false
-
-	$label.Add_Paint({
-			param($s, $e) 
-
-       
-			$graphics = $e.Graphics
-			$text = $this.Text
-
-       
-			$font = $this.Font
-			$brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
-			$rect = $this.ClientRectangle
-
-       
-			$format = New-Object System.Drawing.StringFormat
-			$format.Alignment = [System.Drawing.StringAlignment]::Center
-			$format.LineAlignment = [System.Drawing.StringAlignment]::Center
-
-			$rectF = New-Object System.Drawing.RectangleF($rect.X, $rect.Y, $rect.Width, $rect.Height)
-
-       
-			$graphics.DrawString($text, $font, $brush, $rectF, $format)
-
-       
-			$brush.Dispose()
-
-		})
-	$captureForm.Controls.Add($label)
+    $script:capturedModifierKeys = @()
+    $script:capturedPrimaryKey = $null
 
    
-	$resultPanel = New-Object System.Windows.Forms.Panel
-	$resultPanel.Location = New-Object System.Drawing.Point(10, 80)
-	$resultPanel.Size = New-Object System.Drawing.Size(300, 40)
-	$resultPanel.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
-	$captureForm.Controls.Add($resultPanel)
+    if (-not [string]::IsNullOrEmpty($currentKey) -and $currentKey -ne 'Hotkey' -and $currentKey -ne 'none')
+    {
+        $parts = $currentKey.Split(' ')
+        foreach ($part in $parts)
+        {
+            switch ($part.ToUpper())
+            {
+                'ALT' { if ($script:capturedModifierKeys -notcontains 'Alt') { $script:capturedModifierKeys += 'Alt' } }
+                'CTRL' { if ($script:capturedModifierKeys -notcontains 'Ctrl') { $script:capturedModifierKeys += 'Ctrl' } }
+                'SHIFT' { if ($script:capturedModifierKeys -notcontains 'Shift') { $script:capturedModifierKeys += 'Shift' } }
+                'WIN' { if ($script:capturedModifierKeys -notcontains 'Win') { $script:capturedModifierKeys += 'Win' } }
+                default { if ([string]::IsNullOrEmpty($script:capturedPrimaryKey)) { $script:capturedPrimaryKey = $part }; break } 
+            }
+        }
+    }
 
-	$resultLabel = New-Object System.Windows.Forms.Label
-	$resultLabel.Text = (GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)
-	$resultLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
-	$resultLabel.TextAlign = 'MiddleCenter'
-	$resultLabel.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
-	$resultLabel.ForeColor = [System.Drawing.Color]::White
-	$resultLabel.Enabled = $false
+    $captureForm = New-Object System.Windows.Forms.Form
+    $captureForm.Text = 'Capture Input'
+    $captureForm.Size = New-Object System.Drawing.Size(340, 180)
+    $captureForm.StartPosition = 'CenterScreen'
+    $captureForm.FormBorderStyle = 'FixedDialog'
+    $captureForm.MaximizeBox = $false
+    $captureForm.MinimizeBox = $false
+    $captureForm.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 48)
+    $captureForm.ForeColor = [System.Drawing.Color]::White
+    $captureForm.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
-	$resultLabel.Add_Paint({
+    $label = New-Object System.Windows.Forms.Label
+    $label.Text = 'Press any key combination or click a mouse button inside this window.'
+    $label.Size = New-Object System.Drawing.Size(300, 60)
+    $label.Location = New-Object System.Drawing.Point(10, 10)
+    $label.TextAlign = 'MiddleCenter'
+    $label.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+    $label.ForeColor = [System.Drawing.Color]::White
+    $label.Enabled = $false
 
-			param($s, $e) 
+    $label.Add_Paint({
+            param($s, $e) 
 
        
-			$graphics = $e.Graphics
-			$text = $this.Text
+            $graphics = $e.Graphics
+            $text = $this.Text
 
        
-			$font = $this.Font
-			$brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
-			$rect = $this.ClientRectangle
+            $font = $this.Font
+            $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+            $rect = $this.ClientRectangle
 
        
-			$format = New-Object System.Drawing.StringFormat
-			$format.Alignment = [System.Drawing.StringAlignment]::Center
-			$format.LineAlignment = [System.Drawing.StringAlignment]::Center
+            $format = New-Object System.Drawing.StringFormat
+            $format.Alignment = [System.Drawing.StringAlignment]::Center
+            $format.LineAlignment = [System.Drawing.StringAlignment]::Center
 
-			$rectF = New-Object System.Drawing.RectangleF($rect.X, $rect.Y, $rect.Width, $rect.Height)
-
-       
-			$graphics.DrawString($text, $font, $brush, $rectF, $format)
+            $rectF = New-Object System.Drawing.RectangleF($rect.X, $rect.Y, $rect.Width, $rect.Height)
 
        
-			$brush.Dispose()
-		})
-	$resultPanel.Controls.Add($resultLabel)
+            $graphics.DrawString($text, $font, $brush, $rectF, $format)
+
+       
+            $brush.Dispose()
+
+        })
+    $captureForm.Controls.Add($label)
 
    
-	$captureForm.Add_MouseDown({
-			param($s, $e)
-       
-			$formBounds = $s.Bounds
-			$cursorPos = [System.Windows.Forms.Cursor]::Position
-			if (-not $formBounds.Contains($cursorPos))
-			{
-				return
-			}
+    $resultPanel = New-Object System.Windows.Forms.Panel
+    $resultPanel.Location = New-Object System.Drawing.Point(10, 80)
+    $resultPanel.Size = New-Object System.Drawing.Size(300, 40)
+    $resultPanel.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+    $captureForm.Controls.Add($resultPanel)
+
+    $resultLabel = New-Object System.Windows.Forms.Label
+    $resultLabel.Text = (GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)
+    $resultLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $resultLabel.TextAlign = 'MiddleCenter'
+    $resultLabel.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+    $resultLabel.ForeColor = [System.Drawing.Color]::White
+    $resultLabel.Enabled = $false
+
+    $resultLabel.Add_Paint({
+
+            param($s, $e) 
 
        
-			[System.Collections.ArrayList]$currentModifiers = @()
-			if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Control) { $currentModifiers.Add('Ctrl') }
-			if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Alt) { $currentModifiers.Add('Alt') }
-			if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Shift) { $currentModifiers.Add('Shift') }
+            $graphics = $e.Graphics
+            $text = $this.Text
+
+       
+            $font = $this.Font
+            $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+            $rect = $this.ClientRectangle
+
+       
+            $format = New-Object System.Drawing.StringFormat
+            $format.Alignment = [System.Drawing.StringAlignment]::Center
+            $format.LineAlignment = [System.Drawing.StringAlignment]::Center
+
+            $rectF = New-Object System.Drawing.RectangleF($rect.X, $rect.Y, $rect.Width, $rect.Height)
+
+       
+            $graphics.DrawString($text, $font, $brush, $rectF, $format)
+
+       
+            $brush.Dispose()
+        })
+    $resultPanel.Controls.Add($resultLabel)
+
+   
+    $captureForm.Add_MouseDown({
+            param($s, $e)
+       
+            $formBounds = $s.Bounds
+            $cursorPos = [System.Windows.Forms.Cursor]::Position
+            if (-not $formBounds.Contains($cursorPos))
+            {
+                return
+            }
+
+       
+            [System.Collections.ArrayList]$currentModifiers = @()
+            if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Control) { $currentModifiers.Add('Ctrl') }
+            if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Alt) { $currentModifiers.Add('Alt') }
+            if ([System.Windows.Forms.Control]::ModifierKeys -band [System.Windows.Forms.Keys]::Shift) { $currentModifiers.Add('Shift') }
        
 
        
-			$btnName = $null
-			switch ($e.Button)
-			{
-				'Left' { $btnName = 'LEFT_MOUSE' }
-				'Right' { $btnName = 'RIGHT_MOUSE' }
-				'Middle' { $btnName = 'MIDDLE_MOUSE' }
-				'XButton1' { $btnName = 'MOUSE_X1' }
-				'XButton2' { $btnName = 'MOUSE_X2' }
-			}
+            $btnName = $null
+            switch ($e.Button)
+            {
+                'Left' { $btnName = 'LEFT_MOUSE' }
+                'Right' { $btnName = 'RIGHT_MOUSE' }
+                'Middle' { $btnName = 'MIDDLE_MOUSE' }
+                'XButton1' { $btnName = 'MOUSE_X1' }
+                'XButton2' { $btnName = 'MOUSE_X2' }
+            }
 
-			if ($btnName)
-			{
-				$script:capturedPrimaryKey = $btnName
-				$script:capturedModifierKeys = $currentModifiers
+            if ($btnName)
+            {
+                $script:capturedPrimaryKey = $btnName
+                $script:capturedModifierKeys = $currentModifiers
            
-				$resultLabel.Text = "Captured: $(GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)"
-				$resultLabel.ForeColor = [System.Drawing.Color]::Green
-				$captureForm.DialogResult = 'OK'
-				$captureForm.Close()
-			}
-		})
+                $resultLabel.Text = "Captured: $(GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)"
+                $resultLabel.ForeColor = [System.Drawing.Color]::Green
+                $captureForm.DialogResult = 'OK'
+                $captureForm.Close()
+            }
+        })
    
    
-	$captureForm.Add_KeyDown({
-			param($form, $e)
+    $captureForm.Add_KeyDown({
+            param($form, $e)
 
-			[System.Collections.ArrayList]$currentModifiersTemp = @()
-			if ($e.Control) { $currentModifiersTemp.Add('Ctrl') }
-			if ($e.Alt) { $currentModifiersTemp.Add('Alt') }
-			if ($e.Shift) { $currentModifiersTemp.Add('Shift') }
-			if ($e.KeyCode -eq [System.Windows.Forms.Keys]::LWin -or $e.KeyCode -eq [System.Windows.Forms.Keys]::RWin)
-			{
-				if ($currentModifiersTemp -notcontains 'Win') { $currentModifiersTemp.Add('Win') }
-			}
+            [System.Collections.ArrayList]$currentModifiersTemp = @()
+            if ($e.Control) { $currentModifiersTemp.Add('Ctrl') }
+            if ($e.Alt) { $currentModifiersTemp.Add('Alt') }
+            if ($e.Shift) { $currentModifiersTemp.Add('Shift') }
+            if ($e.KeyCode -eq [System.Windows.Forms.Keys]::LWin -or $e.KeyCode -eq [System.Windows.Forms.Keys]::RWin)
+            {
+                if ($currentModifiersTemp -notcontains 'Win') { $currentModifiersTemp.Add('Win') }
+            }
 
-			$keyMappings = GetVirtualKeyMappings
-			[string]$actualPressedKeyName = $null
-			foreach ($kvp in $keyMappings.GetEnumerator())
-			{
-				if ($kvp.Value -eq $e.KeyValue)
-				{
-					$actualPressedKeyName = $kvp.Key
-					break
-				}
-			}
-			if (-not $actualPressedKeyName)
-			{
-				$actualPressedKeyName = $e.KeyCode.ToString()
-			}
-			$pressedKeyName = $actualPressedKeyName
+            $keyMappings = GetVirtualKeyMappings
+            [string]$actualPressedKeyName = $null
+            foreach ($kvp in $keyMappings.GetEnumerator())
+            {
+                if ($kvp.Value -eq $e.KeyValue)
+                {
+                    $actualPressedKeyName = $kvp.Key
+                    break
+                }
+            }
+            if (-not $actualPressedKeyName)
+            {
+                $actualPressedKeyName = $e.KeyCode.ToString()
+            }
+            $pressedKeyName = $actualPressedKeyName
 
-			$isPhysicalModifier = IsModifierKeyCode $e.KeyCode
-			$knownModifierNames = @(
-				'CONTROLKEY', 'MENU', 'SHIFTKEY', 'LWIN', 'RWIN', 
-				'CONTROL', 'ALT', 'SHIFT', 'WIN',                
-				'LEFT_CONTROL', 'RIGHT_CONTROL', 'LEFT_ALT', 'RIGHT_ALT', 'LEFT_SHIFT', 'RIGHT_SHIFT', 
-				'LBUTTON', 'RBUTTON', 'MBUTTON', 'XBUTTON1', 'XBUTTON2' 
-			)
-			$isNamedModifier = $knownModifierNames -contains $pressedKeyName.ToUpper()
+            $isPhysicalModifier = IsModifierKeyCode $e.KeyCode
+            $knownModifierNames = @(
+                'CONTROLKEY', 'MENU', 'SHIFTKEY', 'LWIN', 'RWIN', 
+                'CONTROL', 'ALT', 'SHIFT', 'WIN',                
+                'LEFT_CONTROL', 'RIGHT_CONTROL', 'LEFT_ALT', 'RIGHT_ALT', 'LEFT_SHIFT', 'RIGHT_SHIFT', 
+                'LBUTTON', 'RBUTTON', 'MBUTTON', 'XBUTTON1', 'XBUTTON2' 
+            )
+            $isNamedModifier = $knownModifierNames -contains $pressedKeyName.ToUpper()
 
 
-			if (-not $isPhysicalModifier -and -not $isNamedModifier)
-			{
-				$script:capturedPrimaryKey = $pressedKeyName
-				$script:capturedModifierKeys = $currentModifiersTemp
+            if (-not $isPhysicalModifier -and -not $isNamedModifier)
+            {
+                $script:capturedPrimaryKey = $pressedKeyName
+                $script:capturedModifierKeys = $currentModifiersTemp
            
-				$resultLabel.Text = "Captured: $(GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)"
-				$resultLabel.ForeColor = [System.Drawing.Color]::Green
-				$captureForm.DialogResult = 'OK'
-				$captureForm.Close()
-			}
-			else
-			{
-				$resultLabel.Text = (GetKeyCombinationString $currentModifiersTemp $null) 
-				$resultLabel.ForeColor = [System.Drawing.Color]::White
-			}
-		})
+                $resultLabel.Text = "Captured: $(GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)"
+                $resultLabel.ForeColor = [System.Drawing.Color]::Green
+                $captureForm.DialogResult = 'OK'
+                $captureForm.Close()
+            }
+            else
+            {
+                $resultLabel.Text = (GetKeyCombinationString $currentModifiersTemp $null) 
+                $resultLabel.ForeColor = [System.Drawing.Color]::White
+            }
+        })
    
-	$captureForm.Add_KeyUp({
-			param($form, $e)
-			if ([string]::IsNullOrEmpty($script:capturedPrimaryKey))
-			{
-				[System.Collections.ArrayList]$currentModifiersOnUp = @()
-				if ($e.Control) { $currentModifiersOnUp.Add('Ctrl') }
-				if ($e.Alt) { $currentModifiersOnUp.Add('Alt') }
-				if ($e.Shift) { $currentModifiersOnUp.Add('Shift') }
+    $captureForm.Add_KeyUp({
+            param($form, $e)
+            if ([string]::IsNullOrEmpty($script:capturedPrimaryKey))
+            {
+                [System.Collections.ArrayList]$currentModifiersOnUp = @()
+                if ($e.Control) { $currentModifiersOnUp.Add('Ctrl') }
+                if ($e.Alt) { $currentModifiersOnUp.Add('Alt') }
+                if ($e.Shift) { $currentModifiersOnUp.Add('Shift') }
            
-				$resultLabel.Text = (GetKeyCombinationString $currentModifiersOnUp $null)
-				$resultLabel.ForeColor = [System.Drawing.Color]::Yellow
-			}
-		})
+                $resultLabel.Text = (GetKeyCombinationString $currentModifiersOnUp $null)
+                $resultLabel.ForeColor = [System.Drawing.Color]::Yellow
+            }
+        })
 
-	$captureForm.KeyPreview = $true
-	$captureForm.TopMost = $true
+    $captureForm.KeyPreview = $true
+    $captureForm.TopMost = $true
     
-	$result = $captureForm.ShowDialog()
-	try
-	{
-		if ($result -eq 'OK' -and -not [string]::IsNullOrEmpty($script:capturedPrimaryKey)) 
-		{
-			return (GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)
-		}
-		else
-		{
-			return $currentKey  
-		}
-	}
- finally
-	{
-		try
-		{
-			[Custom.HotkeyManager]::AreHotkeysGloballyPaused = $false
-			if ($script:KeyCapture_PausedSnapshot -and $script:KeyCapture_PausedSnapshot.Count -gt 0)
-			{
-				ResumePausedKeys -Keys $script:KeyCapture_PausedSnapshot
-			}
-			else
-			{
-				ResumeAllHotkeys
-			}
-		}
-		catch
-		{
-			Write-Verbose ('HOTKEYS: ResumeAllHotkeys (or ResumePausedKeys) failed: {0}' -f $_.Exception.Message)
-		}
-		finally
-		{
-			Remove-Variable -Name KeyCapture_PausedSnapshot -Scope Script -ErrorAction SilentlyContinue
-			$script:capturedPrimaryKey = $null
-			$script:capturedModifierKeys = @()
-		}
-	}
+    # --- CHANGE START ---
+    # Configure ownership but rely on Show-FormAsDialog for the display loop
+    if ($Owner)
+    {
+        $captureForm.Owner = $Owner
+        $captureForm.StartPosition = 'CenterScreen'
+    }
+    elseif ($OwnerForm)
+    {
+        $captureForm.Owner = $OwnerForm
+        $captureForm.StartPosition = 'CenterScreen'
+    }
+
+    $result = Show-FormAsDialog -Form $captureForm
+
+    try
+    {
+        if ($result -eq 'OK' -and -not [string]::IsNullOrEmpty($script:capturedPrimaryKey)) 
+        {
+            return (GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)
+        }
+        else
+        {
+            return $currentKey  
+        }
+    }
+     finally
+    {
+        try
+        {
+            [Custom.HotkeyManager]::AreHotkeysGloballyPaused = $false
+            if ($script:KeyCapture_PausedSnapshot -and $script:KeyCapture_PausedSnapshot.Count -gt 0)
+            {
+                ResumePausedKeys -Keys $script:KeyCapture_PausedSnapshot
+            }
+            else
+            {
+                ResumeAllHotkeys
+            }
+        }
+        catch
+        {
+            Write-Verbose ('HOTKEYS: ResumeAllHotkeys (or ResumePausedKeys) failed: {0}' -f $_.Exception.Message)
+        }
+        finally
+        {
+            Remove-Variable -Name KeyCapture_PausedSnapshot -Scope Script -ErrorAction SilentlyContinue
+            $script:capturedPrimaryKey = $null
+            $script:capturedModifierKeys = @()
+        }
+    }
 }
 
 Export-ModuleMember -Function *

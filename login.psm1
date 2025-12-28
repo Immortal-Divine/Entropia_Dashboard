@@ -36,10 +36,6 @@ else
 if (-not $global:LoginNotificationStack) { $global:LoginNotificationStack = [System.Collections.ArrayList]::new() }
 
 
-if (-not ('System.Windows.Forms.Form' -as [Type]))
-{
-	try { InitializeClassesModule } catch { Write-Verbose "LOGIN: InitializeClassesModule failed: $($_.Exception.Message)" }
-}
 #endregion
 
 #region Helper Functions
@@ -404,7 +400,7 @@ function LoginSelectedRow
 				while ($sw.Elapsed.TotalMilliseconds -lt $Milliseconds)
 				{
 					if ($CancellationContext.IsCancelled) { throw 'LoginCancelled' }
-					Start-Sleep -Milliseconds 100
+					Start-Sleep -Milliseconds 50
 				}
 			}
 
@@ -495,52 +491,6 @@ function LoginSelectedRow
 					[Custom.Native]::ShowWindow($hWnd, 9)
 					[Custom.Native]::SetForegroundWindow($hWnd)
 				}
-			}
-
-			function Wait-ForDashboardClientReady
-			{
-				param([int]$ProcessId)
-				CheckCancel
-				$timeout = New-TimeSpan -Seconds 120
-				$sw = [System.Diagnostics.Stopwatch]::StartNew()
-                
-				while ($sw.Elapsed -lt $timeout)
-				{
-					CheckCancel
-                    
-					try
-					{
-						if ($DashboardConfig -and $DashboardConfig.UI -and $DashboardConfig.UI.DataGridFiller)
-						{
-							$grid = $DashboardConfig.UI.DataGridFiller
-							$currentState = $null
-                            
-							foreach ($row in $grid.Rows)
-							{
-								if ($row.Tag -and $row.Tag.Id -eq $ProcessId)
-								{
-									$currentState = $row.Cells[3].Value
-									break
-								}
-							}
-                            
-							if ($currentState -and $currentState -eq 'Loading...')
-							{
-								Start-Sleep -Milliseconds 250
-								continue
-							}
-							elseif ($currentState -match 'Normal|Min|Reconnecting|Disconnected')
-							{
-								return $true
-							}
-						}
-					}
-					catch {}
-                    
-					Start-Sleep -Milliseconds 250
-				}
-                
-				throw "Timeout waiting for client $ProcessId to leave Loading state"
 			}
 
 			function Invoke-MouseClick
@@ -687,7 +637,6 @@ function LoginSelectedRow
 				param($Action, $Step, $TotalSteps, $ClientIdx, $ClientCount, $EntryNum, $ProfileName)
 				$pct = 0; if ($TotalSteps -gt 0) { $pct = [int](($Step / $TotalSteps) * 100) }
 				$msg = "Total: $pct% | Client $ClientIdx/$ClientCount`nProfile: $ProfileName | Account: ($EntryNum)`n$Action"
-				Write-Progress -Activity 'Login' -Status $msg -PercentComplete $pct
 				Write-Verbose -Message $msg
 				Write-Information -MessageData @{ Text = $msg; Percent = $pct } -Tags 'LoginStatus'
 			}
@@ -719,9 +668,6 @@ function LoginSelectedRow
 
 					$currentStep++; ReportLoginProgress -Action 'Starting Login Process...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
                 
-					
-					Wait-ForDashboardClientReady -ProcessId $processId
-                
 					if ($processId -eq 0) { throw "Process ID not found for Client $entryNumber" }
 					$process = Get-Process -Id $processId -ErrorAction SilentlyContinue
 					if (-not $process) { throw "Process $processId is gone." }
@@ -738,28 +684,13 @@ function LoginSelectedRow
 					$workingHwnd = if ($explicitHandle -ne [IntPtr]::Zero) { $explicitHandle } else { $process.MainWindowHandle }
 					$Global:CurrentActiveWindowHandle = $workingHwnd
 					$currentStep++; ReportLoginProgress -Action 'Getting Client ready...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-					EnsureWindowState
 
-					CheckCancel; EnsureWindowResponsive; CheckCancel; SleepWithCancel -Milliseconds 50
+					EnsureWindowState; CheckCancel; EnsureWindowResponsive; CheckCancel; SleepWithCancel -Milliseconds 50
 
 					$rect = New-Object Custom.Native+RECT
 					[Custom.Native]::GetWindowRect($workingHwnd, [ref]$rect)
 					$x = $rect.Left + 100; $y = $rect.Top + 100
                 
-					$CancellationContext.ScriptInitiatedMove = $true
-					try
-					{
-						[Custom.Native]::SetCursorPos($x, $y); SleepWithCancel -Milliseconds 10
-						$MOUSEEVENTF_LEFTDOWN = 0x0002; $MOUSEEVENTF_LEFTUP = 0x0004
-						[Custom.Native]::mouse_event($MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); SleepWithCancel -Milliseconds 50
-						[Custom.Native]::mouse_event($MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); SleepWithCancel -Milliseconds 50
-					}
-					finally
-					{
-						SleepWithCancel -Milliseconds 10
-						$CancellationContext.ScriptInitiatedMove = $false
-					}
-
 					$currentStep++; ReportLoginProgress -Action "Log into Account $($entryNumber)..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
 
 					$firstNickCoords = ParseCoordinates $config['FirstNickCoords']
@@ -912,7 +843,7 @@ function LoginSelectedRow
 
 		$infoEvent = {
 			param($s, $e)
-			
+			if ($global:LoginResources['IsStopping']) { return }
 			$now = Get-Date
 			if ($null -eq $script:LastToastUpdateTime -or ($now - $script:LastToastUpdateTime).TotalMilliseconds -ge 150)
 			{
@@ -935,7 +866,7 @@ function LoginSelectedRow
 									ShowToast -Title 'Login Progress' -Message $text -Type 'Info' -Key 9999 -TimeoutSeconds 0 -Progress $pct
 								}
 								catch
-        {
+        						{
 									Write-Warning "Toast Update Failed: $($_.Exception.Message)"
 								}
 							})
@@ -1078,12 +1009,12 @@ function CleanUpLoginResources
 			& $uiCleanupAction $globalLoginResourcesRef
 		}
 	}
- elseif ($mainForm -and -not $mainForm.IsDisposed -and $mainForm.IsHandleCreated)
+ 	elseif ($mainForm -and -not $mainForm.IsDisposed -and $mainForm.IsHandleCreated)
 	{
 		
 		& $uiCleanupAction $globalLoginResourcesRef
 	}
- else
+ 	else
 	{
 		
 		Write-Warning 'LOGIN: UI form not available for cleanup, skipping UI updates.'
@@ -1105,9 +1036,19 @@ function CleanUpLoginResources
 		Write-Verbose "LOGIN: Unregistered Information.DataAdded event (ID: $($localRes.InfoSubscription.Id))" 
 	}
 
-	
-	DisposeManagedRunspace -JobResource $localRes
-
+	[System.Threading.Tasks.Task]::Run([Action]{
+		try
+		{
+			$ps = $localRes.PowerShellInstance; $rs = $localRes.Runspace; $ar = $localRes.AsyncResult
+			if ($ps)
+			{
+				try { if ($ps.InvocationStateInfo.State -eq 'Running') { $ps.Stop() } } catch {}
+				if ($ar) { try { $ps.EndInvoke($ar) } catch {} }
+				try { $ps.Dispose() } catch {}
+			}
+			if ($rs) { try { $rs.Dispose() } catch {} }
+		} catch {}
+	}) | Out-Null
 	
 	$global:LoginResources = @{
 		PowerShellInstance  = $null

@@ -1,14 +1,6 @@
-<# ftool.psm1 
-#>
+<# ftool.psm1 #>
 
 #region Hotkey Management
-
-if (-not ('Custom.FtoolFormWindow' -as [Type]))
-{
-	try { InitializeClassesModule } catch { Write-Verbose "FTOOL: InitializeClassesModule failed: $($_.Exception.Message)" }
-}
-if (-not ('Custom.HotkeyManager' -as [Type])) { try { InitializeClassesModule } catch { Write-Verbose "FTOOL: InitializeClassesModule failed: $($_.Exception.Message)" } }
-
 
 if (-not $global:RegisteredHotkeys) { $global:RegisteredHotkeys = @{} }
 if (-not $global:RegisteredHotkeyByString) { $global:RegisteredHotkeyByString = @{} }
@@ -118,6 +110,84 @@ function ToggleInstanceHotkeys
 #endregion
 
 #region Helper Functions
+
+function Invoke-FtoolSpamAction
+{
+	param($timerData)
+	try
+	{
+		if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
+
+		$keyMappings = GetVirtualKeyMappings
+		$virtualKeyCode = $keyMappings[$timerData['Key']]
+
+		if ($virtualKeyCode)
+		{
+			$WM_KEYDOWN = 0x0100
+			$WM_KEYUP = 0x0101
+			$WM_LBUTTONDOWN = 0x0201
+			$WM_LBUTTONUP = 0x0202
+			$WM_RBUTTONDOWN = 0x0204
+			$WM_RBUTTONUP = 0x0205
+			$WM_MBUTTONDOWN = 0x0207
+			$WM_MBUTTONUP = 0x0208
+			$WM_XBUTTONDOWN = 0x020B
+			$WM_XBUTTONUP = 0x020C
+
+			$MK_LBUTTON = 0x0001
+			$MK_RBUTTON = 0x0002
+			$MK_MBUTTON = 0x0010
+			$MK_XBUTTON1 = 0x0020
+			$MK_XBUTTON2 = 0x0040
+
+			$point = New-Object Custom.Win32Point
+			[Custom.Win32MouseUtils]::GetCursorPos([ref]$point) | Out-Null
+			[Custom.Win32MouseUtils]::ScreenToClient($timerData['WindowHandle'], [ref]$point) | Out-Null
+			$lParam = [Custom.Win32MouseUtils]::MakeLParam($point.X, $point.Y)
+
+			$dwellTime = Get-Random -Minimum 2 -Maximum 9
+
+			if ($virtualKeyCode -eq 0x01)
+			{
+				$wDown = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_LBUTTON, $true, $virtualKeyCode)
+				$wUp = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_LBUTTON, $false, $virtualKeyCode)
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_LBUTTONDOWN, $wDown, $lParam)
+				Start-Sleep -Milliseconds $dwellTime
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_LBUTTONUP, $wUp, $lParam)
+			}
+			elseif ($virtualKeyCode -eq 0x02)
+			{
+				$wDown = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_RBUTTON, $true, $virtualKeyCode)
+				$wUp = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_RBUTTON, $false, $virtualKeyCode)
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_RBUTTONDOWN, $wDown, $lParam)
+				Start-Sleep -Milliseconds $dwellTime
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_RBUTTONUP, $wUp, $lParam)
+			}
+			elseif ($virtualKeyCode -eq 0x04)
+			{
+				$wDown = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_MBUTTON, $true, $virtualKeyCode)
+				$wUp = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_MBUTTON, $false, $virtualKeyCode)
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_MBUTTONDOWN, $wDown, $lParam)
+				Start-Sleep -Milliseconds $dwellTime
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_MBUTTONUP, $wUp, $lParam)
+			}
+			elseif ($virtualKeyCode -eq 0x05)
+			{
+				$wDown = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON1, $true, $virtualKeyCode); $wUp = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON1, $false, $virtualKeyCode)
+				$wDown = $wDown.ToInt64() -bor 0x00010000; $wUp = $wUp.ToInt64() -bor 0x00010000
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONDOWN, [IntPtr]$wDown, $lParam); Start-Sleep -Milliseconds $dwellTime;[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONUP, [IntPtr]$wUp, $lParam)
+			}
+			elseif ($virtualKeyCode -eq 0x06)
+			{
+				$wDown = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON2, $true, $virtualKeyCode); $wUp = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON2, $false, $virtualKeyCode)
+				$wDown = $wDown.ToInt64() -bor 0x00020000; $wUp = $wUp.ToInt64() -bor 0x00020000
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONDOWN, [IntPtr]$wDown, $lParam); Start-Sleep -Milliseconds $dwellTime;[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONUP, [IntPtr]$wUp, $lParam)
+			}
+			else { [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $virtualKeyCode, 0); Start-Sleep -Milliseconds $dwellTime;[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $virtualKeyCode, 0xC0000000) }
+		}
+	}
+	catch { Write-Verbose ('FTOOL: Spammer Error: {0}' -f $_.Exception.Message) }
+}
 
 function LoadFtoolSettings
 {
@@ -577,28 +647,6 @@ function UpdateSettings
 	}
 }
 
-function IsWindowBelow
-{
-	param(
-		[IntPtr]$hWndTop,
-		[IntPtr]$hWndToFind
-	)
-	$current = $hWndTop
-    
-	for ($i = 0; $i -lt 500; $i++)
-	{
-		$current = [Custom.Native]::GetWindow($current, [Custom.Native]::GW_HWNDNEXT)
-		if ($current -eq [IntPtr]::Zero)
-		{
-			return $false 
-		}
-		if ($current -eq $hWndToFind)
-		{
-			return $true
-		}
-	}
-	return $false
-}
 
 function CreatePositionTimer
 {
@@ -662,29 +710,11 @@ function CreatePositionTimer
 									[Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
 									$timerData.FtoolZState = 'topmost'
 								}
-							}
-							else
-							{
                                                             
-								if ($timerData.FtoolZState -ne 'standard')
+								elseif ($timerData.FtoolZState -ne 'standard')
 								{
 									[Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
 									$timerData.FtoolZState = 'standard'
-								}
-
-                                                            
-                                                            
-								if (IsWindowBelow -hWndTop $linkedHandle -hWndToFind $ftoolHandle)
-								{
-                                                                
-                                                                
-									$prevHandle = [Custom.Native]::GetWindow($linkedHandle, [Custom.Native]::GW_HWNDPREV)
-                                                                
-                                                                
-									if ($prevHandle -ne $ftoolHandle)
-									{
-										[Custom.Native]::PositionWindow($ftoolHandle, $prevHandle, 0, 0, 0, 0, $flags) | Out-Null
-									}
 								}
 							}
 						}
@@ -829,96 +859,7 @@ function CreateSpammerTimer
 			try
 			{
 				if (-not $s -or -not $s.Tag) { return }
-				$timerData = $s.Tag
-				if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
-            
-				$keyMappings = GetVirtualKeyMappings
-				$virtualKeyCode = $keyMappings[$timerData['Key']]
-            
-				if ($virtualKeyCode)
-				{
-					$WM_KEYDOWN = 0x0100
-					$WM_KEYUP = 0x0101
-					$WM_LBUTTONDOWN = 0x0201
-					$WM_LBUTTONUP = 0x0202
-					$WM_RBUTTONDOWN = 0x0204
-					$WM_RBUTTONUP = 0x0205
-					$WM_MBUTTONDOWN = 0x0207
-					$WM_MBUTTONUP = 0x0208
-					$WM_XBUTTONDOWN = 0x020B
-					$WM_XBUTTONUP = 0x020C
-                
-					$MK_LBUTTON = 0x0001
-					$MK_RBUTTON = 0x0002
-					$MK_MBUTTON = 0x0010
-					$MK_XBUTTON1 = 0x0020
-					$MK_XBUTTON2 = 0x0040
-
-					$point = New-Object Win32Point
-					[Win32MouseUtils]::GetCursorPos([ref]$point) | Out-Null
-					[Win32MouseUtils]::ScreenToClient($timerData['WindowHandle'], [ref]$point) | Out-Null
-					$lParam = [Win32MouseUtils]::MakeLParam($point.X, $point.Y)
-
-					$dwellTime = Get-Random -Minimum 2 -Maximum 9
-
-					if ($virtualKeyCode -eq 0x01) 
-					{
-						$wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_LBUTTON, $true, $virtualKeyCode)
-						$wUp = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_LBUTTON, $false, $virtualKeyCode)
-
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_LBUTTONDOWN, $wDown, $lParam)
-						Start-Sleep -Milliseconds $dwellTime
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_LBUTTONUP, $wUp, $lParam)
-					}
-					elseif ($virtualKeyCode -eq 0x02) 
-					{
-						$wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_RBUTTON, $true, $virtualKeyCode)
-						$wUp = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_RBUTTON, $false, $virtualKeyCode)
-
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_RBUTTONDOWN, $wDown, $lParam)
-						Start-Sleep -Milliseconds $dwellTime
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_RBUTTONUP, $wUp, $lParam)
-					}
-					elseif ($virtualKeyCode -eq 0x04) 
-					{
-						$wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_MBUTTON, $true, $virtualKeyCode)
-						$wUp = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_MBUTTON, $false, $virtualKeyCode)
-
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_MBUTTONDOWN, $wDown, $lParam)
-						Start-Sleep -Milliseconds $dwellTime
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_MBUTTONUP, $wUp, $lParam)
-					}
-					elseif ($virtualKeyCode -eq 0x05) 
-					{
-						$wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON1, $true, $virtualKeyCode)
-						$wUp = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON1, $false, $virtualKeyCode)
-                    
-						$wDown = $wDown.ToInt64() -bor 0x00010000
-						$wUp = $wUp.ToInt64()   -bor 0x00010000
-
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONDOWN, [IntPtr]$wDown, $lParam)
-						Start-Sleep -Milliseconds $dwellTime
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONUP, [IntPtr]$wUp, $lParam)
-					}
-					elseif ($virtualKeyCode -eq 0x06) 
-					{
-						$wDown = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON2, $true, $virtualKeyCode)
-						$wUp = [Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON2, $false, $virtualKeyCode)
-
-						$wDown = $wDown.ToInt64() -bor 0x00020000
-						$wUp = $wUp.ToInt64()   -bor 0x00020000
-
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONDOWN, [IntPtr]$wDown, $lParam)
-						Start-Sleep -Milliseconds $dwellTime
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONUP, [IntPtr]$wUp, $lParam)
-					}
-					else
-					{
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $virtualKeyCode, 0)
-						Start-Sleep -Milliseconds $dwellTime
-						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $virtualKeyCode, 0xC0000000) 
-					}
-				}
+				Invoke-FtoolSpamAction -timerData $s.Tag
 			}
 			catch
 			{
@@ -926,6 +867,8 @@ function CreateSpammerTimer
 			}
 		})
     
+	Invoke-FtoolSpamAction -timerData $timerTag
+
 	$spamTimer.Start()
 	return $spamTimer
 }
@@ -1594,7 +1537,7 @@ function AddFtoolEventHandlers
 			$data = $form.Tag
         
 			$currentKey = $data.BtnKeySelect.Text
-			$newKey = Show-KeyCaptureDialog $currentKey
+			$newKey = Show-KeyCaptureDialog $currentKey -OwnerForm $form
         
 			if ($newKey -and $newKey -ne $currentKey)
 			{
@@ -1623,7 +1566,7 @@ function AddFtoolEventHandlers
 			$keyValue = $data.BtnKeySelect.Text
 			if (-not $keyValue -or $keyValue.Trim() -eq '')
 			{
-				[Custom.DarkMessageBox]::Show('Please select a key', 'Missing Ftool Key', 'Ok', 'Information')
+				Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'Please select a key' 'Missing Ftool Key' 'Ok' 'Information'
 				return
 			}
         
@@ -1678,7 +1621,7 @@ function AddFtoolEventHandlers
 
 			$oldHotkeyIdToUnregister = $data.HotkeyId
 
-			$newHotkey = Show-KeyCaptureDialog $currentHotkeyText
+			$newHotkey = Show-KeyCaptureDialog $currentHotkeyText -OwnerForm $form
         
 			if ($newHotkey -and $newHotkey -ne $currentHotkeyText)
 			{ 
@@ -1737,13 +1680,13 @@ function AddFtoolEventHandlers
 			$oldHotkeyIdToUnregister = $data.GlobalHotkeyId
 			$ownerKey = "global_toggle_$($data.InstanceId)"
         
-			$newHotkey = Show-KeyCaptureDialog $currentHotkeyText
+			$newHotkey = Show-KeyCaptureDialog $currentHotkeyText -OwnerForm $form
         
 			if ($newHotkey -and $newHotkey -ne $currentHotkeyText)
 			{
 				if (TestHotkeyConflict -KeyCombinationString $newHotkey -NewHotkeyType ([Custom.HotkeyManager+HotkeyActionType]::GlobalToggle) -OwnerKeyToExclude $ownerKey)
 				{
-					[Custom.DarkMessageBox]::Show("This hotkey combination ('$newHotkey') is already assigned to another function or instance. Please choose a different key.", 'Hotkey Conflict', 'Ok', 'Information')
+					Show-DarkMessageBox $global:DashboardConfig.UI.MainForm "This hotkey combination ('$newHotkey') is already assigned to another function or instance. Please choose a different key." 'Hotkey Conflict', 'Ok' 'Information'
 					$data.GlobalHotkey = $currentHotkeyText
 					return 
 				}
@@ -1848,7 +1791,7 @@ function AddFtoolEventHandlers
         
 			if ($data.ExtensionCount -ge 8)
 			{
-				[Custom.DarkMessageBox]::Show("Maximum number of extensions reached.`nOnly 10 per client allowed!", 'Spam Protection', 'Ok', 'Information')
+				Show-DarkMessageBox $global:DashboardConfig.UI.MainForm "Maximum number of extensions reached.`nOnly 10 per client allowed!" 'Spam Protection' 'Ok' 'Information'
 				return
 			}
         
@@ -2107,7 +2050,7 @@ function AddExtensionEventHandlers
 			}
         
 			$currentKey = $extData.BtnKeySelect.Text
-			$newKey = Show-KeyCaptureDialog $currentKey
+			$newKey = Show-KeyCaptureDialog $currentKey -OwnerForm $form
         
 			if ($newKey -and $newKey -ne $currentKey)
 			{
@@ -2160,7 +2103,7 @@ function AddExtensionEventHandlers
 			$keyValue = $extData.BtnKeySelect.Text
 			if (-not $keyValue -or $keyValue.Trim() -eq '')
 			{
-				[Custom.DarkMessageBox]::Show('Please select a key', 'Missing Ftool Key', 'Ok', 'Information')
+				Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'Please select a key' 'Missing Ftool Key' 'Ok' 'Information'
 				return
 			}
         
@@ -2280,7 +2223,7 @@ function AddExtensionEventHandlers
 
 			$oldHotkeyIdToUnregister = $extData.HotkeyId
 
-			$newHotkey = Show-KeyCaptureDialog $currentHotkeyText
+			$newHotkey = Show-KeyCaptureDialog $currentHotkeyText -OwnerForm $form
         
 			if ($newHotkey -and $newHotkey -ne $currentHotkeyText)
 			{ 

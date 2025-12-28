@@ -1,5 +1,4 @@
-<# ini.psm1
-#>
+<# ini.psm1 #>
 
 #region Helper Functions
 
@@ -285,7 +284,7 @@ function ReadConfig
 									$global:DashboardConfig.Config[$section][$profileName] = [ordered]@{}
 								}
 								$global:DashboardConfig.Config[$section][$profileName][$settingName] = $settingValue
-								Write-Verbose "  INI: (ReadConfig): Loaded LoginConfig - Profile '$profileName', Setting '$settingName'"
+								# Write-Verbose "  INI: (ReadConfig): Loaded LoginConfig - Profile '$profileName', Setting '$settingName'"
 							}
 							else
 							{
@@ -301,7 +300,7 @@ function ReadConfig
 								if (-not $global:DashboardConfig.Config[$section][$profileName].Contains($settingName))
 								{
 									$global:DashboardConfig.Config[$section][$profileName][$settingName] = $settingValue
-									Write-Verbose "  INI: (ReadConfig): Mapped flat key '$settingName' to Profile 'Default'."
+									# Write-Verbose "  INI: (ReadConfig): Mapped flat key '$settingName' to Profile 'Default'."
 								}
 							}
 						}

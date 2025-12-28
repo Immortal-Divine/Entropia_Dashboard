@@ -1,5 +1,4 @@
-<# classes.psm1 
-#>
+<# classes.psm1 #>
 
 #region Global Configuration
 $script:ReferencedAssemblies = @(
@@ -69,7 +68,7 @@ namespace Custom
 		private readonly Color _textColor = Color.FromArgb(230, 230, 230);
 		private bool _isSuccess = false;
 
-		private DarkMessageBox(string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, bool isSuccess = false)
+		public DarkMessageBox(string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, bool isSuccess = false)
 		{
 			this.SuspendLayout();
 
@@ -83,7 +82,9 @@ namespace Custom
 			this.MaximizeBox = false;
 			this.MinimizeBox = false;
 			this.ShowInTaskbar = false;
-			this.StartPosition = FormStartPosition.CenterParent;
+			this.StartPosition = FormStartPosition.Manual;
+            this.Top = (Screen.PrimaryScreen.Bounds.Height - this.Height)/2;
+            this.Left = (Screen.PrimaryScreen.Bounds.Width - this.Width)/2;
 			this.Font = new Font("Segoe UI", 9.5f);
 			this.AutoSize = true;
 			this.AutoSizeMode = AutoSizeMode.GrowAndShrink;
@@ -254,6 +255,11 @@ namespace Custom
 			btn.FlatAppearance.BorderSize = 0;
 			btn.FlatAppearance.MouseOverBackColor = btnHover;
 
+			btn.Click += (s, e) => { 
+				this.DialogResult = result; 
+				this.Close(); 
+			};
+
 			panel.Controls.Add(btn);
 			if (isPrimary) this.AcceptButton = btn;
 			if (result == DialogResult.Cancel || result == DialogResult.No) this.CancelButton = btn;
@@ -275,7 +281,138 @@ namespace Custom
 				return form.ShowDialog();
 			}
 		}
+
 	}
+
+	public class DarkInputBox : Form
+    {
+		#region DWM API for Dark Title Bar
+		[DllImport("dwmapi.dll")]
+		private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+		private const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
+		private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+
+		private void UseImmersiveDarkMode(IntPtr handle)
+		{
+			int darkMode = 1;
+			if (DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int)) != 0)
+			{
+				DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref darkMode, sizeof(int));
+			}
+		}
+		#endregion
+
+        public string ResultText { get; private set; }
+        private TextBox _textBox;
+		
+		private readonly Color _backColor = Color.FromArgb(28, 28, 28);
+		private readonly Color _secondaryColor = Color.FromArgb(45, 45, 48);
+		private readonly Color _textColor = Color.FromArgb(230, 230, 230);
+
+        public DarkInputBox(string title, string prompt, string defaultText)
+        {
+			this.SuspendLayout();
+
+            this.Text = title;
+            this.BackColor = _backColor;
+            this.ForeColor = _textColor;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            this.MinimizeBox = false;
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.ClientSize = new Size(350, 160);
+            this.TopMost = true;
+			this.Font = new Font("Segoe UI", 9.5f);
+
+			// Layout Container
+			TableLayoutPanel mainLayout = new TableLayoutPanel
+			{
+				Dock = DockStyle.Fill,
+				ColumnCount = 1,
+				RowCount = 3,
+				Padding = new Padding(20)
+			};
+			mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // Label
+			mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // TextBox
+			mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f)); // Buttons
+			this.Controls.Add(mainLayout);
+
+            Label lbl = new Label();
+            lbl.Text = prompt;
+			lbl.AutoSize = true;
+			lbl.MaximumSize = new Size(310, 0);
+            lbl.ForeColor = _textColor;
+			lbl.Margin = new Padding(0, 0, 0, 10);
+            mainLayout.Controls.Add(lbl, 0, 0);
+
+            _textBox = new TextBox();
+            _textBox.Text = defaultText;
+			_textBox.Dock = DockStyle.Top;
+            _textBox.BackColor = _secondaryColor;
+            _textBox.ForeColor = _textColor;
+            _textBox.BorderStyle = BorderStyle.FixedSingle;
+			_textBox.KeyDown += (s, e) => { 
+				if (e.KeyCode == Keys.Enter) { 
+					this.ResultText = _textBox.Text; 
+					this.DialogResult = DialogResult.OK; 
+					this.Close(); 
+					e.Handled = true; 
+					e.SuppressKeyPress = true; 
+				} 
+			};
+            mainLayout.Controls.Add(_textBox, 0, 1);
+
+			// Button Panel
+			FlowLayoutPanel buttonPanel = new FlowLayoutPanel
+			{
+				FlowDirection = FlowDirection.RightToLeft,
+				AutoSize = true,
+				Dock = DockStyle.Bottom,
+				Margin = new Padding(0, 20, 0, 0)
+			};
+			mainLayout.Controls.Add(buttonPanel, 0, 2);
+
+			AddButton(buttonPanel, "Cancel", DialogResult.Cancel);
+			AddButton(buttonPanel, "OK", DialogResult.OK, true);
+
+			this.ResumeLayout(true);
+			this.HandleCreated += (s, e) => UseImmersiveDarkMode(this.Handle);
+			this.Shown += (s, e) => { _textBox.Focus(); _textBox.SelectAll(); };
+        }
+
+		private void AddButton(FlowLayoutPanel panel, string text, DialogResult result, bool isPrimary = false)
+		{
+			Color btnBack = isPrimary ? Color.FromArgb(0, 90, 158) : Color.FromArgb(55, 55, 58);
+			Color btnHover = isPrimary ? Color.FromArgb(0, 120, 215) : Color.FromArgb(70, 70, 75);
+
+			Button btn = new Button
+			{
+				Text = text,
+				DialogResult = result,
+				Size = new Size(90, 30),
+				FlatStyle = FlatStyle.Flat,
+				Margin = new Padding(10, 0, 0, 0),
+				Cursor = Cursors.Hand,
+				BackColor = btnBack,
+				ForeColor = Color.White,
+				Font = new Font("Segoe UI", 9f, isPrimary ? FontStyle.Bold : FontStyle.Regular)
+			};
+			
+			btn.FlatAppearance.BorderSize = 0;
+			btn.FlatAppearance.MouseOverBackColor = btnHover;
+
+			btn.Click += (s, e) => { 
+				if (result == DialogResult.OK) this.ResultText = _textBox.Text;
+				this.DialogResult = result; 
+				this.Close(); 
+			};
+
+			panel.Controls.Add(btn);
+			if (isPrimary) this.AcceptButton = btn;
+			if (result == DialogResult.Cancel) this.CancelButton = btn;
+		}
+    }
 
 	public static class MouseHookManager 
 	{
@@ -1675,8 +1812,6 @@ namespace Custom
 					}
 	}
 
-}
-
 	public class SafeWindowCore 
 	{
 			[DllImport("user32.dll", SetLastError = true)]
@@ -1830,7 +1965,8 @@ namespace Custom
 			return (IntPtr)wParam;
 		}
 	}
-
+	
+}
 "@ 
 #endregion
 
@@ -1865,6 +2001,7 @@ function InitializeClassesModule
 		return $false
 	}
 }
+
 #endregion 
 
 InitializeClassesModule

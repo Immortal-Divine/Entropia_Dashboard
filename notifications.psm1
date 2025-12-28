@@ -1,22 +1,15 @@
-# notifications.psm1 - Shared notification helpers for Entropia Dashboard
+<# notifications.psm1 #>
 
 #region Globals
 if (-not $global:DashboardConfig) { $global:DashboardConfig = @{} }
 if (-not $global:DashboardConfig.State) { $global:DashboardConfig.State = @{} }
 
-
-
 if (-not $global:LoginNotificationStack) { $global:LoginNotificationStack = [System.Collections.ArrayList]::new() }
 if (-not $global:DashboardConfig.State.LoginNotificationMap) { $global:DashboardConfig.State.LoginNotificationMap = @{} }
 if (-not $global:DashboardConfig.State.ContainsKey('NotificationHoverActive')) { $global:DashboardConfig.State.NotificationHoverActive = $false }
+
+
 #endregion
-
-
-if (-not ('System.Windows.Forms.Form' -as [Type]))
-{
-	try { InitializeClassesModule } catch { Write-Verbose "NOTIFICATIONS: InitializeClassesModule failed: $($_.Exception.Message)" }
-}
-
 
 
 function UpdateNotificationPositions

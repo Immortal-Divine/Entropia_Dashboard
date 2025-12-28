@@ -175,52 +175,6 @@ function EnsureWindowState
 	}
 }
 
-function Wait-ForDashboardClientReady
-{
-	param([int]$ProcessId)
-	CheckCancel
-	$timeout = New-TimeSpan -Seconds 120
-	$sw = [System.Diagnostics.Stopwatch]::StartNew()
-                
-	while ($sw.Elapsed -lt $timeout)
-	{
-		CheckCancel
-                    
-		try
-		{
-			if ($DashboardConfig -and $DashboardConfig.UI -and $DashboardConfig.UI.DataGridFiller)
-			{
-				$grid = $DashboardConfig.UI.DataGridFiller
-				$currentState = $null
-                            
-				foreach ($row in $grid.Rows)
-				{
-					if ($row.Tag -and $row.Tag.Id -eq $ProcessId)
-					{
-						$currentState = $row.Cells[3].Value
-						break
-					}
-				}
-                            
-				if ($currentState -and $currentState -eq 'Loading...')
-				{
-					Start-Sleep -Milliseconds 250
-					continue
-				}
-				elseif ($currentState -match 'Normal|Min|Reconnecting|Disconnected')
-				{
-					return $true
-				}
-			}
-		}
-		catch {}
-                    
-		Start-Sleep -Milliseconds 250
-	}
-                
-	throw "Timeout waiting for client $ProcessId to leave Loading state"
-}
-
 function Invoke-MouseClick
 {
 	param([int]$X, [int]$Y)
@@ -330,8 +284,10 @@ function Write-LogWithRetry
 function ReportLoginProgress
 {
 	param($Action, $Step, $TotalSteps, $ClientIdx, $ClientCount, $EntryNum, $ProfileName)
-	$pct = [int](($Step / $TotalSteps) * 100)
-	Write-Progress -Activity 'Login' -Status "Total: $pct% | Client $ClientIdx/$ClientCount`nProfile: $ProfileName | Account: ($EntryNum)`n$Action" -PercentComplete $pct
+	$pct = 0; if ($TotalSteps -gt 0) { $pct = [int](($Step / $TotalSteps) * 100) }
+	$msg = "Total: $pct% | Client $ClientIdx/$ClientCount`nProfile: $ProfileName | Account: ($EntryNum)`n$Action"
+	Write-Verbose -Message $msg
+	Write-Information -MessageData @{ Text = $msg; Percent = $pct } -Tags 'LoginStatus'
 }
 
 #endregion
@@ -825,8 +781,9 @@ function InvokeReconnectionSequence
 	}
 
 	$hWnd = [IntPtr]::Zero
+	$hookStopped = $false
 
-	try
+try
 	{
 		[Custom.MouseHookManager]::Start($hookCallback)
 
@@ -1008,6 +965,7 @@ function InvokeReconnectionSequence
 
 		SleepWithCancel -Milliseconds 50
 		[Custom.MouseHookManager]::Stop()
+		$hookStopped = $true
 
 		CloseToast -Key $PidToReconnect
 
@@ -1081,8 +1039,11 @@ function InvokeReconnectionSequence
 	}
  finally
 	{
-		try { [Custom.MouseHookManager]::Stop() } catch {}
-		$global:LoginCancellation.IsCancelled = $false
+		if (-not $hookStopped)
+		{
+			try { [Custom.MouseHookManager]::Stop() } catch {}
+			$global:LoginCancellation.IsCancelled = $false
+		}
 		$script:ReconnectScriptInitiatedMove = $false
 	}
 }

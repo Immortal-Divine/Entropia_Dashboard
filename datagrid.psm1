@@ -14,10 +14,6 @@ $script:ProcessCache = @{}
 
 $script:PendingChecks = [System.Collections.Generic.HashSet[int]]::new()
 
-if (-not ('SafeWindowCore' -as [Type]))
-{
-	try { InitializeClassesModule } catch { Write-Verbose "DATAGRID: InitializeClassesModule failed: $($_.Exception.Message)" }
-}
 #endregion
 
 #region Helper Functions
@@ -46,7 +42,7 @@ function RestoreWindowStyles
 		{
 			$hWnd = [IntPtr]::Zero
 			if ($script:ProcessCache[$processId].hWnd) { $hWnd = $script:ProcessCache[$processId].hWnd }
-			if ($hWnd -eq [IntPtr]::Zero -and ('SafeWindowCore' -as [Type])) { $hWnd = [SafeWindowCore]::FindBestWindow($processId) }
+			if ($hWnd -eq [IntPtr]::Zero -and ('Custom.SafeWindowCore' -as [Type])) { $hWnd = [Custom.SafeWindowCore]::FindBestWindow($processId) }
 			if ($hWnd -ne [IntPtr]::Zero)
 			{
 				if ([Custom.Native]::IsWindow($hWnd)) { SetWindowToolStyle -hWnd $hWnd -Hide $false }
@@ -195,7 +191,7 @@ function StartWindowStateCheck
 				$isResponsive = $null
 				if ($completedTask.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) { $isResponsive = $completedTask.Result }
 				$isMinimized = $false
-				if ('SafeWindowCore' -as [Type]) { $isMinimized = [SafeWindowCore]::IsMinimized($hWnd) }
+				if ('Custom.SafeWindowCore' -as [Type]) { $isMinimized = [Custom.SafeWindowCore]::IsMinimized($hWnd) }
 				else { $isMinimized = [Custom.Native]::IsMinimized($hWnd) }
 
 				$finalState = if (-not $isResponsive) { $script:States.Loading }
@@ -340,6 +336,74 @@ function SetWindowToolStyle
 	}
  catch {}
 }
+
+function Save-WindowPositions
+{
+	[CmdletBinding()]
+	param()
+
+	$grid = $global:DashboardConfig.UI.DataGridFiller
+	if (-not $grid) { return }
+	
+	$selectedRows = $grid.SelectedRows
+	if ($selectedRows.Count -eq 0) { return }
+
+	if (-not $global:DashboardConfig.Config.Contains('SavedWindowPositions'))
+	{
+		$global:DashboardConfig.Config['SavedWindowPositions'] = [ordered]@{}
+	}
+
+	$savedCount = 0
+	foreach ($row in $selectedRows)
+	{
+		if ($row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
+		{
+			$hWnd = $row.Tag.MainWindowHandle
+			if ([Custom.Native]::IsMinimized($hWnd)) { continue }
+
+			$rect = New-Object Custom.Native+RECT
+			if ([Custom.Native]::GetWindowRect($hWnd, [ref]$rect))
+			{
+				if ($rect.Left -le -32000 -or $rect.Top -le -32000) { continue }
+
+				$width = $rect.Right - $rect.Left
+				$height = $rect.Bottom - $rect.Top
+				$posString = "$($rect.Left),$($rect.Top),$width,$height"
+				$identity = $row.Cells[1].Value.ToString()
+				$global:DashboardConfig.Config['SavedWindowPositions'][$identity] = $posString
+				$savedCount++
+			}
+		}
+	}
+	
+	if ($savedCount -gt 0)
+	{
+		if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
+	}
+	if (Get-Command Show-DarkMessageBox -ErrorAction SilentlyContinue) { Show-DarkMessageBox "Window positions saved for $($savedCount) of $($selectedRows.Count) client(s).`nMinimized windows were skipped." "Position Saved" "OK" "Information" "success" }
+}
+
+function Restore-WindowPositions
+{
+	[CmdletBinding()]
+	param()
+
+	$grid = $global:DashboardConfig.UI.DataGridFiller
+	if (-not $grid -or -not $global:DashboardConfig.Config.Contains('SavedWindowPositions')) { return }
+	
+	foreach ($row in $grid.SelectedRows)
+	{
+		$identity = $row.Cells[1].Value.ToString()
+		if ($global:DashboardConfig.Config['SavedWindowPositions'].Contains($identity))
+		{
+			$pos = $global:DashboardConfig.Config['SavedWindowPositions'][$identity] -split ','
+			if ($pos.Count -eq 4 -and $row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
+			{
+				[Custom.Native]::PositionWindow($row.Tag.MainWindowHandle, [IntPtr]::Zero, [int]$pos[0], [int]$pos[1], [int]$pos[2], [int]$pos[3], 0x0014) # SWP_NOZORDER | SWP_NOACTIVATE
+			}
+		}
+	}
+}
 #endregion
 
 #region Core Functions
@@ -372,9 +436,9 @@ function UpdateDataGrid
 			{
 				if ((Get-Date) -gt $lastWindowCheck.AddSeconds(5))
 				{
-					if ('SafeWindowCore' -as [Type])
+					if ('Custom.SafeWindowCore' -as [Type])
 					{
-						$cachedHWnd = [SafeWindowCore]::FindBestWindow($pidVal)
+						$cachedHWnd = [Custom.SafeWindowCore]::FindBestWindow($pidVal)
 						$script:ProcessCache[$pidVal]['hWnd'] = $cachedHWnd
 						$script:ProcessCache[$pidVal]['LastWindowCheck'] = Get-Date
 					}
@@ -391,9 +455,9 @@ function UpdateDataGrid
 			}
 			if ($cachedHWnd -ne [IntPtr]::Zero -and $shouldUpdateTitle)
 			{
-				if ('SafeWindowCore' -as [Type])
+				if ('Custom.SafeWindowCore' -as [Type])
 				{
-					$safeTitle = [SafeWindowCore]::GetText($cachedHWnd)
+					$safeTitle = [Custom.SafeWindowCore]::GetText($cachedHWnd)
 					if (-not [string]::IsNullOrEmpty($safeTitle))
 					{
 						$processTitle = $safeTitle; $script:ProcessCache[$pidVal]['CachedTitle'] = $safeTitle
@@ -454,9 +518,9 @@ function UpdateDataGrid
 
 				
 				$isWindowFlashing = $false
-				if (-not $isDisconnected -and $hWnd -ne [IntPtr]::Zero -and ('SafeWindowCore' -as [Type]))
+				if (-not $isDisconnected -and $hWnd -ne [IntPtr]::Zero -and ('Custom.SafeWindowCore' -as [Type]))
 				{
-					$isWindowFlashing = [SafeWindowCore]::IsWindowFlashing($hWnd)
+					$isWindowFlashing = [Custom.SafeWindowCore]::IsWindowFlashing($hWnd)
 				}
 
 				if ($isDisconnected)
@@ -507,26 +571,101 @@ function UpdateDataGrid
 
 function StartDataGridUpdateTimer
 {
-	[CmdletBinding()]
-	param()
-	if ($global:DashboardConfig.Resources.Timers['dataGridUpdateTimer'])
-	{
-		try { $global:DashboardConfig.Resources.Timers['dataGridUpdateTimer'].Stop(); $global:DashboardConfig.Resources.Timers['dataGridUpdateTimer'].Dispose(); $global:DashboardConfig.Resources.Timers.Remove('dataGridUpdateTimer') } catch {}
-	}
-	$dataGridUpdateTimer = New-Object System.Windows.Forms.Timer; $dataGridUpdateTimer.Interval = $script:UpdateInterval
-	$tickAction = {
-		if ($global:DashboardConfig.UI.DataGridFiller -and -not $global:DashboardConfig.UI.DataGridFiller.IsDisposed)
-		{
-			try { $global:DashboardConfig.UI.DataGridFiller.BeginInvoke([Action] { try { UpdateDataGrid -Grid $global:DashboardConfig.UI.DataGridFiller } catch { Write-Verbose "DataGrid Update Error: $($_.Exception.Message)" } }) } catch { Write-Verbose "DataGrid BeginInvoke Error: $($_.Exception.Message)" }
-		}
-		else { $this.Stop() }
-	}
-	$dataGridUpdateTimer.Add_Tick($tickAction)
-	$grid = $global:DashboardConfig.UI.DataGridFiller
-	if ($grid) { $prop = $grid.GetType().GetProperty('DoubleBuffered', [System.Reflection.BindingFlags]'Instance, NonPublic'); if ($prop) { $prop.SetValue($grid, $true, $null) } }
-	$dataGridUpdateTimer.Start()
-	if ($global:DashboardConfig.Resources -and -not $global:DashboardConfig.Resources.ContainsKey('Timers')) { $global:DashboardConfig.Resources['Timers'] = @{} }
-	$global:DashboardConfig.Resources.Timers['dataGridUpdateTimer'] = $dataGridUpdateTimer
+    [CmdletBinding()]
+    param()
+
+    # Check if already running to prevent double-initialization issues
+    if ($global:DashboardConfig.Resources.LaunchResources['DataGridUpdater'] -and 
+        $global:DashboardConfig.Resources.LaunchResources['DataGridUpdater'].PowerShell.InvocationStateInfo.State -eq 'Running')
+    {
+        Write-Verbose "DATAGRID: Background update timer is already running."
+        return
+    }
+
+    # Clean up existing resources
+    if ($global:DashboardConfig.Resources.LaunchResources['DataGridUpdater'])
+    {
+        try { 
+            $global:DashboardConfig.Resources.LaunchResources['DataGridUpdater'].PowerShell.Stop()
+            $global:DashboardConfig.Resources.LaunchResources['DataGridUpdater'].PowerShell.Dispose()
+        } catch {}
+        $global:DashboardConfig.Resources.LaunchResources.Remove('DataGridUpdater')
+    }
+    if ($global:DashboardConfig.Resources.Timers['dataGridUpdateTimer'])
+    {
+        try {
+            $global:DashboardConfig.Resources.Timers['dataGridUpdateTimer'].Stop()
+            $global:DashboardConfig.Resources.Timers['dataGridUpdateTimer'].Dispose()
+        } catch {}
+        $global:DashboardConfig.Resources.Timers.Remove('dataGridUpdateTimer')
+    }
+
+    $grid = $global:DashboardConfig.UI.DataGridFiller
+    if (-not $grid) { return }
+    
+    # Enable double buffering
+    $prop = $grid.GetType().GetProperty('DoubleBuffered', [System.Reflection.BindingFlags]'Instance, NonPublic')
+    if ($prop) { $prop.SetValue($grid, $true, $null) }
+
+    # Create the Action delegate in the Main Runspace.
+    # This captures the context of the Main Runspace (where UpdateDataGrid is defined).
+    # When invoked by the UI message pump, it will execute in the Main Runspace.
+    $updateAction = [Action]{
+        if ($global:DashboardConfig.UI.DataGridFiller -and -not $global:DashboardConfig.UI.DataGridFiller.IsDisposed) {
+            try {
+                UpdateDataGrid -Grid $global:DashboardConfig.UI.DataGridFiller
+            } catch {
+                Write-Verbose "Error in timer-invoked UpdateDataGrid: $_"
+            }
+        }
+    }
+
+    # Create a background runspace to act as the "Pulse"
+    $rs = [runspacefactory]::CreateRunspace()
+    $rs.ApartmentState = "STA"
+    $rs.ThreadOptions = "ReuseThread"
+    $rs.Open()
+    
+    # Pass the Grid and the Action to the background runspace
+    $rs.SessionStateProxy.SetVariable('TargetGrid', $grid)
+    $rs.SessionStateProxy.SetVariable('UpdateAction', $updateAction)
+    $rs.SessionStateProxy.SetVariable('Interval', $script:UpdateInterval)
+
+    # The script running in the background. 
+    # It just sleeps and invokes the delegate.
+    $pulseScript = {
+        while ($true)
+        {
+            if (-not $TargetGrid -or $TargetGrid.IsDisposed) { break }
+            
+            try {
+                # BeginInvoke is thread-safe and non-blocking.
+                # It posts the UpdateAction (bound to Main Runspace) to the UI message pump.
+                $TargetGrid.BeginInvoke($UpdateAction) | Out-Null
+            }
+            catch {
+                break
+            }
+            
+            Start-Sleep -Milliseconds $Interval
+        }
+    }
+    
+    $ps = [PowerShell]::Create()
+    $ps.Runspace = $rs
+    $ps.AddScript($pulseScript) | Out-Null
+    
+    $handle = $ps.BeginInvoke()
+    
+    if (-not $global:DashboardConfig.Resources.ContainsKey('LaunchResources')) {
+        $global:DashboardConfig.Resources['LaunchResources'] = @{}
+    }
+    $global:DashboardConfig.Resources.LaunchResources['DataGridUpdater'] = @{
+        PowerShell = $ps
+        Runspace = $rs
+        Handle = $handle
+    }
+    Write-Verbose "DATAGRID: Background pulse timer started."
 }
 #endregion
 

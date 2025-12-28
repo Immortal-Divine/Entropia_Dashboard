@@ -1,8 +1,98 @@
-<# ui.psm1
-#>
+<# ui.psm1 #>
 
 #region Helper Functions
 
+function Show-DarkMessageBox
+{
+    [CmdletBinding(DefaultParameterSetName='ImplicitOwner')]
+    param(
+        [Parameter(ParameterSetName='ExplicitOwner', Mandatory=$true)]
+        [System.Windows.Forms.IWin32Window]$Owner,
+
+        [Parameter(ParameterSetName='ImplicitOwner', Position=0, Mandatory=$true)]
+        [Parameter(ParameterSetName='ExplicitOwner', Position=0, Mandatory=$true)]
+        [string]$Text,
+
+        [Parameter(ParameterSetName='ImplicitOwner', Position=1)]
+        [Parameter(ParameterSetName='ExplicitOwner', Position=1)]
+        [string]$Caption = "Notification",
+
+        [Parameter(ParameterSetName='ImplicitOwner', Position=2)]
+        [Parameter(ParameterSetName='ExplicitOwner', Position=2)]
+        [System.Windows.Forms.MessageBoxButtons]$Buttons = 'OK',
+
+        [Parameter(ParameterSetName='ImplicitOwner', Position=3)]
+        [Parameter(ParameterSetName='ExplicitOwner', Position=3)]
+        [System.Windows.Forms.MessageBoxIcon]$Icon = 'Information',
+
+        [Parameter(ParameterSetName='ImplicitOwner', Position=4)]
+        [Parameter(ParameterSetName='ExplicitOwner', Position=4)]
+        [string]$Type
+    )
+
+    # This flag can be used by other parts of the app to know a dialog is active
+    $global:DashboardConfig.State.LoginActive = $true
+    try
+    {
+        $isSuccess = $false
+        if ($PSBoundParameters.ContainsKey('Type')) {
+            $isSuccess = ($Type.ToLower() -eq "success")
+        }
+
+        $ownerForm = $null
+        if ($PSCmdlet.ParameterSetName -eq 'ExplicitOwner') {
+            $ownerForm = $PSBoundParameters['Owner']
+        } else {
+            $ownerForm = $global:DashboardConfig.UI.MainForm
+        }
+        
+        # Create an instance of the DarkMessageBox using its now-public constructor
+        $msgBox = New-Object Custom.DarkMessageBox($Text, $Caption, $Buttons, $Icon, $isSuccess)
+        
+        if ($ownerForm -and -not $ownerForm.IsDisposed)
+        {
+            $msgBox.Owner = $ownerForm
+            $msgBox.StartPosition = 'CenterScreen'
+        }
+
+        # Use the custom, non-blocking modal loop that keeps background tasks alive
+        return Show-FormAsDialog -Form $msgBox
+    }
+    finally
+    {
+        $global:DashboardConfig.State.LoginActive = $false
+    }
+}
+
+
+function Show-FormAsDialog
+{
+	param(
+		[Parameter(Mandatory = $true)]
+		[System.Windows.Forms.Form]$Form
+	)
+
+	$Form.Show()
+	try
+	{
+		if (-not ('Custom.Native' -as [Type])) {
+			throw "Custom.Native class not found. Cannot use P/Invoke message loop."
+		}
+
+		$msg = New-Object Custom.Native+MSG
+		while ($Form.Visible)
+		{
+			$null = [Custom.Native]::AsyncExecution(0, [IntPtr[]]@(), $false, 50, [Custom.Native]::QS_ALLINPUT)
+			while ([Custom.Native]::PeekMessage([ref]$msg, [IntPtr]::Zero, 0, 0, [Custom.Native]::PM_REMOVE))
+			{
+				[void][Custom.Native]::TranslateMessage([ref]$msg)
+				[void][Custom.Native]::DispatchMessage([ref]$msg)
+			}
+		}
+	}
+	catch { while ($Form.Visible) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 20 } }
+	return $Form.DialogResult
+}
 
 function GetNeuzResolution
 {
@@ -255,7 +345,7 @@ function RefreshHotkeysList
 						{
 							$groupName = $Matches[1]
 							$displayOwner = "Window Group: $groupName"
-							$memberString = 'N/A'
+							$null = $memberString; $memberString = 'N/A'
 							if ($global:DashboardConfig.Config.Contains('HotkeyGroups') -and $global:DashboardConfig.Config['HotkeyGroups'].Contains($groupName))
 							{
 								$memberString = $global:DashboardConfig.Config['HotkeyGroups'][$groupName]
@@ -303,73 +393,22 @@ function ShowInputBox
 		[string]$DefaultText
 	)
 
-	$form = New-Object System.Windows.Forms.Form
-	$form.Text = $Title
-	$form.Size = New-Object System.Drawing.Size(300, 150)
-	$form.StartPosition = 'CenterParent'
-	$form.FormBorderStyle = 'FixedDialog'
-	$form.MaximizeBox = $false
-	$form.MinimizeBox = $false
-	$form.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
-	$form.ForeColor = [System.Drawing.Color]::FromArgb(240, 240, 240)
-	$form.TopMost = $true
+	$form = New-Object Custom.DarkInputBox($Title, $Prompt, $DefaultText)
 
 	if ($global:DashboardConfig.Paths.Icon -and (Test-Path $global:DashboardConfig.Paths.Icon))
 	{
 		try { $form.Icon = New-Object System.Drawing.Icon($global:DashboardConfig.Paths.Icon) } catch {}
 	}
 
-	$label = New-Object System.Windows.Forms.Label
-	$label.Location = New-Object System.Drawing.Point(10, 10)
-	$label.Size = New-Object System.Drawing.Size(260, 20)
-	$label.Text = $Prompt
-	$label.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-	$form.Controls.Add($label)
-
-	$textBox = New-Object System.Windows.Forms.TextBox
-	$textBox.Location = New-Object System.Drawing.Point(10, 40)
-	$textBox.Size = New-Object System.Drawing.Size(260, 25)
-	$textBox.Text = $DefaultText
-	$textBox.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 50)
-	$textBox.ForeColor = [System.Drawing.Color]::FromArgb(240, 240, 240)
-	$textBox.BorderStyle = 'FixedSingle'
-	$form.Controls.Add($textBox)
-
-	$okButton = New-Object System.Windows.Forms.Button
-	$okButton.Location = New-Object System.Drawing.Point(110, 80)
-	$okButton.Size = New-Object System.Drawing.Size(75, 25)
-	$okButton.Text = 'OK'
-	$okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
-	$okButton.FlatStyle = 'Flat'
-	$okButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(60,60,60)
-	$okButton.BackColor = [System.Drawing.Color]::FromArgb(40,40,40)
-	$form.Controls.Add($okButton)
-
-	$cancelButton = New-Object System.Windows.Forms.Button
-	$cancelButton.Location = New-Object System.Drawing.Point(195, 80)
-	$cancelButton.Size = New-Object System.Drawing.Size(75, 25)
-	$cancelButton.Text = 'Cancel'
-	$cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-	$cancelButton.FlatStyle = 'Flat'
-	$cancelButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(60,60,60)
-	$cancelButton.BackColor = [System.Drawing.Color]::FromArgb(40,40,40)
-	$form.Controls.Add($cancelButton)
-
-	$form.AcceptButton = $okButton
-	$form.CancelButton = $cancelButton
-
 	if ($global:DashboardConfig.UI.SettingsForm)
 	{
-		$result = $form.ShowDialog($global:DashboardConfig.UI.SettingsForm)
+		$form.Owner = $global:DashboardConfig.UI.SettingsForm
 	}
- else
-	{
-		$result = $form.ShowDialog()
-	}
+	$result = Show-FormAsDialog -Form $form
 
 	if ($result -eq [System.Windows.Forms.DialogResult]::OK)
 	{
-		return $textBox.Text
+		return $form.ResultText
 	}
  else
 	{
@@ -741,9 +780,31 @@ function InitializeUI
 
 	$uiPropertiesToAdd = @{}
 
-	$p = @{ type = 'Form'; visible = $false; width = 470; height = 440; bg = @(30, 30, 30); id = 'MainForm'; text = 'Entropia Dashboard'; startPosition = 'CenterScreen'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None }
+	$p = @{ type = 'Form'; visible = $false; width = 470; height = 440; bg = @(30, 30, 30); id = 'MainForm'; text = 'Entropia Dashboard'; startPosition = 'Manual'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None }
 	$mainForm = SetUIElement @p
 
+	$positionApplied = $false
+	if ($global:DashboardConfig.Config.Contains('WindowPosition'))
+	{
+		try
+		{
+			$posX = $global:DashboardConfig.Config['WindowPosition']['MainFormX']
+			$posY = $global:DashboardConfig.Config['WindowPosition']['MainFormY']
+			$x = 0; $y = 0
+			if (([int]::TryParse($posX, [ref]$x)) -and ([int]::TryParse($posY, [ref]$y)))
+			{
+				$formRect = [System.Drawing.Rectangle]::new($x, $y, $mainForm.Width, $mainForm.Height)
+				$isOnScreen = [System.Windows.Forms.Screen]::AllScreens | ForEach-Object { $_.WorkingArea.IntersectsWith($formRect) } | Where-Object { $_ } | Select-Object -First 1
+				if ($isOnScreen)
+				{
+					$mainForm.Location = New-Object System.Drawing.Point($x, $y)
+					$positionApplied = $true
+				}
+			}
+		}
+		catch { Write-Verbose "UI: Failed to apply saved window position: $_" }
+	}
+	if (-not $positionApplied) { $mainForm.StartPosition = 'CenterScreen' }
 
 	if (-not $global:DashboardConfig.UI) { $global:DashboardConfig | Add-Member -MemberType NoteProperty -Name UI -Value ([PSCustomObject]@{}) -Force }
 
@@ -754,30 +815,306 @@ function InitializeUI
 	$toolTipMain.ShowAlways = $true
 	$toolTipMain.OwnerDraw = $true
 	$toolTipMain.Add_Draw({
-			param($s, $e)
-			$g = $e.Graphics
-			$b = $e.Bounds
-			$bg = [System.Drawing.Color]::FromArgb(30, 30, 30)
-			$fg = [System.Drawing.Color]::FromArgb(240, 240, 240)
-			$border = [System.Drawing.Color]::FromArgb(100, 100, 100)
-			$brush = New-Object System.Drawing.SolidBrush($bg)
-			$g.FillRectangle($brush, $b)
-			$brush.Dispose()
-			$pen = New-Object System.Drawing.Pen($border)
-			$g.DrawRectangle($pen, $b.X, $b.Y, $b.Width - 1, $b.Height - 1)
-			$pen.Dispose()
-			$textBrush = New-Object System.Drawing.SolidBrush($fg)
-			$g.DrawString($e.ToolTipText, $e.Font, $textBrush, [System.Drawing.PointF]::new(2, 2))
-			$textBrush.Dispose()
-		})
-	$toolTipMain.Add_Popup({ param($s, $e) $e.ToolTipSize = [System.Drawing.Size]::new($e.ToolTipSize.Width + 4, $e.ToolTipSize.Height + 4) })
+		param($s, $e)
+		$g = $e.Graphics
+		$b = $e.Bounds
+		
+		# 1. Define Colors
+		$bg = [System.Drawing.Color]::FromArgb(30, 30, 30)
+		$fg = [System.Drawing.Color]::FromArgb(240, 240, 240)
+		$border = [System.Drawing.Color]::FromArgb(100, 100, 100)
 
+		# 2. Draw Background
+		$bgBrush = New-Object System.Drawing.SolidBrush($bg)
+		$g.FillRectangle($bgBrush, $b)
+		$bgBrush.Dispose()
+
+		# 3. Draw Border
+		$pen = New-Object System.Drawing.Pen($border)
+		# Draw slightly inside bounds to ensure the border is visible
+		$g.DrawRectangle($pen, $b.X, $b.Y, $b.Width - 1, $b.Height - 1)
+		$pen.Dispose()
+
+		# 4. Draw Text 
+		# Use GenericTypographic to ensure it matches the Popup measurement exactly
+		$textBrush = New-Object System.Drawing.SolidBrush($fg)
+		$sf = [System.Drawing.StringFormat]::GenericTypographic
+		
+		# Draw at (3, 3) to give a small margin from your border
+		$g.DrawString($e.ToolTipText, $e.Font, $textBrush, 3, 3, $sf)
+		
+		$textBrush.Dispose()
+	})
+	$toolTipMain.Add_Popup({
+		param($s, $e)
+		
+		# 1. Get the text
+		$tipText = $s.GetToolTip($e.AssociatedControl)
+		$font = $e.AssociatedControl.Font
+
+		# 2. Measure using GDI+ (to match DrawString)
+		$tempGraphics = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+		
+		# Use GenericTypographic to get tighter, more accurate measurement
+		$stringFormat = [System.Drawing.StringFormat]::GenericTypographic
+		$size = $tempGraphics.MeasureString($tipText, $font, [System.Drawing.PointF]::new(0,0), $stringFormat)
+		
+		$tempGraphics.Dispose()
+
+		# 3. Add padding. 
+		# We add 4 for the (2,2) offset in DrawString, and another 4 for the right/bottom margins.
+		$e.ToolTipSize = [System.Drawing.Size]::new([int]$size.Width + 8, [int]$size.Height + 8)
+	})
 	$global:DashboardConfig.UI | Add-Member -MemberType NoteProperty -Name ToolTip -Value $toolTipMain -Force
 
 	$p = @{ type = 'Form'; width = 600; height = 655; bg = @(30, 30, 30); id = 'SettingsForm'; text = 'Settings'; startPosition = 'CenterScreen'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None; topMost = $false; opacity = 0.0 }
 	$settingsForm = SetUIElement @p
 	$settingsForm.Owner = $mainForm
+	$p = @{ type = 'Form'; width = 600; height = 655; bg = @(30, 30, 30); id = 'WorldbossForm'; text = 'Worldboss'; startPosition = 'CenterScreen'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None; topMost = $false; opacity = 0.0 }
+	$worldbossForm = SetUIElement @p
+	$worldbossForm.Owner = $mainForm
+	$global:DashboardConfig.UI.WorldbossForm = $worldbossForm
 
+	$Theme = @{
+		BackgroundStart = [System.Drawing.ColorTranslator]::FromHtml("#0f1219")
+		BackgroundEnd   = [System.Drawing.ColorTranslator]::FromHtml("#0f1219")
+		PanelColor      = [System.Drawing.ColorTranslator]::FromHtml("#232838")
+		InputBack       = [System.Drawing.ColorTranslator]::FromHtml("#161a26")
+		AccentColor     = [System.Drawing.ColorTranslator]::FromHtml("#ff2e4c")
+		TextColor       = [System.Drawing.ColorTranslator]::FromHtml("#ffffff")
+		SubTextColor    = [System.Drawing.ColorTranslator]::FromHtml("#a0a5b0")
+		
+		# -- Added these missing colors for the buttons --
+		ButtonColor     = [System.Drawing.ColorTranslator]::FromHtml("#462424")
+		GenesisColor    = [System.Drawing.ColorTranslator]::FromHtml("#382b20")
+	}
+
+	$BossData = @{
+		"Entropia King" = @{
+			name = "Entropia King"
+			url  = "https://i.ibb.co/F4MPy9sm/Entropia-King.png"
+			role = "1030608207460171837"
+		}
+		"Clockworks" = @{
+			name = "Clockworks"
+			url  = "https://i.ibb.co/Y4d9dZMC/Clockworks.png"
+			role = "1030608298266869791"
+		}
+		"Royal Knight" = @{
+			name = "Royal Knight"
+			url  = "https://i.ibb.co/Zp2kw9KR/Royal-Knight.png"
+			role = "1030608553741930536"
+		}
+		"Solarion" = @{
+			name = "Solarion"
+			url  = "https://i.ibb.co/CKFN9jRv/Solarion.png"
+			role = "1418869138016960512"
+		}
+		"C-A01" = @{
+			name = "C-A01"
+			url  = "https://i.ibb.co/ych0fN0m/C-A01.png"
+			role = "1210685566010658926"
+		}
+		"Great Venux Tree" = @{
+			name = "Great Venux Tree"
+			url  = "https://i.ibb.co/V0ND13ND/Great-Venux-Tree.png"
+			role = "1210685569164640296"
+		}
+		"Grinch" = @{
+			name = "Grinch"
+			url  = "https://i.ibb.co/V0ND13ND/Great-Venux-Tree.png"
+			role = "1444911271978729616"
+		}
+		"Genesis Entropia King" = @{
+			name = "Genesis Entropia King"
+			url  = "https://i.ibb.co/F4MPy9sm/Entropia-King.png"
+			role = "1454470952506364005"
+		}
+		"Genesis Clockworks" = @{
+			name = "Genesis Clockworks"
+			url  = "https://i.ibb.co/Y4d9dZMC/Clockworks.png"
+			role = "1454470955903488143"
+		}
+		"Genesis Royal Knight" = @{
+			name = "Genesis Royal Knight"
+			url  = "https://i.ibb.co/Zp2kw9KR/Royal-Knight.png"
+			role = "1454470958818660412"
+		}
+		"Genesis Solarion" = @{
+			name = "Genesis Solarion"
+			url  = "https://i.ibb.co/CKFN9jRv/Solarion.png"
+			role = "1454470962324963571"
+		}
+		"Genesis C-A01" = @{
+			name = "Genesis C-A01"
+			url  = "https://i.ibb.co/ych0fN0m/C-A01.png"
+			role = "1454470965231620108"
+		}
+		"Genesis Great Venux Tree" = @{
+			name = "Genesis Great Venux Tree"
+			url  = "https://i.ibb.co/V0ND13ND/Great-Venux-Tree.png"
+			role = "1454470968616681523"
+		}
+		"Genesis Grinch" = @{
+			name = "Genesis Grinch"
+			url  = "https://i.ibb.co/V0ND13ND/Great-Venux-Tree.png"
+			role = "1454470972173451408"
+		}
+	}
+	$global:DashboardConfig.Resources.BossData = $BossData
+
+	$worldbossForm.BackColor = $Theme.BackgroundStart
+
+	$worldbossForm.Add_Paint({
+		param($s, $e)
+		$rect = $s.ClientRectangle
+		$brush = New-Object System.Drawing.Drawing2D.LinearGradientBrush($rect, $Theme.BackgroundStart, $Theme.BackgroundEnd, 90)
+		$e.Graphics.FillRectangle($brush, $rect)
+		$brush.Dispose()
+	}.GetNewClosure())
+
+	$lblTitle = New-Object System.Windows.Forms.Label
+	$lblTitle.Text = "WORLDBOSS CONTROL PANEL"
+	$lblTitle.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+	$lblTitle.ForeColor = $Theme.AccentColor
+	$lblTitle.Location = New-Object System.Drawing.Point(20, 15)
+	$lblTitle.AutoSize = $true
+
+	$btnClose = New-Object System.Windows.Forms.Label
+	$btnClose.Text = "X"
+	$btnClose.Font = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold)
+	$btnClose.ForeColor = $Theme.SubTextColor
+	$btnClose.Location = New-Object System.Drawing.Point(560, 10)
+	$btnClose.Cursor = [System.Windows.Forms.Cursors]::Hand
+	$btnClose.Add_Click({ HideWorldbossForm })
+
+	$lblCode = New-Object System.Windows.Forms.Label
+	$lblCode.Text = "ACCESS CODE"
+	$lblCode.ForeColor = $Theme.SubTextColor
+	$lblCode.BackColor = [System.Drawing.Color]::Transparent
+	$lblCode.Font = New-Object System.Drawing.Font("Segoe UI", 8)
+	$lblCode.Location = New-Object System.Drawing.Point(20, 50)
+	$lblCode.AutoSize = $true
+
+	$codeBox = New-Object System.Windows.Forms.TextBox
+	$codeBox.Size = New-Object System.Drawing.Size(200, 25)
+	$codeBox.Location = New-Object System.Drawing.Point(20, 75)
+	$codeBox.BackColor = $Theme.InputBack
+	$codeBox.ForeColor = $Theme.TextColor
+	$codeBox.PasswordChar = '*'
+	$codeBox.BorderStyle = "FixedSingle"
+	$codeBox.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+
+	# ---- TABLE GRID ----
+	$table = New-Object System.Windows.Forms.TableLayoutPanel
+	$table.Location   = New-Object System.Drawing.Point(20, 125)
+	$table.Size       = New-Object System.Drawing.Size(510, 100)
+	$table.BackColor  = [System.Drawing.Color]::Transparent
+	$table.ColumnCount = 2
+	$table.RowCount    = 0
+	$table.AutoSize    = $true
+	$table.GrowStyle   = 'FixedSize'
+
+	# Logical family order (drives the table)
+	$BossList = @(
+		"Entropia King",
+		"Clockworks",
+		"Royal Knight",
+		"Solarion",
+		"C-A01",
+		"Great Venux Tree",
+		"Grinch"
+	)
+
+	# Set columns to 50% width each so they are perfectly symmetrical
+	$ButtonPanel = New-Object System.Windows.Forms.TableLayoutPanel
+	$ButtonPanel.Location = New-Object System.Drawing.Point(20, 120) 
+	$ButtonPanel.Size = New-Object System.Drawing.Size(560, 500) # Leave room for bottom
+	$ButtonPanel.BackColor = [System.Drawing.Color]::Transparent
+	$ButtonPanel.ColumnCount = 2
+	$ButtonPanel.AutoScroll = $true 
+	# --- FIX 1: COLUMN STYLES (Width) ---
+	# Left column takes 25%, Right column takes 75%
+	$ButtonPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 25)))
+	$ButtonPanel.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 75)))
+
+	# --- FIX 2: ROW STYLES (Height) ---
+	# This loop forces every single row to be exactly equal in height (100% / 7 rows = ~14.28%)
+	# This prevents the last button from stretching.
+	$percentage = 100 / $BossList.Count
+	foreach ($i in 1..$BossList.Count) {
+		$ButtonPanel.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, $percentage)))
+	}
+
+	foreach ($Boss in $BossList) {
+		# 1. Create Normal Button (Left Side)
+		$btnNormal = New-Object System.Windows.Forms.Button
+		$btnNormal.Text = $Boss
+		$btnNormal.Dock = [System.Windows.Forms.DockStyle]::Fill
+		$btnNormal.Height = 45 # Slightly taller for modern look
+		$btnNormal.FlatStyle = 'Flat'
+		$btnNormal.BackColor = $Theme.ButtonColor
+		$btnNormal.Tag = "Normal"
+		$btnNormal.ForeColor = $Theme.TextColor
+		$btnNormal.FlatAppearance.BorderSize = 0
+		# Remove the ugly focus rectangle
+		$btnNormal.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::Empty 
+		$btnNormal.FlatAppearance.MouseDownBackColor = [System.Drawing.Color]::Empty
+		
+		$btnNormal.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10) # Semibold looks cleaner
+		$btnNormal.Cursor = [System.Windows.Forms.Cursors]::Hand
+		$btnNormal.Margin = New-Object System.Windows.Forms.Padding(5) # Spacing between buttons
+
+		# --- Click Logic ---
+		$btnNormal.Add_Click({
+			if ([string]::IsNullOrWhiteSpace($codeBox.Text)) {
+				Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'Access Code Required' 'Wrong Access Code' 'Ok' 'Error'
+				return
+			}
+			# Assuming Send-Message is defined in your scope
+			Send-Message -code $codeBox.Text -bossName $this.Text
+		}.GetNewClosure())
+		
+		# 2. Create Genesis Button (Right Side)
+		$btnGenesis = New-Object System.Windows.Forms.Button
+		$btnGenesis.Text = "Genesis $Boss"
+		$btnGenesis.Dock = [System.Windows.Forms.DockStyle]::Fill
+		$btnGenesis.Height = 45 # Slightly taller for modern look
+		$btnGenesis.FlatStyle = 'Flat'
+		$btnGenesis.BackColor = $Theme.GenesisColor
+		$btnGenesis.Tag = "Genesis" # Used for hover logic
+		$btnGenesis.ForeColor = $Theme.TextColor
+		$btnGenesis.FlatAppearance.BorderSize = 0
+		# Remove the ugly focus rectangle
+		$btnGenesis.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::Empty 
+		$btnGenesis.FlatAppearance.MouseDownBackColor = [System.Drawing.Color]::Empty
+		
+		$btnGenesis.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10) # Semibold looks cleaner
+		$btnGenesis.Cursor = [System.Windows.Forms.Cursors]::Hand
+		$btnGenesis.Margin = New-Object System.Windows.Forms.Padding(5) # Spacing between buttons
+
+		# --- Click Logic ---
+		$btnGenesis.Add_Click({
+			if ([string]::IsNullOrWhiteSpace($codeBox.Text)) {
+				Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'Access Code Required' 'Wrong Access Code' 'Ok' 'Error'
+				return
+			}
+			# Assuming Send-Message is defined in your scope
+			Send-Message -code $codeBox.Text -bossName $this.Text
+		}.GetNewClosure())
+
+		# 3. Add to Table (Row is handled automatically by TableLayoutPanel)
+		$ButtonPanel.Controls.Add($btnNormal)
+		$ButtonPanel.Controls.Add($btnGenesis)
+	}
+
+	$worldbossForm.Controls.AddRange(@(
+		$lblTitle,
+		$btnClose,
+		$lblCode,
+		$codeBox,
+		$ButtonPanel
+	))
 
 	if ($global:DashboardConfig.Paths.Icon -and (Test-Path $global:DashboardConfig.Paths.Icon))
 	{
@@ -786,6 +1123,7 @@ function InitializeUI
 			$icon = New-Object System.Drawing.Icon($global:DashboardConfig.Paths.Icon)
 			$mainForm.Icon = $icon
 			$settingsForm.Icon = $icon
+			$worldbossForm.Icon = $icon
 		}
 		catch {}
 	}
@@ -794,7 +1132,7 @@ function InitializeUI
 	$topBar = SetUIElement @p
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; fg = @(240, 240, 240); id = 'TitleLabel'; text = 'Entropia Dashboard'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
 	$titleLabelForm = SetUIElement @p
-	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.1'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
+	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.2'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
 	$copyrightLabelForm = SetUIElement @p
 	$p = @{ type = 'Button'; width = 30; height = 30; left = 410; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'MinForm'; text = '_'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)); tooltip = 'Minimize' }
 	$btnMinimizeForm = SetUIElement @p
@@ -814,11 +1152,13 @@ function InitializeUI
 
 	$p = @{ type = 'Button'; width = 125; height = 30; top = 40; left = 150; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Login'; text = 'Login'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = 'Login selected Clients with Default or Profile Settings / Nickname List with 10 nicknames and 1024x768 mandatory.' }
 	$btnLogin = SetUIElement @p
+	$p = @{ type = 'Button'; width = 80; height = 30; top = 75; left = 375; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Worldboss'; text = 'Worldboss'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = 'Opens the Worldboss Control Panel.' }
+	$btnWorldboss = SetUIElement @p
 	$p = @{ type = 'Button'; width = 80; height = 30; top = 40; left = 285; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Settings'; text = 'Settings'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = 'Edit Dashboard Settings.' }
 	$btnSettings = SetUIElement @p
-	$p = @{ type = 'Button'; width = 80; height = 30; top = 40; left = 375; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'Terminate'; text = 'Terminate'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = 'Closes all selected Clients instantly.' }
+	$p = @{ type = 'Button'; width = 80; height = 30; top = 40; left = 375; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'Terminate'; text = 'Terminate'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = 'Closes all selected Clients instantly. Right-Click to disconnect instead.' }
 	$btnStop = SetUIElement @p
-	$p = @{ type = 'Button'; width = 440; height = 30; top = 75; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Ftool'; text = 'Ftool'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = 'Start Ftool for selected Clients.' }
+	$p = @{ type = 'Button'; width = 350; height = 30; top = 75; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Ftool'; text = 'Ftool'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = 'Start Ftool for selected Clients.' }
 	$btnFtool = SetUIElement @p
 
 	$p = @{ type = 'DataGridView'; visible = $false; width = 155; height = 320; top = 115; left = 5; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'DataGridMain'; text = ''; font = (New-Object System.Drawing.Font('Segoe UI', 9)) }
@@ -844,24 +1184,56 @@ function InitializeUI
 	$toolTipSettings.ShowAlways = $true
 	$toolTipSettings.OwnerDraw = $true
 	$toolTipSettings.Add_Draw({
-			param($s, $e)
-			$g = $e.Graphics
-			$b = $e.Bounds
-			$bg = [System.Drawing.Color]::FromArgb(30, 30, 30)
-			$fg = [System.Drawing.Color]::FromArgb(240, 240, 240)
-			$border = [System.Drawing.Color]::FromArgb(100, 100, 100)
-			$brush = New-Object System.Drawing.SolidBrush($bg)
-			$g.FillRectangle($brush, $b)
-			$brush.Dispose()
-			$pen = New-Object System.Drawing.Pen($border)
-			$g.DrawRectangle($pen, $b.X, $b.Y, $b.Width - 1, $b.Height - 1)
-			$pen.Dispose()
-			$textBrush = New-Object System.Drawing.SolidBrush($fg)
-			$g.DrawString($e.ToolTipText, $e.Font, $textBrush, [System.Drawing.PointF]::new(2, 2))
-			$textBrush.Dispose()
-		})
-	$toolTipSettings.Add_Popup({ param($s, $e) $e.ToolTipSize = [System.Drawing.Size]::new($e.ToolTipSize.Width + 4, $e.ToolTipSize.Height + 4) })
+		param($s, $e)
+		$g = $e.Graphics
+		$b = $e.Bounds
+		
+		# 1. Define Colors
+		$bg = [System.Drawing.Color]::FromArgb(30, 30, 30)
+		$fg = [System.Drawing.Color]::FromArgb(240, 240, 240)
+		$border = [System.Drawing.Color]::FromArgb(100, 100, 100)
 
+		# 2. Draw Background
+		$bgBrush = New-Object System.Drawing.SolidBrush($bg)
+		$g.FillRectangle($bgBrush, $b)
+		$bgBrush.Dispose()
+
+		# 3. Draw Border
+		$pen = New-Object System.Drawing.Pen($border)
+		# Draw slightly inside bounds to ensure the border is visible
+		$g.DrawRectangle($pen, $b.X, $b.Y, $b.Width - 1, $b.Height - 1)
+		$pen.Dispose()
+
+		# 4. Draw Text 
+		# Use GenericTypographic to ensure it matches the Popup measurement exactly
+		$textBrush = New-Object System.Drawing.SolidBrush($fg)
+		$sf = [System.Drawing.StringFormat]::GenericTypographic
+		
+		# Draw at (3, 3) to give a small margin from your border
+		$g.DrawString($e.ToolTipText, $e.Font, $textBrush, 3, 3, $sf)
+		
+		$textBrush.Dispose()
+	})
+	$toolTipSettings.Add_Popup({
+		param($s, $e)
+		
+		# 1. Get the text
+		$tipText = $s.GetToolTip($e.AssociatedControl)
+		$font = $e.AssociatedControl.Font
+
+		# 2. Measure using GDI+ (to match DrawString)
+		$tempGraphics = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+		
+		# Use GenericTypographic to get tighter, more accurate measurement
+		$stringFormat = [System.Drawing.StringFormat]::GenericTypographic
+		$size = $tempGraphics.MeasureString($tipText, $font, [System.Drawing.PointF]::new(0,0), $stringFormat)
+		
+		$tempGraphics.Dispose()
+
+		# 3. Add padding. 
+		# We add 4 for the (2,2) offset in DrawString, and another 4 for the right/bottom margins.
+		$e.ToolTipSize = [System.Drawing.Size]::new([int]$size.Width + 8, [int]$size.Height + 8)
+	})
 	$global:DashboardConfig.UI.ToolTip = $toolTipSettings
 
 	$settingsTabs = New-Object Custom.DarkTabControl
@@ -1033,7 +1405,7 @@ function InitializeUI
 	$p = &$AddPickerRow 'Char Slot 3:' 'Char3' ($rowY + 80) 2 'Click the third character slot.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Char3'] = $p
 
 	$p = &$AddPickerRow 'Collector Start:' 'CollectorStart' ($rowY + 105) 2 'Click the ''Start'' button for the collector/bot.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['CollectorStart'] = $p
-	$p = &$AddPickerRow 'Disconnect OK:' 'DisconnectOK' ($rowY + 130) 2 'Click the ''OK'' button on the disconnect confirmation dialog.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['DisconnectOK'] = $p
+	$p = &$AddPickerRow 'Disconnect OK:' 'DisconnectOK' ($rowY + 130) 2 "Click the ''OK'' button on the disconnect confirmation dialog.`nYou can force a disconnect by selecting a client and right clicking 'Terminate'.               ."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['DisconnectOK'] = $p
 	$p = &$AddPickerRow 'Login Wrong OK:' 'LoginDetailsOK' ($rowY + 155) 2 'Click the ''OK'' button on the ''wrong login details'' dialog.'; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['LoginDetailsOK'] = $p
 
 	$p = @{ type = 'Label'; width = 150; height = 20; top = ($rowY + 180); left = 10
@@ -1095,16 +1467,16 @@ function InitializeUI
 	$HotkeysGrid.EditMode = 'EditProgrammatically'
 	$HotkeysGrid.SelectionMode = 'FullRowSelect'
 	$HotkeysGrid.AutoSizeColumnsMode = 'Fill'
-	$HotkeysGrid.ColumnHeadersHeight = 30
+	$HotkeysGrid.ColumnHeadersHeight = 35
 	$HotkeysGrid.RowTemplate.Height = 25	
 	$HotkeysGrid.MultiSelect = $true
-	$colHKKey = New-Object System.Windows.Forms.DataGridViewTextBoxColumn; $colHKKey.HeaderText = 'Key Combination'; $colHKKey.FillWeight = 25; $colHKKey.ReadOnly = $true
+	$colHKKey = New-Object System.Windows.Forms.DataGridViewTextBoxColumn; $colHKKey.HeaderText = "Hotkey`nEditable"; $colHKKey.FillWeight = 25; $colHKKey.ReadOnly = $true
 	$colHKOwner = New-Object System.Windows.Forms.DataGridViewTextBoxColumn; $colHKOwner.HeaderText = 'Assigned To'; $colHKOwner.FillWeight = 45; $colHKOwner.ReadOnly = $true
 	$colHKAction = New-Object System.Windows.Forms.DataGridViewTextBoxColumn; $colHKAction.HeaderText = 'Action'; $colHKAction.FillWeight = 30; $colHKAction.ReadOnly = $true
 	$HotkeysGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]@($colHKKey, $colHKOwner, $colHKAction))
 	$tabHotkeys.Controls.Add($HotkeysGrid)
 
-	$p = @{ type = 'Button'; width = 200; height = 40; top = 470; left = 195; bg = @(150, 50, 50); fg = @(240, 240, 240); id = 'UnregisterHotkey'; text = 'Unregister and delete selected Hotkeys permanently'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = 'Unregister and delete selected Hotkeys permanently.' }
+	$p = @{ type = 'Button'; width = 200; height = 40; top = 470; left = 195; bg = @(150, 50, 50); fg = @(240, 240, 240); id = 'UnregisterHotkey'; text = 'Unregister and delete selected Hotkeys permanently'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = 'Unregister and delete selected Hotkeys permanently. If you want to edit the key instead, double click the entry.' }
 	$btnUnregisterHotkey = SetUIElement @p
 	$tabHotkeys.Controls.Add($btnUnregisterHotkey)
 
@@ -1117,7 +1489,7 @@ function InitializeUI
 	$settingsForm.Controls.AddRange(@($btnSave, $btnCancel))
 
 
-	$mainForm.Controls.AddRange(@($topBar, $btnLogin, $btnFtool, $btnLaunch, $btnSettings, $btnStop, $DataGridMain, $DataGridFiller, $GlobalProgressBar))
+	$mainForm.Controls.AddRange(@($topBar, $btnLogin, $btnFtool, $btnWorldboss, $btnLaunch, $btnSettings, $btnStop, $DataGridMain, $DataGridFiller, $GlobalProgressBar))
 	$topBar.Controls.AddRange(@($titleLabelForm, $copyrightLabelForm, $btnMinimizeForm, $btnCloseForm))
 
 	$ctxMenu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -1125,9 +1497,11 @@ function InitializeUI
 	$itmFront = New-Object System.Windows.Forms.ToolStripMenuItem('Show')
 	$itmBack = New-Object System.Windows.Forms.ToolStripMenuItem('Minimize')
 	$itmResizeCenter = New-Object System.Windows.Forms.ToolStripMenuItem('Resize')
+	$itmSavePos = New-Object System.Windows.Forms.ToolStripMenuItem('Save Position')
+	$itmLoadPos = New-Object System.Windows.Forms.ToolStripMenuItem('Load Position')
 	$itmRelog = New-Object System.Windows.Forms.ToolStripMenuItem('Relog after Disconnect')
 	$itmSetHotkey = New-Object System.Windows.Forms.ToolStripMenuItem('Set Hotkey')
-	$ctxMenu.Items.AddRange(@($itmFront, $itmBack, $itmResizeCenter, $itmRelog, $itmSetHotkey))
+	$ctxMenu.Items.AddRange(@($itmFront, $itmBack, $itmResizeCenter, $itmSavePos, $itmLoadPos, $itmRelog, $itmSetHotkey))
 	$DataGridMain.ContextMenuStrip = $ctxMenu
 	$DataGridFiller.ContextMenuStrip = $ctxMenu
 
@@ -1135,6 +1509,7 @@ function InitializeUI
 	$global:DashboardConfig.UI = [PSCustomObject]@{
 		MainForm                           = $mainForm
 		SettingsForm                       = $settingsForm
+		WorldbossForm                      = $worldbossForm
 		SettingsTabs                       = $settingsTabs
 		TopBar                             = $topBar
 		CloseForm                          = $btnCloseForm
@@ -1144,6 +1519,7 @@ function InitializeUI
 		GlobalProgressBar                  = $GlobalProgressBar
 		LoginButton                        = $btnLogin
 		Ftool                              = $btnFtool
+		Worldboss                          = $btnWorldboss
 		Settings                           = $btnSettings
 		Exit                               = $btnStop
 		Launch                             = $btnLaunch
@@ -1180,6 +1556,8 @@ function InitializeUI
 		ContextMenuFront                   = $itmFront
 		ContextMenuBack                    = $itmBack
 		ContextMenuResizeAndCenter         = $itmResizeCenter
+		ContextMenuSavePos                 = $itmSavePos
+		ContextMenuLoadPos                 = $itmLoadPos
 		SetHotkey                          = $itmSetHotkey
 		Relog                              = $itmRelog
 	}
@@ -1194,51 +1572,88 @@ function InitializeUI
 	return $true
 }
 
-function RegisterStoredHotkeys
+function RegisterConfiguredHotkeys
 {
-	Write-Verbose 'HOTKEYS: Registering group hotkeys from config...'
+	[CmdletBinding()]
+	param()
+
+	Write-Verbose 'HOTKEYS: Registering all configured hotkeys (groups and windows)...'
+	
+	if (-not (Get-Command SetHotkey -ErrorAction SilentlyContinue))
+	{
+		Write-Verbose '  HOTKEYS: SetHotkey command not found. Skipping hotkey registration.'
+		return
+	}
 	
 	$config = $global:DashboardConfig.Config
-	if (-not $config.Contains('Hotkeys') -or -not $config.Contains('HotkeyGroups')) { return }
+	if (-not $config.Contains('Hotkeys')) { return }
 
 	$hotkeys = $config['Hotkeys']
-	$groups = $config['HotkeyGroups']
+    $groups = if ($config.Contains('HotkeyGroups')) { $config['HotkeyGroups'] } else { @{} }
 
-	foreach ($groupName in $hotkeys.Keys)
+	foreach ($hotkeyName in $hotkeys.Keys)
 	{
-		$keyCombo = $hotkeys[$groupName]
-		$memberString = $groups[$groupName]
-
-		if ([string]::IsNullOrWhiteSpace($keyCombo) -or $keyCombo -eq 'none' -or [string]::IsNullOrWhiteSpace($memberString))
+		try
 		{
-			continue
-		}
+			$keyCombo = $hotkeys[$hotkeyName]
 
-		# Split members into an array for quick lookup
-		$memberList = $memberString -split ','
-		$ownerKey = "GroupHotkey_$groupName"
+			if ([string]::IsNullOrWhiteSpace($keyCombo) -or $keyCombo -eq 'none')
+			{
+				continue
+			}
 
-		SetHotkey -KeyCombinationString $keyCombo -OwnerKey $ownerKey -Action ({
-				# This block runs when the hotkey is pressed
-				$targetMembers = $memberList
-				$grid = $global:DashboardConfig.UI.DataGridFiller
-				if (-not $grid) { return }
-
-				foreach ($row in $grid.Rows)
+			# Check if it's a group hotkey
+			if ($groups.Contains($hotkeyName))
+			{
+				# This is the logic from RegisterConfiguredHotkeys
+				$memberString = $groups[$hotkeyName]
+				if ([string]::IsNullOrWhiteSpace($memberString))
 				{
-					$identity = Get-RowIdentity -Row $row
-					if ($targetMembers -contains $identity)
-					{
-						if ($row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
-						{
-							$h = $row.Tag.MainWindowHandle
-							SetWindowToolStyle -hWnd $h -Hide $false
-							[Custom.Native]::BringToFront($h)
-							SetWindowToolStyle -hWnd $h -Hide $false
-						}
-					}
+					continue
 				}
-			}.GetNewClosure())
+
+				$memberList = $memberString -split ','
+				$ownerKey = "GroupHotkey_$hotkeyName"
+
+				SetHotkey -KeyCombinationString $keyCombo -OwnerKey $ownerKey -Action ({
+						# This block runs when the hotkey is pressed
+						$targetMembers = $memberList
+						$grid = $global:DashboardConfig.UI.DataGridFiller
+						if (-not $grid) { return }
+
+						foreach ($row in $grid.Rows)
+						{
+							$identity = Get-RowIdentity -Row $row
+							if ($targetMembers -contains $identity)
+							{
+								if ($row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
+								{
+									$h = $row.Tag.MainWindowHandle
+									SetWindowToolStyle -hWnd $h -Hide $false
+									[Custom.Native]::BringToFront($h)
+									SetWindowToolStyle -hWnd $h -Hide $false
+								}
+							}
+						}
+					}.GetNewClosure())
+				Write-Verbose "  HOTKEYS: Registered GROUP hotkey '$keyCombo' for group '$hotkeyName'."
+			}
+			else
+			{
+				# This is the logic from the old RegisterWindowHotkeys
+				$windowTitle = $hotkeyName
+				$ownerKey = $windowTitle # Use the window title as the owner key
+				
+				$actionScript = "[Custom.Native]::BringToFront((Get-Process | Where-Object { `$_.MainWindowTitle -eq '$($windowTitle.Replace("'", "''"))' } | Select-Object -First 1).MainWindowHandle)"
+				$action = [scriptblock]::Create($actionScript)
+				SetHotkey -KeyCombinationString $keyCombo -Action $action -OwnerKey $ownerKey
+				Write-Verbose "  HOTKEYS: Registered WINDOW hotkey '$keyCombo' for window '$windowTitle'."
+			}
+		}
+		catch
+		{
+			Write-Verbose "  HOTKEYS: Failed to register hotkey '$keyCombo' for '$hotkeyName'. Error: $($_.Exception.Message)" -ForegroundColor Yellow
+		}
 	}
 }
 
@@ -1264,11 +1679,14 @@ function RegisterUIEventHandlers
 							$global:DashboardConfig.Config = $iniSettings
 						}
 					}
+
 					SyncConfigToUI
-					RegisterStoredHotkeys
+					RegisterConfiguredHotkeys
 					RefreshHotkeysList
 					
 				}
+				else { $global:DashboardConfig.UI.MainForm.StartPosition = 'CenterScreen' }
+
 
 				$script:initialControlProps = @{}
 				$script:initialFormWidth = $global:DashboardConfig.UI.MainForm.Width
@@ -1292,13 +1710,28 @@ function RegisterUIEventHandlers
 				}
 			}
 			Shown       = {
-				if ($global:DashboardConfig.UI.DataGridFiller)
-				{
-					try { StartDataGridUpdateTimer } catch {}
-				}
+				SyncConfigToUI
+				RegisterConfiguredHotkeys
+				RefreshHotkeysList
 			}
 			FormClosing = {
 				param($src, $e)
+				try
+				{
+					if ($src.WindowState -eq [System.Windows.Forms.FormWindowState]::Normal)
+					{
+						if (-not $global:DashboardConfig.Config.Contains('WindowPosition')) {
+							$global:DashboardConfig.Config['WindowPosition'] = [ordered]@{}
+						}
+						$global:DashboardConfig.Config['WindowPosition']['MainFormX'] = $src.Location.X
+						$global:DashboardConfig.Config['WindowPosition']['MainFormY'] = $src.Location.Y
+						Write-Verbose "Saving Window Position: $($src.Location.X), $($src.Location.Y)"
+						if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
+					}
+				}
+				catch
+				{
+				}
 				if (Get-Command RemoveAllHotkeys -ErrorAction SilentlyContinue) { RemoveAllHotkeys }
 				if (Get-Command StopDashboard -ErrorAction SilentlyContinue) { StopDashboard }
 			}
@@ -1373,7 +1806,7 @@ function RegisterUIEventHandlers
 				$grid = $global:DashboardConfig.UI.DataGridFiller
 				if ($grid.Rows.Count -eq 0)
 				{
-					[Custom.DarkMessageBox]::Show("You can't save an empty list.", 'One-Click Setup', 'OK', 'Warning')
+					Show-DarkMessageBox "You can't save an empty list." 'One-Click Setup' 'OK' 'Warning'
 					return
 				}
 
@@ -1463,7 +1896,7 @@ function RegisterUIEventHandlers
 				$sb.AppendLine("Total: $($detailedStateList.Count) clients.")
 				$sb.Append("Use 'Launch' -> 'Start and Login saved configuration' to restore the session.")
 
-				[Custom.DarkMessageBox]::Show($sb.ToString(), 'One-Click Setup Saved', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information, 'success')
+				Show-DarkMessageBox $sb.ToString() 'One-Click Setup Saved' 'OK' 'Information' 'success'
 			}
 		}
 		LaunchContextMenu          = @{
@@ -1559,9 +1992,21 @@ function RegisterUIEventHandlers
 		}
 
 		SettingsForm               = @{
-			Load = { SyncConfigToUI; RefreshHotkeysList }
+			Load = { SyncConfigToUI; RegisterConfiguredHotkeys; RefreshHotkeysList }
 			Move = {
 				$sf = $global:DashboardConfig.UI.SettingsForm
+				$mf = $global:DashboardConfig.UI.MainForm
+				if ($sf -and $mf -and -not $mf.IsDisposed)
+				{
+					$x = $sf.Left + [int](($sf.Width - $mf.Width) / 2)
+					$y = $sf.Top + [int](($sf.Height - $mf.Height) / 2)
+					$mf.Location = New-Object System.Drawing.Point($x, $y)
+				}
+			}
+		}
+		WorldbossForm               = @{
+			Move = {
+				$sf = $global:DashboardConfig.UI.WorldbossForm
 				$mf = $global:DashboardConfig.UI.MainForm
 				if ($sf -and $mf -and -not $mf.IsDisposed)
 				{
@@ -1578,7 +2023,7 @@ function RegisterUIEventHandlers
 		MinForm                    = @{ Click = { $global:DashboardConfig.UI.MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Minimized } }
 		CloseForm                  = @{ Click = { $global:DashboardConfig.UI.MainForm.Close() } }
 		TopBar                     = @{ MouseDown = { param($src, $e); [Custom.Native]::ReleaseCapture(); [Custom.Native]::SendMessage($global:DashboardConfig.UI.MainForm.Handle, 0xA1, 0x2, 0) } }
-		Settings                   = @{ Click = { ShowSettingsForm; RefreshHotkeysList } }
+		Settings                   = @{ Click = { ShowSettingsForm; RegisterConfiguredHotkeys; RefreshHotkeysList } }
 		Save                       = @{
 			Click = {
 				SyncUIToConfig
@@ -1618,12 +2063,12 @@ function RegisterUIEventHandlers
 
 				if ([string]::IsNullOrWhiteSpace($srcExe) -or -not (Test-Path $srcExe))
 				{
-					[Custom.DarkMessageBox]::Show("Please select a valid Launcher executable first with the first Browse button.`nYou must select the Main Launcher!", 'Wrong Launcher.exe', 'OK', 'Error')
+					Show-DarkMessageBox "Please select a valid Launcher executable first with the first Browse button.`nYou must select the Main Launcher!" 'Wrong Launcher.exe' 'OK' 'Error'
 					return
 				}
 				if ([string]::IsNullOrWhiteSpace($baseParentDir))
 				{
-					[Custom.DarkMessageBox]::Show('Please select a destination folder.', 'Error', 'OK', 'Error')
+					Show-DarkMessageBox 'Please select a destination folder.' 'Error' 'OK' 'Error'
 					return
 				}
 
@@ -1653,7 +2098,7 @@ function RegisterUIEventHandlers
 					}
 					else
 					{
-						[Custom.DarkMessageBox]::Show("The profile name '$userProvidedProfileName' already exists. Using default naming scheme.", 'Profile already exists', 'OK', 'Warning')
+						Show-DarkMessageBox "The profile name '$userProvidedProfileName' already exists. Using default naming scheme." 'Profile already exists' 'OK' 'Warning'
 						$baseNameFallback = "${folderName}_Copy"
 						$counter = 1
 						$destDirFallback = Join-Path $baseParentDir $baseNameFallback
@@ -1682,7 +2127,7 @@ function RegisterUIEventHandlers
 
 				if ([string]::IsNullOrWhiteSpace($finalDestDir) -or [string]::IsNullOrWhiteSpace($finalProfileName))
 				{
-					[Custom.DarkMessageBox]::Show('Failed to determine a valid profile name or destination directory.', 'Error', 'OK', 'Error')
+					Show-DarkMessageBox 'Failed to determine a valid profile name or destination directory.' 'Error' 'OK' 'Error'
 					return
 				}
 
@@ -1692,13 +2137,13 @@ function RegisterUIEventHandlers
 					$destFull = $finalDestDir.TrimEnd('\')
 					if ($destFull -eq $sourceFull -or $destFull.StartsWith($sourceFull + '\', [StringComparison]::OrdinalIgnoreCase))
 					{
-						[Custom.DarkMessageBox]::Show("The destination folder cannot be inside the source game folder.`nThis would create an endless copy loop.`n`nEither use a valid folder outside the source or use the default path by deleting the path in the textbox.", 'Invalid Destination', 'OK', 'Error')
+						Show-DarkMessageBox "The destination folder cannot be inside the source game folder.`nThis would create an endless copy loop.`n`nEither use a valid folder outside the source or use the default path by deleting the path in the textbox." 'Invalid Destination' 'OK' 'Error'
 						return
 					}
 				}
 				catch {}
 
-				$confirm = [Custom.DarkMessageBox]::Show("This will create Junctions for the folders 'Data' and 'Effect'.`nAlso a copy of all other files from the $folderName directory to:`n$finalDestDir`n`nProceed?", 'Confirm Junction & Copy', 'YesNo', 'Question')
+				$confirm = Show-DarkMessageBox "This will create Junctions for the folders 'Data' and 'Effect'.`nAlso a copy of all other files from the $folderName directory to:`n$finalDestDir`n`nProceed?" 'Confirm Junction & Copy' 'YesNo' 'Question'
 
 				if ($confirm -eq 'Yes')
 				{
@@ -1735,7 +2180,7 @@ function RegisterUIEventHandlers
 						$global:DashboardConfig.UI.SettingsForm.Cursor = [System.Windows.Forms.Cursors]::Default
 
 						$global:DashboardConfig.UI.ProfileGrid.Rows.Add($finalProfileName, $finalDestDir) | Out-Null
-						[Custom.DarkMessageBox]::Show("Junctions created and Profile '$finalProfileName' added successfully.`nPlease remember that 'neuz.exe' must be manually patched for each profile on new Patches.", 'Profile Created', 'OK', 'Information', 'success')
+						Show-DarkMessageBox "Junctions created and Profile '$finalProfileName' added successfully.`nPlease remember that 'neuz.exe' must be manually patched for each profile on new Patches." 'Profile Created' 'OK' 'Information' 'success'
 						SyncProfilesToConfig
 						RefreshLoginProfileSelector
 						WriteConfig
@@ -1744,7 +2189,7 @@ function RegisterUIEventHandlers
 					catch
 					{
 						$global:DashboardConfig.UI.SettingsForm.Cursor = [System.Windows.Forms.Cursors]::Default
-						[Custom.DarkMessageBox]::Show("An error occurred:`n$($_.Exception.Message)`n`nNote: Creating Junctions may require running the Dashboard as Administrator.`nBe sure you used the correct paths and have enough disk space.", 'Error', 'OK', 'Error')
+						Show-DarkMessageBox "An error occurred:`n$($_.Exception.Message)`n`nNote: Creating Junctions may require running the Dashboard as Administrator.`nBe sure you used the correct paths and have enough disk space." 'Error' 'OK' 'Error'
 					}
 				}
 			}
@@ -1797,7 +2242,7 @@ function RegisterUIEventHandlers
 				}
 				else
 				{
-					[Custom.DarkMessageBox]::Show('Please select a profile first.', 'Select Profile', 'OK', 'Warning')
+					Show-DarkMessageBox 'Please select a profile first.' 'Select Profile' 'OK' 'Warning'
 				}
 			}
 		}
@@ -1828,11 +2273,11 @@ function RegisterUIEventHandlers
 				$rowsToDelete = $global:DashboardConfig.UI.ProfileGrid.SelectedRows | ForEach-Object { $_ }
 				if ($rowsToDelete.Count -eq 0)
 				{
-					[Custom.DarkMessageBox]::Show('Please select a profile first.', 'Select Profile', 'OK', 'Warning')
+					Show-DarkMessageBox 'Please select a profile first.' 'Select Profile' 'OK' 'Warning'
 					return
 				}
 
-				$confirm = [Custom.DarkMessageBox]::Show("Are you sure you want to PERMANENTLY DELETE the selected profile(s) from the hard drive?`n`nThis action cannot be undone.", 'Are You Sure?', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+				$confirm = Show-DarkMessageBox "Are you sure you want to PERMANENTLY DELETE the selected profile(s) from the hard drive?`n`nThis action cannot be undone." 'Are You Sure?' 'YesNo' 'Warning'
 
 				if ($confirm -eq 'Yes')
 				{
@@ -1850,7 +2295,6 @@ function RegisterUIEventHandlers
 						}
 						catch
 						{
-							[Custom.DarkMessageBox]::Show("Failed to delete profile '$profileName' at '$profilePath'.`nError: $($_.Exception.Message)", 'Delete Error', 'OK', 'Error')
 						}
 					}
 					SyncProfilesToConfig
@@ -1929,6 +2373,8 @@ function RegisterUIEventHandlers
 		ContextMenuFront           = @{ Click = { $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { $h = $_.Tag.MainWindowHandle; SetWindowToolStyle -hWnd $h -Hide $false; [Custom.Native]::BringToFront($h); SetWindowToolStyle -hWnd $h -Hide $false } } }                
 		ContextMenuBack            = @{ Click = { $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { [Custom.Native]::SendToBack($_.Tag.MainWindowHandle) } } }
 		ContextMenuResizeAndCenter = @{ Click = { $scr = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { [Custom.Native]::PositionWindow($_.Tag.MainWindowHandle, [Custom.Native]::TopWindowHandle, [int](($scr.Width - 1040) / 2), [int](($scr.Height - 807) / 2), 1040, 807, 0x0010) } } }
+		ContextMenuSavePos         = @{ Click = { if (Get-Command Save-WindowPositions -ErrorAction SilentlyContinue) { Save-WindowPositions } } }
+		ContextMenuLoadPos         = @{ Click = { if (Get-Command Restore-WindowPositions -ErrorAction SilentlyContinue) { Restore-WindowPositions } } }
 		Relog                      = @{
 			Click = {
 				$selected = $global:DashboardConfig.UI.DataGridFiller.SelectedRows
@@ -1943,6 +2389,153 @@ function RegisterUIEventHandlers
 						}
 					}
 				}
+			}
+		}
+		HotkeysGrid                = @{
+			CellDoubleClick = {
+				param($s, $e)
+				if ($e.RowIndex -lt 0) { return }
+				
+				$row = $s.Rows[$e.RowIndex]
+				if (-not $row.Tag) { return }
+				
+				$null = $id; $id = $row.Tag.Id
+				$ownerKey = $row.Tag.OwnerKey
+				$currentKeyString = $row.Cells[0].Value.ToString()
+				if ($currentKeyString -match '\(Paused\)$') { $currentKeyString = $currentKeyString -replace ' \(Paused\)$', '' }
+
+				$newKey = Show-KeyCaptureDialog -currentKey $currentKeyString -Owner $global:DashboardConfig.UI.MainForm
+				
+				if ($null -eq $newKey -or ($newKey -eq $currentKeyString)) { return }
+				
+				if ($ownerKey -match '^GroupHotkey_(.+)')
+				{
+					$groupName = $Matches[1]
+					
+					if (-not $global:DashboardConfig.Config.Contains('Hotkeys')) { $global:DashboardConfig.Config['Hotkeys'] = [ordered]@{} }
+					$global:DashboardConfig.Config['Hotkeys'][$groupName] = $newKey
+					
+					$memberString = ''
+					if ($global:DashboardConfig.Config.Contains('HotkeyGroups') -and $global:DashboardConfig.Config['HotkeyGroups'].Contains($groupName))
+					{
+						$memberString = $global:DashboardConfig.Config['HotkeyGroups'][$groupName]
+					}
+					
+					if (-not [string]::IsNullOrWhiteSpace($memberString))
+					{
+						$memberList = $memberString -split ','
+						
+						SetHotkey -KeyCombinationString $newKey -OwnerKey $ownerKey -Action ({
+								$targetMembers = $memberList
+								$grid = $global:DashboardConfig.UI.DataGridFiller
+								if (-not $grid) { return }
+
+								foreach ($row in $grid.Rows)
+								{
+									$identity = Get-RowIdentity -Row $row
+									if ($targetMembers -contains $identity)
+									{
+										if ($row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
+										{
+											$h = $row.Tag.MainWindowHandle
+											SetWindowToolStyle -hWnd $h -Hide $false
+											[Custom.Native]::BringToFront($h)
+											SetWindowToolStyle -hWnd $h -Hide $false
+										}
+									}
+								}
+							}.GetNewClosure())
+					}
+				}
+				elseif ($ownerKey -match '^global_toggle_(.+)')
+				{
+					$instanceId = $Matches[1]
+					if ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+					{
+						$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+						if ($form -and -not $form.IsDisposed)
+						{
+							$data = $form.Tag
+							$data.GlobalHotkey = $newKey
+							
+							$script = @"
+Write-Verbose "FTOOL: Global-toggle hotkey triggered for instance '$($data.InstanceId)'"
+if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)')) {
+    `$f = `$global:DashboardConfig.Resources.FtoolForms['$($data.InstanceId)']
+    if (`$f -and -not `$f.IsDisposed -and `$f.Tag) {
+        `$toggle = `$f.Tag.BtnHotkeyToggle
+        if (`$toggle) {
+            try {
+                if (`$toggle.InvokeRequired) {
+                    `$action = [System.Action]{ `$toggle.Checked = -not `$toggle.Checked }
+                    `$toggle.Invoke(`$action)
+                } else {
+                    `$toggle.Checked = -not `$toggle.Checked
+                }
+                ToggleInstanceHotkeys -InstanceId '$($data.InstanceId)' -ToggleState `$toggle.Checked
+                Write-Verbose "FTOOL: Global toggle action completed for instance '$($data.InstanceId)'."
+            } catch {
+                Write-Warning "FTOOL: Error during global toggle action for instance '$($data.InstanceId)'. Error: `$_"
+            }
+        }
+    }
+}
+"@
+							$scriptBlock = [scriptblock]::Create($script)
+							$oldId = $data.GlobalHotkeyId
+							try {
+								$data.GlobalHotkeyId = SetHotkey -KeyCombinationString $newKey -Action $scriptBlock -OwnerKey $ownerKey -OldHotkeyId $oldId
+								if (Get-Command UpdateSettings -ErrorAction SilentlyContinue) { UpdateSettings $data -forceWrite }
+							} catch {
+								Show-DarkMessageBox "Failed to update hotkey: $_" "Error" "OK" "Error"
+							}
+						}
+					}
+				}
+				elseif ($ownerKey -match '^ext_(.+)_\d+')
+				{
+					if ($global:DashboardConfig.Resources.ExtensionData -and $global:DashboardConfig.Resources.ExtensionData.Contains($ownerKey))
+					{
+						$extData = $global:DashboardConfig.Resources.ExtensionData[$ownerKey]
+						$extData.Hotkey = $newKey
+						$extData.BtnHotKey.Text = $newKey
+						
+						$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($extData.InstanceId)' -ExtKey '$($ownerKey)'")
+						$oldId = $extData.HotkeyId
+						try {
+							$extData.HotkeyId = SetHotkey -KeyCombinationString $newKey -Action $scriptBlock -OwnerKey $ownerKey -OldHotkeyId $oldId
+							$form = $extData.Panel.FindForm()
+							if ($form -and $form.Tag) { if (Get-Command UpdateSettings -ErrorAction SilentlyContinue) { UpdateSettings $form.Tag $extData -forceWrite } }
+						} catch {
+							Show-DarkMessageBox "Failed to update hotkey: $_" "Error" "OK" "Error"
+						}
+					}
+				}
+				elseif ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($ownerKey))
+				{
+					$instanceId = $ownerKey
+					$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+					if ($form -and -not $form.IsDisposed)
+					{
+						$data = $form.Tag
+						$data.Hotkey = $newKey
+						$data.BtnHotKey.Text = $newKey
+						
+						$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($data.InstanceId)' -ExtKey `$null")
+						$oldId = $data.HotkeyId
+						try {
+							$data.HotkeyId = SetHotkey -KeyCombinationString $newKey -Action $scriptBlock -OwnerKey $ownerKey -OldHotkeyId $oldId
+							if (Get-Command UpdateSettings -ErrorAction SilentlyContinue) { UpdateSettings $data -forceWrite }
+						} catch {
+							Show-DarkMessageBox "Failed to update hotkey: $_" "Error" "OK" "Error"
+						}
+					}
+				}
+				
+				if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
+				SyncConfigToUI
+				RegisterConfiguredHotkeys
+				RefreshHotkeysList
 			}
 		}
 		SetHotkey                  = @{
@@ -1969,7 +2562,6 @@ function RegisterUIEventHandlers
 				$groupName = ShowInputBox -Title 'Hotkey Group' -Prompt 'Enter a name for this selection group:' -DefaultText $defaultName
 				if ([string]::IsNullOrWhiteSpace($groupName)) { return }
 
-				# 3. Get Key Combination (Manual check since ?: is not used)
 				$currentKey = 'none'
 				if ($global:DashboardConfig.Config.Contains('Hotkeys'))
 				{
@@ -1979,7 +2571,7 @@ function RegisterUIEventHandlers
 					}
 				}
 
-				$newKey = Show-KeyCaptureDialog -currentKey $currentKey
+				$newKey = Show-KeyCaptureDialog -currentKey $currentKey -Owner $global:DashboardConfig.UI.MainForm
 				
 				# If user cancelled or didn't change anything, exit
 				if ($null -eq $newKey -or ($newKey -eq $currentKey -and $currentKey -ne 'none')) { return }
@@ -2001,10 +2593,11 @@ function RegisterUIEventHandlers
 				if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
 
 				# 5. Register/Update immediately
-				RegisterStoredHotkeys
+				SyncConfigToUI
+				RegisterConfiguredHotkeys
 				RefreshHotkeysList
 				
-				[Custom.DarkMessageBox]::Show("Hotkey '$newKey' assigned as '$groupName' to:`n$($identities -join "`n")", 'Hotkeys Created', 'Ok', 'Information', 'success')
+				Show-DarkMessageBox "Hotkey '$newKey' assigned as '$groupName' to:`n$($identities -join "`n")" 'Hotkeys Created' 'Ok' 'Information' 'success'
 			}
 		}
 		UnregisterHotkey           = @{
@@ -2015,7 +2608,9 @@ function RegisterUIEventHandlers
 				$selectedRows = $grid.SelectedRows
 				if ($selectedRows.Count -eq 0) { return }
 
-				if ([Custom.DarkMessageBox]::Show("Are you sure you want to unregister and delete $($selectedRows.Count) hotkey(s)?", 'Confirm Unregister', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question) -ne 'Yes') { return }
+				if ((Show-DarkMessageBox "Are you sure you want to unregister and delete $($selectedRows.Count) hotkey(s)?" 'Confirm Unregister' 'YesNo' 'Question') -ne 'Yes') { 
+					return 
+				}
 
 				foreach ($row in $selectedRows)
 				{
@@ -2076,6 +2671,8 @@ function RegisterUIEventHandlers
 					}
 				}
 				if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
+				SyncConfigToUI
+				RegisterConfiguredHotkeys
 				RefreshHotkeysList
 			}
 		}
@@ -2085,7 +2682,7 @@ function RegisterUIEventHandlers
 			Click = {
 				if ($global:DashboardConfig.State.LaunchActive)
 				{
-					try { StopClientLaunch } catch { [Custom.DarkMessageBox]::Show($_.Exception.Message) }
+					try { StopClientLaunch } catch { Show-DarkMessageBox $_.Exception.Message }
 				}
 				else
 				{
@@ -2105,44 +2702,35 @@ function RegisterUIEventHandlers
 				{
 					$errorMessage = "Login action failed.`n`nCould not find or execute the 'LoginSelectedRow' function. The 'login.psm1' module may have failed to load correctly.`n`nTechnical Details: $($_.Exception.Message)"
 					try { ShowErrorDialog -Message $errorMessage }
-					catch { [Custom.DarkMessageBox]::Show($errorMessage, 'Login Error', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) }
+					catch { Show-DarkMessageBox$errorMessage 'Login Error' 'Ok' 'Error' }
 				}
 			}
 		}
 
 		Ftool                      = @{ Click = { if (Get-Command FtoolSelectedRow -EA 0) { $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { FtoolSelectedRow $_ } } } }
+		Worldboss                  = @{ Click = { ShowWorldbossForm } }
 		Exit                       = @{
 			MouseDown = {
 				param($s, $e)
 				if ($e.Button -eq 'Left')
 				{
-					if ([Custom.DarkMessageBox]::Show('Are you sure you want to close the selected Clients?','Confirm',[System.Windows.Forms.MessageBoxButtons]::YesNo, 'Error') -eq 'Yes') { $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { Stop-Process -Id $_.Tag.Id -Force -EA 0 } }
+					if ((Show-DarkMessageBox 'Are you sure you want to close the selected Clients?' 'Confirm' 'YesNo' 'Error') -eq 'Yes') { $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { Stop-Process -Id $_.Tag.Id -Force -EA 0 } }
 				}
 				elseif ($e.Button -eq 'Right')
 				{
-					if ([Custom.DarkMessageBox]::Show('Are you sure you want to disconnect the selected Clients?','Confirm',[System.Windows.Forms.MessageBoxButtons]::YesNo, 'Warning') -eq 'Yes')
-					{
-						$global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object {
-							$pidInt = $_.Tag.Id
-							try
-							{
-								[Custom.Native]::CloseTcpConnectionsForPid($pidInt)
-							}
-							catch {}
-						}
-					}
+					if ((Show-DarkMessageBox 'Are you sure you want to disconnect the selected Clients?' 'Confirm' 'YesNo' 'Warning') -eq 'Yes') { $global:DashboardConfig.UI.DataGridFiller.SelectedRows | ForEach-Object { try { [Custom.Native]::CloseTcpConnectionsForPid($_.Tag.Id) } catch {} } }
 				}
 			}
 		}
 		CopyNeuz                   = @{ Click = {
-				$confirm = [Custom.DarkMessageBox]::Show("Do you want to copy the 'neuz.exe' from your main client's bin32 and bin64 folders to all your profiles.`nProfiles that were not created through junctions or have a different neuz.exe might break.`n`nThis action is only working if you patched your Main Launcher folder first!`nProcced?", 'Confirm Neuz.exe Copy', 'YesNo', 'Warning')
+				$confirm = Show-DarkMessageBox "Do you want to copy the 'neuz.exe' from your main client's bin32 and bin64 folders to all your profiles.`nProfiles that were not created through junctions or have a different neuz.exe might break.`n`nThis action is only working if you patched your Main Launcher folder first!`nProcced?" 'Confirm Neuz.exe Copy' 'YesNo' 'Warning'
 
 				if ($confirm -eq 'Yes')
 				{
 					$mainLauncherPath = $global:DashboardConfig.UI.InputLauncher.Text
 					if ([string]::IsNullOrWhiteSpace($mainLauncherPath) -or -not (Test-Path $mainLauncherPath))
 					{
-						[Custom.DarkMessageBox]::Show('Please select a valid Main Launcher Path first.', 'Error', 'OK', 'Error')
+						Show-DarkMessageBox 'Please select a valid Main Launcher Path first.' 'Error' 'OK' 'Error'
 						return
 					}
 
@@ -2153,7 +2741,7 @@ function RegisterUIEventHandlers
 					$profiles = $global:DashboardConfig.Config['Profiles']
 					if (-not $profiles -or $profiles.Count -eq 0)
 					{
-						[Custom.DarkMessageBox]::Show('No profiles found. Please create or add profiles first.', 'No Profiles found', 'OK', 'Information')
+						Show-DarkMessageBox 'No profiles found. Please create or add profiles first.' 'No Profiles found' 'OK' 'Information'
 						return
 					}
 
@@ -2196,11 +2784,11 @@ function RegisterUIEventHandlers
 
 					if ($failedCopies.Count -eq 0)
 					{
-						[Custom.DarkMessageBox]::Show("Successfully copied neuz.exe to $copiedCount locations.", 'Patch complete!', 'OK', 'Information', 'success')
+						Show-DarkMessageBox "Successfully copied neuz.exe to $copiedCount locations." 'Patch complete!' 'OK' 'Information' 'success'
 					}
 					else
 					{
-						[Custom.DarkMessageBox]::Show("Copied neuz.exe to $($copiedCount - $failedCopies.Count) locations.`n`nFailed to copy to the following profiles:`n" + ($failedCopies -join "`n"), 'Patch Error', 'OK', 'Warning')
+						Show-DarkMessageBox "Copied neuz.exe to $($copiedCount - $failedCopies.Count) locations.`n`nFailed to copy to the following profiles:`n" + ($failedCopies -join "`n") 'Patch Error' 'OK' 'Warning'
 					}
 				}
 			}
@@ -2219,7 +2807,7 @@ function RegisterUIEventHandlers
 				param($s, $e)
 				$targetTxt = $s.Tag
 				$global:DashboardConfig.UI.SettingsForm.Visible = $false
-				[Custom.DarkMessageBox]::Show("1. Click on your client. It must be in focus!`n2. Hover with the mouse above the target button.`n3. Wait 3 seconds until the settings page opens again.`n`nClick OK to start the timer.", 'Set Profile Coordinates', 'Information')
+				Show-DarkMessageBox "1. Click on your client. It must be in focus!`n2. Hover with the mouse above the target button.`n3. Wait 3 seconds until the settings page opens again.`n`nClick OK to start the timer." "Set Profile Coordinates" "Ok" "Information"
 				Start-Sleep -Seconds 3
 				$cursorPos = [System.Windows.Forms.Cursor]::Position
 				$hWnd = [Custom.Native]::GetForegroundWindow()
@@ -2369,6 +2957,120 @@ function HideSettingsForm
 				$global:fadeOutTimer.Dispose()
 				$global:fadeOutTimer = $null
 				$global:DashboardConfig.UI.SettingsForm.Hide()
+				$global:DashboardConfig.UI.MainForm.Show()
+			}
+		})
+	$global:fadeOutTimer.Start()
+	$global:DashboardConfig.Resources.Timers['fadeOutTimer'] = $global:fadeOutTimer
+}
+
+function ShowWorldbossForm
+{
+
+	[CmdletBinding()]
+	param()
+
+	if (($script:fadeInTimer -and $script:fadeInTimer.Enabled) -or
+		($global:fadeOutTimer -and $global:fadeOutTimer.Enabled))
+	{
+		return
+	}
+
+	if (-not ($global:DashboardConfig.UI -and $global:DashboardConfig.UI.WorldbossForm -and $global:DashboardConfig.UI.MainForm))
+	{
+		return
+	}
+
+	$worldbossForm = $global:DashboardConfig.UI.WorldbossForm
+
+	if ($worldbossForm.Opacity -lt 0.95)
+	{
+		$worldbossForm.Visible = $true
+		$mainFormLocation = $global:DashboardConfig.UI.MainForm.Location
+		$worldbossFormWidth = $worldbossForm.Width
+		$worldbossFormHeight = $worldbossForm.Height
+		$screenWidth = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Width
+		$screenHeight = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Height
+
+		$x = $mainFormLocation.X + (($global:DashboardConfig.UI.MainForm.Width - $worldbossFormWidth) / 2)
+		$y = $mainFormLocation.Y + (($global:DashboardConfig.UI.MainForm.Height - $worldbossFormHeight) / 2)
+
+		$margin = 0
+		$x = [Math]::Max($margin, [Math]::Min($x, $screenWidth - $worldbossFormWidth - $margin))
+		$y = [Math]::Max($margin, [Math]::Min($y, $screenHeight - $worldbossFormHeight - $margin))
+
+		$worldbossForm.Location = New-Object System.Drawing.Point($x, $y)
+		$worldbossForm.BringToFront()
+		$worldbossForm.Activate()
+	}
+
+	if ($script:fadeInTimer) { $script:fadeInTimer.Dispose() }
+	$script:fadeInTimer = New-Object System.Windows.Forms.Timer
+	$script:fadeInTimer.Interval = 15
+	$script:fadeInTimer.Add_Tick({
+			if (-not $global:DashboardConfig.UI.WorldbossForm -or $global:DashboardConfig.UI.WorldbossForm.IsDisposed)
+			{
+				$script:fadeInTimer.Stop()
+				$script:fadeInTimer.Dispose()
+				$script:fadeInTimer = $null
+				return
+			}
+			if ($global:DashboardConfig.UI.WorldbossForm.Opacity -lt 1)
+			{
+				$global:DashboardConfig.UI.WorldbossForm.Opacity += 0.1
+			}
+			else
+			{
+				$global:DashboardConfig.UI.WorldbossForm.Opacity = 1
+				$script:fadeInTimer.Stop()
+				$script:fadeInTimer.Dispose()
+				$script:fadeInTimer = $null
+			}
+		})
+	$script:fadeInTimer.Start()
+	$global:DashboardConfig.Resources.Timers['fadeInTimer'] = $script:fadeInTimer
+}
+
+function HideWorldbossForm
+{
+
+	[CmdletBinding()]
+	param()
+
+	if (($script:fadeInTimer -and $script:fadeInTimer.Enabled) -or
+		($global:fadeOutTimer -and $global:fadeOutTimer.Enabled))
+	{
+		return
+	}
+
+	if (-not ($global:DashboardConfig.UI -and $global:DashboardConfig.UI.WorldbossForm))
+	{
+		return
+	}
+
+	if ($global:fadeOutTimer) { $global:fadeOutTimer.Dispose() }
+	$global:fadeOutTimer = New-Object System.Windows.Forms.Timer
+	$global:fadeOutTimer.Interval = 15
+	$global:fadeOutTimer.Add_Tick({
+			if (-not $global:DashboardConfig.UI.WorldbossForm -or $global:DashboardConfig.UI.WorldbossForm.IsDisposed)
+			{
+				$global:fadeOutTimer.Stop()
+				$global:fadeOutTimer.Dispose()
+				$global:fadeOutTimer = $null
+				return
+			}
+
+			if ($global:DashboardConfig.UI.WorldbossForm.Opacity -gt 0)
+			{
+				$global:DashboardConfig.UI.WorldbossForm.Opacity -= 0.1
+			}
+			else
+			{
+				$global:DashboardConfig.UI.WorldbossForm.Opacity = 0
+				$global:fadeOutTimer.Stop()
+				$global:fadeOutTimer.Dispose()
+				$global:fadeOutTimer = $null
+				$global:DashboardConfig.UI.WorldbossForm.Hide()
 				$global:DashboardConfig.UI.MainForm.Show()
 			}
 		})

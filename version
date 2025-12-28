@@ -1,27 +1,30 @@
 Author: Immortal / Divine
 Version: 2.2
-Requires: PowerShell 5.1+, .NET Framework 4.5+, Administrator privileges, Bypassed 32-bit PowerShell execution.
+Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 
 [Changelogs]
    - Added:
-    - New Hotkey Manager in the settings to edit all current active Hotkeys
-	- New notification progress system for all features
-	- Manual reconnect with right click on entrys
-	- Set Hotkey in DataGrid Contextmenu to bring the saved clients to front
+    - New Hotkey Manager in the settings to see and edit all current active Hotkeys
+	- New interactive notification progress system for all features
+	- Manual disconnect by right clicking the Terminate button
+	- Remembers last position of dashboard
+	- Redesigned the message windows for true dark mode
+	- DataGrid Contextmenu:
+	 - Set Hotkey to bring a set of saved clients to front
+	 - Manual reposition of clients to a saved location
+	 - Manual reconnect after disconnect
+	- Worldboss Notification System through Discord (privat, pm for access)
 
    - Fixed:
-	- Minimizes clients that timeout now
-	- Increased login/reconnect speed again
+	- Minimizes clients that timeout during login
+	- Increased login/reconnect speed
 	- Increased window detection to prevent false clicks during login
-	- You can open the profile location by double clicking now
-	- Ftool settings were not being saved, fixed
-	- Reduced CPU usage
+	- You can open the profile location by double clicking the path now
+	- Ftool key settings were not being saved, fixed
+	- Ftool positioning fixed when window not focused
+	- Removed the initial wait time of an Ftool instance for start. It now starts instant.
 
    - More:
-    - Redesigned the Message windows, who even likes being blinded?
-	- Full Dark Mode
 	- Code cleanup
-
-
 
