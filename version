@@ -1,5 +1,5 @@
 Author: Immortal / Divine
-Version: 2.2
+Version: 2.3
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 
@@ -27,4 +27,7 @@ Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypa
 
    - More:
 	- Code cleanup
+
+   - Hotfix 2.3:
+	- Fixed broken dialog messages and profile selector
 

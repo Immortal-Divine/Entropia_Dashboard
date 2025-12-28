@@ -591,37 +591,36 @@ function SyncConfigToUI
 		$UI = $global:DashboardConfig.UI
 		if (-not ($UI -and $global:DashboardConfig.Config)) { return $false }
 
-		if ($global:DashboardConfig.Config['LauncherPath']['LauncherPath']) { $UI.InputLauncher.Text = $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] }
-		if ($global:DashboardConfig.Config['ProcessName']['ProcessName']) { $UI.InputProcess.Text = $global:DashboardConfig.Config['ProcessName']['ProcessName'] }
-		if ($global:DashboardConfig.Config['MaxClients']['MaxClients']) { $UI.InputMax.Text = $global:DashboardConfig.Config['MaxClients']['MaxClients'] }
-		if ($global:DashboardConfig.Config['Paths']['JunctionTarget']) { $UI.InputJunction.Text = $global:DashboardConfig.Config['Paths']['JunctionTarget'] }
 		if ($global:DashboardConfig.Config.Contains('LauncherPath') -and $global:DashboardConfig.Config['LauncherPath'].Contains('LauncherPath')) { $UI.InputLauncher.Text = $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] }
 		if ($global:DashboardConfig.Config.Contains('ProcessName') -and $global:DashboardConfig.Config['ProcessName'].Contains('ProcessName')) { $UI.InputProcess.Text = $global:DashboardConfig.Config['ProcessName']['ProcessName'] }
 		if ($global:DashboardConfig.Config.Contains('MaxClients') -and $global:DashboardConfig.Config['MaxClients'].Contains('MaxClients')) { $UI.InputMax.Text = $global:DashboardConfig.Config['MaxClients']['MaxClients'] }
 		if ($global:DashboardConfig.Config.Contains('Paths') -and $global:DashboardConfig.Config['Paths'].Contains('JunctionTarget')) { $UI.InputJunction.Text = $global:DashboardConfig.Config['Paths']['JunctionTarget'] }
 
-		if ($global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin']) { $UI.NeverRestartingCollectorLogin.Checked = ([int]$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin']) -eq 1 }
 		if ($global:DashboardConfig.Config.Contains('Login') -and $global:DashboardConfig.Config['Login'].Contains('NeverRestartingCollectorLogin')) { $UI.NeverRestartingCollectorLogin.Checked = ([int]$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin']) -eq 1 }
 
 
-		$UI.ProfileGrid.Rows.Clear()
-
-		$recProfiles = if ($global:DashboardConfig.Config['ReconnectProfiles']) { $global:DashboardConfig.Config['ReconnectProfiles'] } else { [ordered]@{} }
-		$hideProfiles = if ($global:DashboardConfig.Config['HideProfiles']) { $global:DashboardConfig.Config['HideProfiles'] } else { [ordered]@{} }
-
-		if ($global:DashboardConfig.Config['Profiles'])
+		try
 		{
-			$profiles = $global:DashboardConfig.Config['Profiles']
-			foreach ($key in $profiles.Keys)
+			$UI.ProfileGrid.Rows.Clear()
+
+			$recProfiles = if ($global:DashboardConfig.Config['ReconnectProfiles']) { $global:DashboardConfig.Config['ReconnectProfiles'] } else { [ordered]@{} }
+			$hideProfiles = if ($global:DashboardConfig.Config['HideProfiles']) { $global:DashboardConfig.Config['HideProfiles'] } else { [ordered]@{} }
+
+			if ($global:DashboardConfig.Config['Profiles'])
 			{
-				$path = $profiles[$key]
+				$profiles = $global:DashboardConfig.Config['Profiles']
+				foreach ($key in $profiles.Keys)
+				{
+					$path = $profiles[$key]
 
-				$isRecChecked = $recProfiles.Contains($key)
-				$isHideChecked = $hideProfiles.Contains($key)
+					$isRecChecked = $recProfiles.Contains($key)
+					$isHideChecked = $hideProfiles.Contains($key)
 
-				$UI.ProfileGrid.Rows.Add($key, $path, $isRecChecked, $isHideChecked) | Out-Null
+					$UI.ProfileGrid.Rows.Add($key, $path, $isRecChecked, $isHideChecked) | Out-Null
+				}
 			}
 		}
+		catch { Write-Verbose "  UI: Error syncing ProfileGrid: $_" }
 
 		$selectedProfileName = $null
 		if ($global:DashboardConfig.Config['Options'] -and $global:DashboardConfig.Config['Options']['SelectedProfile'])
@@ -657,10 +656,15 @@ function SyncConfigToUI
 		}
 
 		$selectedLoginProfile = $null
-		if ($UI.LoginProfileSelector.SelectedItem)
+		try
 		{
-			$selectedLoginProfile = $UI.LoginProfileSelector.SelectedItem.ToString()
+			if ($UI.LoginProfileSelector.SelectedItem)
+			{
+				$selectedLoginProfile = $UI.LoginProfileSelector.SelectedItem.ToString()
+			}
 		}
+		catch { Write-Verbose "  UI: Error getting selected login profile: $_" }
+
 		if (-not $selectedLoginProfile)
 		{
 			$selectedLoginProfile = 'Default'
@@ -1132,7 +1136,7 @@ function InitializeUI
 	$topBar = SetUIElement @p
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; fg = @(240, 240, 240); id = 'TitleLabel'; text = 'Entropia Dashboard'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
 	$titleLabelForm = SetUIElement @p
-	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.2'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
+	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.3'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
 	$copyrightLabelForm = SetUIElement @p
 	$p = @{ type = 'Button'; width = 30; height = 30; left = 410; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'MinForm'; text = '_'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)); tooltip = 'Minimize' }
 	$btnMinimizeForm = SetUIElement @p
@@ -1680,6 +1684,7 @@ function RegisterUIEventHandlers
 						}
 					}
 
+					RefreshLoginProfileSelector
 					SyncConfigToUI
 					RegisterConfiguredHotkeys
 					RefreshHotkeysList
