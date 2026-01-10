@@ -1,15 +1,24 @@
 {
   "Home": {
-    "description": "Welcome to the Entropia Knowledge Base.\n\nSelect a category from the left to begin.",
-    "Official Wiki": {
-      "url": "https://wiki.entropia.top/",
-      "description": "Click 'OPEN WIKI' to view the official site."
+    "description": "Welcome to the Entropia Knowledge Base.\n\nThis internal wiki provides quick access to essential guides, drop lists, and system explanations.\n\nNavigate using the tree on the left or use the Search bar to find specific items.",
+    "Quick Links": {
+      "description": "Shortcuts to frequently used guides.",
+      "New Players": "Leveling & Starter Guides",
+      "Equipment": "Progression from Shiny to Royal",
+      "Dungeons": "Drop lists and requirements",
+      "Systems": "Awakening, F-Tool, Power-ups"
     },
-    "Discord Support": {
-      "description": "Join Discord for help and create tickets for technical issues."
+    "Server Info": {
+      "description": "General Server Information",
+      "Max Level": "175",
+      "Max Stat": "No Limit (Stat cap removed)",
+      "Systems": "Platinum Levels, Royal Levels, Rebirth",
+      "Features": "Switching, F-Tool, Multi-Clienting allowed"
     },
-    "Spreadsheet Data": {
-      "description": "Entropia_Notes.xlsx contains additional detailed stats, Royal rolls, and dungeon specifics."
+    "External Resources": {
+      "Official Wiki": { "url": "https://wiki.entropia.top/", "description": "The full official web wiki." },
+      "Discord": { "url": "https://discord.gg/zbcVRsC9uN", "description": "Join the community Discord." },
+      "Website": { "url": "https://entropia.fun/", "description": "Account management and downloads." }
     }
   },
   "New Players": {
