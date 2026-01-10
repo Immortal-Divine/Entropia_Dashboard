@@ -1,33 +1,34 @@
 {
-	"Home": {
-		"Official Wiki": {
-			"url": "https://wiki.entropia.top/",
-			"description": "The full official web wiki."
-		},
-		"Discord": {
-			"url": "https://discord.gg/zbcVRsC9uN",
-			"description": "Join the community Discord."
-		},
-		"Website": {
-			"url": "https://entropia.fun/",
-			"description": "The official website."
-		},
-		"description": "Welcome to the Entropia Wiki.\n\nThis internal wiki provides quick access to essential guides, drop lists, and system explanations.\n\nNavigate using the tree on the left or use the Search bar to find specific items."
-	},
-	"Genesis": {
-		"description": "New Description",
-		"Platin": {
-			"description": "New Description",
-			"Platin 1 - 40": "New Description",
-			"Platin 40 - 50": "New Description"
-		},
-		"Royal": {
-			"description": "New Description",
-			"Royal 1 - 6": "New Description",
-			"Royal 0 - 1": "New Description",
-			"Royal 6 - 10": "New Description",
-			"Royal 10 - 15": "New Description"
-		}
-	},
-	"Kheldor": "New Description"
+    "Home":  {
+		"description":  "Welcome to the Entropia Wiki.\n\nThis internal wiki provides quick access to essential guides, drop lists, and system explanations.\n\nNavigate using the tree on the left or use the Search bar to find specific items.",
+                 "Official Wiki":  {
+                                       "url":  "https://wiki.entropia.top/",
+                                       "description":  "The full official web wiki."
+                                   },
+                 "Discord":  {
+                                 "url":  "https://discord.gg/zbcVRsC9uN",
+                                 "description":  "Join the community Discord."
+                             },
+                 "Website":  {
+                                 "url":  "https://entropia.fun/",
+                                 "description":  "The official website."
+                             },
+                 "Markdown":  "[imgi]https://i.imgur.com/6hstCd5.png [imgi] LINK\n[imgs]https://i.imgur.com/6hstCd5.png [imgs] LINK\n[imgm]https://i.imgur.com/6hstCd5.png [imgm] LINK\n[img]https://i.imgur.com/6hstCd5.png [img] LINK"
+             },
+    "Genesis":  {
+        "description":  "New Description",
+                 "Platin":  {
+                                   "description":  "New Description",
+                                   "Platin 1 - 40":  "New Description",
+                                   "Platin 40 - 50":  "New Description"
+                               },
+                 "Royal":  {
+                                  "description":  "New Description",
+                                  "Royal 1 - 6":  "New Description",
+                                  "Royal 0 - 1":  "New Description",
+                                  "Royal 6 - 10":  "New Description",
+                                  "Royal 10 - 15":  "New Description"
+                    	   }
+                },
+    "Kheldor":  "New Description"
 }
