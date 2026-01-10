@@ -1,228 +1,1139 @@
 {
-	"Home": {
-		"URL": "https://wiki.entropia.top/",
-		"Desc": "Official Entropia Wiki Homepage",
-		"Icon": "Home"
-	},
-	"New Players": {
-		"Desc": "Guides and information for new adventurers.",
-		"Children": {
-			"Beginner Guide": {
-				"URL": "https://wiki.entropia.top/new-players/beginner-guide",
-				"Desc": "Getting started in Entropia."
-			},
-			"Equipment Guide": {
-				"URL": "https://wiki.entropia.top/new-players/equipment-guide",
-				"Desc": "Understanding gear progression."
-			},
-			"Fashion Set Guide": {
-				"URL": "https://wiki.entropia.top/new-players/fashion-set-guide",
-				"Desc": "Cosmetic sets and bonuses."
-			},
-			"Jewellery Guide": {
-				"URL": "https://wiki.entropia.top/new-players/jewellery-guide",
-				"Desc": "Rings, necklaces, and earrings."
-			},
-			"Important Power-Ups": {
-				"URL": "https://wiki.entropia.top/new-players/important-power-ups-guide",
-				"Desc": "Essential buffs and consumables."
-			},
-			"Level Boost / Royal": {
-				"URL": "https://wiki.entropia.top/new-players/level-boost-token-royal-level-6",
-				"Desc": "Level skipping and Royal Level 6 info."
-			}
-		}
-	},
-	"Systems": {
-		"Desc": "Core game mechanics and systems.",
-		"Children": {
-			"Alchemy": {
-				"URL": "https://wiki.entropia.top/systems/alchemy"
-			},
-			"Anarchy Buffs": {
-				"URL": "https://wiki.entropia.top/systems/anarchy-buff-system"
-			},
-			"Auto Power-Ups": {
-				"URL": "https://wiki.entropia.top/systems/auto-power-ups"
-			},
-			"Awake Window": {
-				"URL": "https://wiki.entropia.top/systems/awake-window"
-			},
-			"Black Market": {
-				"URL": "https://wiki.entropia.top/systems/black-market"
-			},
-			"Box Preview": {
-				"URL": "https://wiki.entropia.top/systems/box-preview-system"
-			},
-			"Counter System": {
-				"URL": "https://wiki.entropia.top/systems/counter-system"
-			},
-			"Damage Meter": {
-				"URL": "https://wiki.entropia.top/systems/damage-meter"
-			},
-			"Diamond System": {
-				"URL": "https://wiki.entropia.top/systems/diamond-system"
-			},
-			"Dungeon Entries": {
-				"URL": "https://wiki.entropia.top/systems/dungeon-entries"
-			},
-			"Item Wiki": {
-				"URL": "https://wiki.entropia.top/systems/item-wiki",
-				"Desc": "In-game item database."
-			},
-			"Infinity Grid": {
-				"URL": "https://wiki.entropia.top/systems/infinity-grid",
-				"Desc": "Endgame progression grid."
-			},
-			"Leveling System": {
-				"URL": "https://wiki.entropia.top/systems/leveling-system"
-			},
-			"Vendor & Shop": {
-				"URL": "https://wiki.entropia.top/systems/vendor-system-shop-bank-and-shop-vip"
-			},
-			"Monster Clash": {
-				"URL": "https://wiki.entropia.top/systems/monster-clash"
-			},
-			"Model Change": {
-				"URL": "https://wiki.entropia.top/systems/modelchange"
-			},
-			"Wardrobe": {
-				"URL": "https://wiki.entropia.top/systems/wardrobe-system"
-			},
-			"World Boss": {
-				"URL": "https://wiki.entropia.top/systems/world-boss-system"
-			},
-			"Gathering": {
-				"URL": "https://wiki.entropia.top/systems/gathering-system"
-			},
-			"Treasure Hunt": {
-				"URL": "https://wiki.entropia.top/systems/treasure-hunt"
-			},
-			"Soulreaver Sacrifice": {
-				"URL": "https://wiki.entropia.top/systems/soulreaver-sacrifice"
-			},
-			"Adventure Pass": {
-				"URL": "https://wiki.entropia.top/systems/adventure-pass"
-			},
-			"Fishing": {
-				"URL": "https://wiki.entropia.top/systems/fishing"
-			},
-			"Madrigal Statue": {
-				"URL": "https://wiki.entropia.top/systems/madrigal-statue"
-			}
-		}
-	},
-	"Guides": {
-		"Desc": "Gameplay guides and tutorials.",
-		"Children": {
-			"Card Upgrade": {
-				"URL": "https://wiki.entropia.top/guides/card-upgrade"
-			},
-			"Upgrade Scrolls": {
-				"URL": "https://wiki.entropia.top/guides/upgrade-scrolls-infinity-cards"
-			},
-			"Collector Field": {
-				"URL": "https://wiki.entropia.top/guides/collectorfield"
-			},
-			"Couple Level": {
-				"URL": "https://wiki.entropia.top/guides/couple-level"
-			},
-			"Daily Challenge": {
-				"URL": "https://wiki.entropia.top/guides/daily-challenge"
-			},
-			"Daily Roulette": {
-				"URL": "https://wiki.entropia.top/guides/daily-roulette"
-			},
-			"Pet Filter": {
-				"URL": "https://wiki.entropia.top/guides/petfilter"
-			},
-			"Premium": {
-				"URL": "https://wiki.entropia.top/guides/premium"
-			},
-			"Spirit Dice": {
-				"URL": "https://wiki.entropia.top/guides/spirit-dice"
-			}
-		}
-	},
-	"Items & Equipment": {
-		"Desc": "Weapons, Sets, Fashion, and Upgrades.",
-		"Children": {
-			"Fashion Sets": {
-				"URL": "https://wiki.entropia.top/sets-weapons-and-items/fashion-sets"
-			},
-			"Fashion Combine": {
-				"URL": "https://wiki.entropia.top/sets-weapons-and-items/fashion-combine"
-			},
-			"Fashion Upgrade": {
-				"URL": "https://wiki.entropia.top/sets-weapons-and-items/fashion-upgrade"
-			},
-			"Fashion Location": {
-				"URL": "https://wiki.entropia.top/sets-weapons-and-items/fashion-location",
-				"Desc": "Where to find specific fashion items."
-			},
-			"Weapon Fusion": {
-				"URL": "https://wiki.entropia.top/sets-weapons-and-items/weapon-fusion"
-			},
-			"Royal Equipment": {
-				"URL": "https://wiki.entropia.top/sets-weapons-and-items/royal-equipment"
-			},
-			"Royal Beads": {
-				"URL": "https://wiki.entropia.top/sets-weapons-and-items/royal-beads"
-			},
-			"Ultimate Items": {
-				"URL": "https://wiki.entropia.top/sets-weapons-and-items/ultimate-items"
-			},
-			"Upgrade System": {
-				"URL": "https://wiki.entropia.top/sets-weapons-and-items/upgrade-system"
-			},
-			"Power-Ups": {
-				"URL": "https://wiki.entropia.top/sets-weapons-and-items/power-ups"
-			}
-		}
-	},
-	"Spreadsheets": {
-		"Desc": "Detailed external data sheets.",
-		"Children": {
-			"Power-Up Stats": {
-				"URL": "https://docs.google.com/spreadsheets/d/1UPYGWWyYCut86elWRM7FizbETrYVhKS6/edit?gid=1373991678",
-				"Desc": "Detailed stats for STR, STA, PvE Dmg, etc."
-			},
-			"Fashion Locations": {
-				"URL": "https://docs.google.com/spreadsheets/d/1395aJEmFMlC6FJqcr7NBI0yG6iSUcWaJrL4x2eRRzoU/edit?gid=1329847758",
-				"Desc": "Drop locations for Fashion, Models, Masks, etc."
-			},
-			"Entropia Notes": {
-				"URL": "https://docs.google.com/spreadsheets/d/1B6NmPvZJ9nsFPFG7W_eccGCNqDROuIn9/edit?gid=2220508",
-				"Desc": "General notes, Royal rolls, Dungeon info."
-			}
-		}
-	},
-	"Farm Zones": {
-		"Desc": "Farming locations and drops.",
-		"Children": {
-			"Entropia Oasis": {
-				"URL": "https://wiki.entropia.top/farm-zones/entropia-oasis"
-			},
-			"Mars Mine": {
-				"URL": "https://wiki.entropia.top/farm-zones/mars-mine"
-			},
-			"Dekanes Mine": {
-				"URL": "https://wiki.entropia.top/farm-zones/dekanes-mine"
-			}
-		}
-	},
-	"Guild & PvP": {
-		"Desc": "Guild Siege, Rumble, and buffs.",
-		"Children": {
-			"Guild Buffs": {
-				"URL": "https://wiki.entropia.top/guildwar-and-rumble/guild-buff-system"
-			},
-			"Guild Siege": {
-				"URL": "https://wiki.entropia.top/guildwar-and-rumble/guild-siege"
-			},
-			"PvP Rumble": {
-				"URL": "https://wiki.entropia.top/guildwar-and-rumble/pvp-rumble"
-			}
-		}
-	}
+  "meta": {
+    "version": "1.0",
+    "last_updated": "2026-01-10",
+    "source": "Entropia Wiki + Discord Guide + Spreadsheet Data"
+  },
+  "progression_stages": {
+    "stage_0_starter": {
+      "name": "Starter",
+      "icon": "beginnerbox",
+      "level_range": "1-60",
+      "description": "Initial gear from Beginner Box and leveling rewards",
+      "equipment": {
+        "weapon": "Entropia Weapon (from Beginner Box)",
+        "cloak": "Dragon Cloak (temporary)",
+        "fashion": "Dragon Fashion Set (temporary)",
+        "source": "Beginner Box + NPC Merchants in cities"
+      },
+      "key_milestones": [
+        "Open Beginner Box and equip Cloak of Honor + Glyph",
+        "Activate power-ups",
+        "Complete first journey across Flaris for permanent Stat Point",
+        "Activate Celestial Statue",
+        "Reach Level 60 and become Elementor"
+      ]
+    },
+    "stage_1_shiny": {
+      "name": "Shiny Entropia",
+      "icon": "shiny",
+      "level_range": "Platinum 1-50",
+      "description": "First endgame gear set focused on building foundation",
+      "equipment": {
+        "weapon": {
+          "name": "Shiny Entropia Weapon",
+          "cost": "100 ECP each",
+          "vendor": "Weapon Trader Charly in Flaris",
+          "note": "Buy 2 weapons - second for Fusion after Platin 50",
+          "upgrade_target": "+10 (safe upgrade)",
+          "upgrade_materials": {
+            "levels_1_10": "Shiny Oricalkum + Scrolls of XProtect",
+            "vendor": "BoboChan (Upgrade Specialist) in Flaris"
+          },
+          "piercing": {
+            "slots": 10,
+            "materials": "Moonstones + Scrolls of GProtect"
+          },
+          "element": {
+            "required": "Yes (except magic classes)",
+            "cards": "A and 7% cards from Jewel Manager Peach",
+            "better_cards": "Buy from players or farm in Rhisis' Trail"
+          },
+          "diamonds": {
+            "insertion": "Never fails",
+            "vendor": "Jewel Exchanger Peach in Flaris",
+            "sources": "Buy from players or farm dungeons (check V menu drop log)"
+          }
+        },
+        "armor": {
+          "name": "Shiny Entropia Equipment Set",
+          "sources": [
+            "Les Britannia Dungeon (boss drops Shiny Entropia Treasure Chests)",
+            "Abyssal Cove Dungeon",
+            "Buy from NPC Dren (in front of dungeon) with dungeon coins",
+            "Buy from other players"
+          ],
+          "upgrade_target": "+10",
+          "upgrade_materials": {
+            "levels_1_10": "Sunstones + Scrolls of SProtect"
+          },
+          "piercing": {
+            "slots": 4,
+            "materials": "Moonstones + Scrolls of GProtect"
+          },
+          "element": {
+            "required": "Yes (except magic classes)",
+            "materials": "Elemental Cards + Scrolls of GProtect"
+          },
+          "awakenings": "Recommended: Basic INT and Cast% awakenings"
+        },
+        "accessories": {
+          "name": "Shiny Entropia Accessory Set",
+          "unlock": "Platinum 30, 40, 50 rewards"
+        },
+        "fashion": {
+          "permanent_dragon_set": {
+            "items": ["Dragon Mask", "Dragon Cloak", "Dragon Fashion Set"],
+            "source": "Replace temporary versions with ECP purchases"
+          }
+        },
+        "pets": {
+          "early": "INT Fox (hatch eggs until you get one, level to S rank)",
+          "platinum_30": "Bloodhunter (Stat-Pet)",
+          "platinum_50": "Better Bloodhunter (quest reward)"
+        },
+        "shield_templar": {
+          "name": "Behemoth's Shield",
+          "source": "Ankou's Asylum",
+          "note": "Don't forget if playing Templar!"
+        }
+      },
+      "important_notes": [
+        "Bonuses on Shiny items don't transfer to Black upon merging (except stated)",
+        "Higher base stats = more damage/HP",
+        "Use /awake command for awakening gear"
+      ]
+    },
+    "stage_2_black_shiny": {
+      "name": "Black Shiny Entropia",
+      "icon": "blackshiny",
+      "level_range": "Post Platinum 50+",
+      "description": "Mid-tier endgame gear with significant stat improvements",
+      "equipment": {
+        "weapon": {
+          "name": "Black Shiny Entropia Weapon",
+          "source": "Aurania Temple",
+          "drops": [
+            "Black weapon materials (exchange at Aurania Quest Exchanger Tina)",
+            "Black Shiny Weapon Box (rare direct drop)"
+          ],
+          "merging": {
+            "scroll": "Scroll of Weapon Merge (from Aurania Quest Exchanger Tina)",
+            "keeps": ["Upgrade levels", "Cards"],
+            "loses": ["Diamonds (unless removed with magic diamonds first - not recommended)"]
+          },
+          "upgrade_target": "+20",
+          "upgrade_materials": {
+            "levels_1_10": "Shiny Oricalkum + Scrolls of XProtect",
+            "levels_10_20": "Ultra Oricalkum + Scrolls of UProtect (Ultra)",
+            "sources": "Shiny dungeon exchangers or buy from players"
+          }
+        },
+        "armor": {
+          "name": "Black Shiny Entropia Equipment Set",
+          "source": "Magma Cave (boss drops individual set parts)",
+          "merging": {
+            "scroll_normal": "Scroll of Armour Merge (from Kebaria Exchange Maria)",
+            "scroll_special": "Scroll of Armour Merge (Special) - KEEPS AWAKENINGS",
+            "keeps": ["Upgrade levels", "Cards"],
+            "keeps_with_special_scroll": ["Awakenings"],
+            "recommendation": "Use special scroll to keep awakenings"
+          },
+          "upgrade_target": "+20",
+          "upgrade_materials": {
+            "levels_1_10": "Sunstones + Scrolls of SProtect",
+            "levels_10_20": "Ultra Sunstones + Scrolls of UProtect (Ultra)"
+          }
+        },
+        "accessories": {
+          "name": "Upgraded Platinum Accessory Set",
+          "recipe": "Buy Accessory Recipe at Smiths in Flaris",
+          "farming": "Farm class-specific accessory set",
+          "upgrade": "Check Aurania NPC for next exchange option"
+        },
+        "fashion": {
+          "cloak": {
+            "name": "Black Dragon Cloak",
+            "source": "Eden Dungeon"
+          },
+          "set": {
+            "name": "Black Dragon Fashion Set",
+            "source": "Eden Dungeon"
+          }
+        }
+      },
+      "utilities": {
+        "ancient_glyph": {
+          "drop": "Eden Dungeon",
+          "recipe": "Alchemy NPC"
+        },
+        "ancient_items": [
+          "Ancient Aura (recipe from Alchemy NPC)",
+          "Ancient Powerup (recipe from Alchemy NPC)",
+          "Ancient Balloon (recipe from Alchemy NPC)",
+          "Fairy (recipe from Alchemy NPC)"
+        ]
+      },
+      "special_items": {
+        "key": {
+          "tier_1": "Powerful Key (farm in Venux)",
+          "tier_2": "Holy Key (upgrade from Powerful Key)",
+          "warning": "If you die in Venux, you lose all quest items in inventory!"
+        },
+        "buff_pet": {
+          "options": [
+            "Unicorn CS-Pet (from Venux) -> upgrades to Horse CS-Pet",
+            "Entropia Golem (alternative with same sets)",
+            "Stat-Pokemon (alternative, can also upgrade)"
+          ]
+        }
+      },
+      "important_notes": [
+        "Black equipment bonuses MATTER for damage/HP and Soulreaver Sacrifice",
+        "Unneeded Shiny parts can be sold to NPCs or recycled",
+        "High bonus stat parts can be turned into Spirit Dice"
+      ]
+    },
+    "stage_3_soulreaver": {
+      "name": "Soulreaver",
+      "icon": "soulreaver",
+      "level_range": "Pre-Royal (Royal 0-10)",
+      "description": "High-tier gear required for Royal Level progression and endgame systems",
+      "equipment": {
+        "weapon": {
+          "name": "Soulreaver Weapon",
+          "source": "Ethral Garden",
+          "drops": [
+            "Soulreaver Relics (exchange at NPC Raziel in Ethral)",
+            "Soulreaver Weapon Box (rare direct drop)"
+          ],
+          "merging": {
+            "scroll": "Scroll of Weapon Merge (Soulreaver) from Ethral Exchanger Raziel",
+            "from": "Black Shiny Weapon"
+          },
+          "upgrade_target": "+6 minimum (new upgrade system with stat boosts)"
+        },
+        "armor": {
+          "name": "Soulreaver Equipment Set",
+          "source": "Trigrem Ruins (boss drops individual set parts)",
+          "merging": {
+            "scroll": "From Trigrem Exchanger Soran",
+            "from": "Black Shiny Equipment",
+            "note": "Merge scrolls are expensive - only merge good parts to save Perin"
+          },
+          "upgrade_target": "+6 minimum",
+          "importance": "Incredibly boosts damage when merged"
+        },
+        "accessories": {
+          "name": "Soulreaver Accessory",
+          "source": "Deep Temple",
+          "upgrade_target": "+10"
+        },
+        "fashion": {
+          "name": "Gaia Fashion Set",
+          "source": "Gaia Dungeon",
+          "upgrade_from": "Black Dragon Fashion Set",
+          "requirements": "Bring various items from across Entropia to Gaia NPC in Flaris"
+        }
+      },
+      "cards": {
+        "upgrade_target": ["Z-Cards", "15% Cards"],
+        "purpose": "Maximum damage output"
+      },
+      "critical_importance": [
+        "Required to damage monsters in Royal 0-10 content",
+        "Without high-quality Soulreaver Set, HP won't survive monster attacks",
+        "Necessary for crafting special power-ups at Royal 15+",
+        "Required for Trance character mode (Royal 15+)",
+        "Quality determines buff strength in endgame systems"
+      ],
+      "endgame_usage": {
+        "sacrifice_system": {
+          "unlock": "Royal 15",
+          "purpose": "Create Trance mode and Royal Accessories",
+          "upgrade": "Omega tier available at Royal 15+"
+        }
+      }
+    },
+    "stage_4_utilities": {
+      "name": "Ultimate Utilities",
+      "icon": "ultimate",
+      "level_range": "Pre-Royal / Early Royal",
+      "description": "Premium quality-of-life items to make dungeon farming easier",
+      "items": {
+        "ultimate_glyph": "Ultimate Glyph",
+        "ultimate_powerup": "Ultimate Powerup",
+        "ultimate_fairy": "Ultimate Fairy",
+        "ultimate_balloon": "Ultimate Balloon",
+        "ultimate_aura": "Ultimate Aura",
+        "ultimate_fashion": "Ultimate Fashion",
+        "ultimate_cloak_mask": "Ultimate Cloak & Mask",
+        "blessed_key": "Blessed Key"
+      },
+      "acquisition": [
+        "Buy from other players (recommended - no donation needed)",
+        "Premium Dungeon drops",
+        "Event rewards",
+        "All characters can be equipped just by playing the game"
+      ],
+      "recommendation": "Not all Ultimate items are equal - check Ingame Item Wiki for stats to see what suits your build best",
+      "note": "Optional but helpful for farming higher dungeons with less difficulty"
+    },
+    "stage_5_royal": {
+      "name": "Royal Equipment",
+      "icon": "royal",
+      "level_range": "Royal 10+",
+      "unlock_requirement": "Royal Level 10 (or Royal Level 6 with Boost Token)",
+      "description": "Endgame equipment tier with unique upgrade system",
+      "equipment": {
+        "weapon": {
+          "name": "Royal Weapon",
+          "sources": [
+            "Destruction Cavern (direct drop)",
+            "Azmore Forest Dungeon (direct drop)",
+            "Loot Orbs (random Royal item)",
+            "Buy from other players"
+          ]
+        },
+        "armor": {
+          "name": "Royal Equipment Set",
+          "sources": [
+            "Destruction Cavern (direct drop)",
+            "Azmore Forest Dungeon (direct drop)",
+            "Loot Orbs (random Royal item)",
+            "Buy from other players"
+          ]
+        }
+      },
+      "upgrade_system": {
+        "description": "Completely new upgrade system with drastically increased costs per level",
+        "materials_unlock": {
+          "royal_20": "Materials for +10-15 upgrades",
+          "royal_30": "Materials for +10-15 upgrades"
+        }
+      },
+      "important_notes": [
+        "Royal items DO NOT require merging from previous tiers",
+        "Old Soulreaver equipment still needed for Trance and power-ups",
+        "Must have quality Soulreaver to survive Royal 0-10 content",
+        "Costs increase drastically with each upgrade level"
+      ]
+    },
+    "stage_6_endgame": {
+      "name": "Endgame Activities",
+      "icon": "royal15",
+      "level_range": "Royal 15+",
+      "description": "True endgame content and infinite progression",
+      "activities": [
+        "Continue leveling (more content unlocks with Royal Level)",
+        "Upgrade Royal Set and Weapons (new upgrade system)",
+        "Sacrifice Soulreaver Equipment for Trance mode (Royal 15)",
+        "Upgrade Soulreaver Accessories to Omega tier (Royal 15)",
+        "Access Celestial Grid (Royal 25)"
+      ],
+      "progression_milestones": {
+        "royal_15": "Trance mode, Royal Accessory sacrifice system, Omega upgrades",
+        "royal_20": "Materials for +10-15 Royal upgrades",
+        "royal_25": "Celestial Grid access",
+        "royal_30": "Materials for +10-15 Royal upgrades"
+      }
+    }
+  },
+  "leveling_guide": {
+    "initial_setup": {
+      "accounts_recommended": 4,
+      "account_roles": {
+        "main": "Damage dealer (your main character)",
+        "second": "Tank (Seraph preferred, or Templar as second choice)",
+        "third": "Force Master (reaches 175, stays in collector fields as party buffer)",
+        "fourth": "Seraph Buffer (skip if already using Seraph as tank)"
+      },
+      "first_steps": [
+        "Vote for server (up to 5 times per day for Vote Points)",
+        "Press Ctrl+G and join a guild for buffs and help",
+        "Press L and join a party with full buffs",
+        "Use /buff next to party buffers in collector fields (press V to find them)",
+        "Buy 1 day of Premium from Vote Shop (Start → Premium Items → Entropia Shop)",
+        "Press O and propose to one of your other characters (couple bonuses)"
+      ]
+    },
+    "level_1_60": {
+      "steps": [
+        {
+          "level": "1",
+          "location": "Easter Island",
+          "actions": [
+            "Open Beginner Box (Press I)",
+            "Equip Cloak of Honor and Glyph",
+            "Activate all power-ups",
+            "Setup Auto Power-Ups (Start → Features → Auto Power-Ups)",
+            "Setup F-Tool (Start → Features → F-Tool)",
+            "Kill first Aibatt, then change class to Magician"
+          ]
+        },
+        {
+          "level": "1-60",
+          "location": "Flaris",
+          "actions": [
+            "Kill monsters while journeying across Flaris",
+            "Activate Celestial Statue for permanent Stat Point",
+            "Reach Level 60 and become Elementor",
+            "Assign all skill points to INT (Press H)",
+            "Equip mage gear from inventory"
+          ]
+        }
+      ],
+      "recommended_settings": {
+        "f_tool": "Press O, drag 'Attack the selected target' to first hotbar slot, activate checkbox, type /ToggleFtool"
+      }
+    },
+    "level_60_121": {
+      "steps": [
+        {
+          "level": "60-90",
+          "location": "Mars Mine",
+          "actions": [
+            "Don't enter dungeon - kill Bangs outside",
+            "Receive Arcanist Box, open and equip",
+            "Continue until Level 90"
+          ]
+        },
+        {
+          "level": "90",
+          "location": "Saint Morning (optional)",
+          "actions": [
+            "Visit NPC shop area (not player shops)",
+            "Sell unneeded items",
+            "Buy best gear available (~10 million Penya budget)",
+            "Look for Angel and Elder equipment"
+          ]
+        },
+        {
+          "level": "90-121",
+          "location": "Halloween Village",
+          "actions": [
+            "Press K and drag new attack skill to action slot",
+            "Drag 'S' action to hotbar",
+            "Kill Pumpkins until Master Level 80",
+            "Use /buff with new class skills",
+            "Switch to Meteoga skill (Press K)",
+            "Continue to Level 121"
+          ]
+        }
+      ]
+    },
+    "level_121_175": {
+      "route": "Garden of Rhisis → Darkon City",
+      "actions": [
+        "Equip Entropia Weapon at Level 140",
+        "Continue leveling to 175"
+      ]
+    },
+    "platinum_1_5": {
+      "steps": [
+        "Use one of 30 Blue Platinum Scrolls from inventory",
+        "Use Penya to /awake new Shiny Equipment and Fashion Set",
+        "Awakenings: Basic INT and Cast%",
+        "Teleport to Entropia Tower",
+        "Level to Platinum 5"
+      ],
+      "tip": "Platinum 3 area is great for Penya farming in first few minutes"
+    },
+    "platinum_5_shopping": {
+      "cash_shop_laura": [
+        "Sprotect (Super) and Gprotect",
+        "Scroll of Velocity",
+        "Power-ups",
+        "Holy and Resurrection Scrolls",
+        "Any 9 Beads you like"
+      ],
+      "pet_tamer_dominik": [
+        "7 Bead Slot Keys for Buff Pet",
+        "Eggs and Hatching Promoters (hatch until INT Fox)",
+        "Talk with NPC until pet reaches Level S"
+      ],
+      "housing_charlie": [
+        "INT and ATK% Furniture",
+        "Place furniture in house (Press Y)"
+      ],
+      "alchemy_ruboru": [
+        "Create first potion using recipe (if you have 5,000 Entropia Seeds)",
+        "Remember this NPC for later"
+      ],
+      "smiths": [
+        "4 × 7% ATK Cards",
+        "10 × Water A Cards"
+      ],
+      "upgrade": "Upgrade equipment to maximum affordable level",
+      "materials": "Buy more Oricalkum and Moonstones from NPC Wafor"
+    },
+    "platinum_5_35": {
+      "route": [
+        {
+          "levels": "Platin 5-15",
+          "location": "Coral Island"
+        },
+        {
+          "levels": "Platin 15-20",
+          "location": "Azria",
+          "note": "Switch between Meteoga, EVA Storm, and Cosmic Element (use multiple Action Slots)"
+        },
+        {
+          "levels": "Platin 20-35",
+          "location": "Azria → Traseia → Dark Traseia"
+        }
+      ],
+      "pet_change": "Replace INT Fox with Bloodhunter at Platin 30",
+      "traseia_tip": "After flying, resummon pets using Equipment Switch (Start → Features → Equip Switch, drag Vs symbol to hotbar)"
+    },
+    "platinum_35_40": {
+      "shopping": [
+        "Buy 2 Shiny Entropia Staffs from Charly (next to Wafor)",
+        "Second staff for Fusion after Platin 50"
+      ],
+      "first_dungeons": {
+        "name": "Les Britannia",
+        "actions": [
+          "Kill all monsters (optional: finish dungeon)",
+          "Use Holy Scrolls and Resurrection Scrolls from Laura",
+          "As Arcanist, kite boss during rage mode",
+          "Open treasures",
+          "Buy missing equipment from NPC Dren (in front of dungeon)",
+          "Buy Scrolls of Uprotect and Ultra Oricalkums with remaining coins"
+        ]
+      },
+      "alternative_dungeon": {
+        "name": "Abyssal Cove",
+        "tips": [
+          "Sell unneeded Shiny parts to NPCs",
+          "Recycle items (Start → Features → Item Recycle)",
+          "Turn high bonus parts into Spirit Dice (Start → Features → Spirit Dice)"
+        ]
+      },
+      "gear_prep": [
+        "Upgrade new gear (focus on main weapon, get equipment to +10)",
+        "Buy Lightspeed Dragon King's Mask from Wafor",
+        "Buy Glorious Dragon Cloak from Wafor",
+        "Use Scrolls of INT on gear",
+        "Prepare power-ups for Platin 40 in Entropia Forest"
+      ],
+      "farming_tip": "Platin 37 area is best for Penya farming until you can 1-hit monsters in Oasis"
+    },
+    "platinum_41_50": {
+      "note": "New EXP% power-ups required (old ones no longer work)",
+      "options": [
+        "Upgrade gear further",
+        "Level to Platin 50"
+      ],
+      "tips": [
+        "Check Smith exchange options",
+        "Run dungeons for variety",
+        "Farm in older zones or Oasis for Penya if needed"
+      ],
+      "completion_reward": "Better Bloodhunter pet at Platin 50"
+    }
+  },
+  "important_npcs": {
+    "flaris": {
+      "bobochan": {
+        "name": "Upgrade Specialist BoboChan",
+        "services": [
+          "Safe upgrade option for weapons and equipment",
+          "Pierce suits (4 times) and weapons (10 times)",
+          "Add elements to weapons and suits",
+          "Remove diamonds with magic diamonds"
+        ]
+      },
+      "laura": {
+        "name": "Cash Shop Laura",
+        "items": [
+          "Scrolls of SProtect (Super)",
+          "Scrolls of XProtect",
+          "Scrolls of GProtect",
+          "Scrolls of UProtect (Ultra)",
+          "Scroll of Velocity",
+          "Power-ups",
+          "Holy Scrolls",
+          "Resurrection Scrolls",
+          "Beads"
+        ]
+      },
+      "peach_jewel_manager": {
+        "name": "Jewel Manager Peach",
+        "items": [
+          "A% Cards (7%)",
+          "Elemental Cards"
+        ]
+      },
+      "peach_jewel_exchanger": {
+        "name": "Jewel Exchanger Peach",
+        "services": ["Insert diamonds into weapons (never fails)"]
+      },
+      "charly_weapon": {
+        "name": "Weapon Trader Charly",
+        "items": [
+          "Shiny Entropia Weapons (100 ECP each)"
+        ]
+      },
+      "charlie_housing": {
+        "name": "Housing Charlie",
+        "items": [
+          "INT Furniture",
+          "ATK% Furniture"
+        ]
+      },
+      "ruboru": {
+        "name": "Alchemy Ruboru",
+        "services": ["Create potions with recipes and materials"]
+      },
+      "dominik": {
+        "name": "Pet Tamer Dominik",
+        "items": [
+          "Bead Slot Keys",
+          "Eggs",
+          "Hatching Promoters"
+        ],
+        "services": ["Pet leveling"]
+      },
+      "wafor": {
+        "name": "NPC Wafor",
+        "items": [
+          "Oricalkum",
+          "Moonstones",
+          "Lightspeed Dragon King's Mask",
+          "Glorious Dragon Cloak"
+        ]
+      },
+      "smiths": {
+        "name": "Smiths",
+        "items": [
+          "ATK% Cards",
+          "Elemental Cards",
+          "Accessory Recipes",
+          "Exchange options for dungeon materials"
+        ]
+      }
+    },
+    "dungeon_exchangers": {
+      "dren": {
+        "name": "NPC Dren",
+        "location": "In front of Les Britannia / Abyssal Cove",
+        "items": ["Shiny Entropia Equipment parts (bought with dungeon coins)"]
+      },
+      "maria": {
+        "name": "Kebaria Exchange Maria",
+        "items": [
+          "Scroll of Armour Merge (normal)",
+          "Scroll of Armour Merge (Special) - keeps awakenings"
+        ]
+      },
+      "tina": {
+        "name": "Aurania Quest Exchanger Tina",
+        "items": [
+          "Black Weapon Boxes (exchange from Black materials)",
+          "Scroll of Weapon Merge"
+        ]
+      },
+      "soran": {
+        "name": "Trigrem Exchanger Soran",
+        "items": ["Scrolls for merging Soulreaver equipment"]
+      },
+      "raziel": {
+        "name": "Ethral Exchanger Raziel",
+        "items": [
+          "Soulreaver Weapon Boxes (exchange from Soulreaver Relics)",
+          "Scroll of Weapon Merge (Soulreaver)"
+        ]
+      },
+      "gaia_npc": {
+        "name": "Gaia NPC",
+        "location": "Flaris",
+        "services": ["Upgrade Black Fashion Set to Gaia Fashion Set"]
+      }
+    }
+  },
+  "dungeons": {
+    "shiny_tier": {
+      "les_britannia": {
+        "level_requirement": "Platinum 35+",
+        "boss_drops": ["Shiny Entropia Treasure Chests"],
+        "rewards": ["Shiny Entropia Equipment parts", "Dungeon coins"],
+        "npc_exchanger": "NPC Dren (in front of dungeon)",
+        "tips": [
+          "Buy Holy Scrolls and Resurrection Scrolls from Laura",
+          "Arcanists can kite boss during rage mode",
+          "First dungeon experience for new players"
+        ]
+      },
+      "abyssal_cove": {
+        "level_requirement": "Platinum 35+",
+        "boss_drops": ["Shiny Entropia Treasure Chests"],
+        "rewards": ["Shiny Entropia Equipment parts"],
+        "tips": [
+          "Similar to Les Britannia",
+          "Recycle unneeded parts or turn high bonus parts into Spirit Dice"
+        ]
+      }
+    },
+    "black_tier": {
+      "magma_cave": {
+        "level_requirement": "Post Platinum 50",
+        "boss_drops": ["Individual Black Shiny Equipment Set parts"],
+        "importance": "Required for Black Shiny progression"
+      },
+      "aurania_temple": {
+        "level_requirement": "Post Platinum 50",
+        "boss_drops": [
+          "Black Weapon Materials",
+          "Black Shiny Weapon Box (rare)"
+        ],
+        "npc_exchanger": "Aurania Quest Exchanger Tina",
+        "importance": "Black weapon progression"
+      },
+      "eden": {
+        "level_requirement": "Unknown",
+        "drops": [
+          "Black Dragon Cloak",
+          "Black Dragon Fashion Set",
+          "Ancient Glyph"
+        ]
+      },
+      "venux": {
+        "level_requirement": "Unknown",
+        "drops": [
+          "Powerful Key",
+          "Unicorn CS-Pet"
+        ],
+        "danger": "If you die, you lose ALL quest items in inventory!",
+        "upgrades": ["Powerful Key → Holy Key", "Unicorn → Horse CS-Pet"]
+      }
+    },
+    "soulreaver_tier": {
+      "trigrem_ruins": {
+        "level_requirement": "Pre-Royal",
+        "boss_drops": ["Individual Soulreaver Equipment Set parts"],
+        "npc_exchanger": "Trigrem Exchanger Soran",
+        "importance": "Critical for Royal 0-10 progression",
+        "tip": "Only merge good parts - merge scrolls are expensive"
+      },
+      "ethral_garden": {
+        "level_requirement": "Pre-Royal",
+        "boss_drops": [
+          "Soulreaver Relics",
+          "Soulreaver Weapon Box (rare)"
+        ],
+        "npc_exchanger": "Ethral Exchanger Raziel"
+      },
+      "deep_temple": {
+        "level_requirement": "Unknown",
+        "drops": ["Soulreaver Accessory"],
+        "upgrade_target": "+10"
+      },
+      "gaia_dungeon": {
+        "level_requirement": "Unknown",
+        "purpose": "Upgrade Black Fashion Set to Gaia Fashion Set",
+        "requirements": "Bring various items from across Entropia to Gaia NPC"
+      }
+    },
+    "royal_tier": {
+      "destruction_cavern": {
+        "level_requirement": "Royal 10+ (or Royal 6 with Boost Token)",
+        "drops": [
+          "Royal Equipment",
+          "Royal Weapons",
+          "Loot Orbs (random Royal item)"
+        ]
+      },
+      "azmore_forest": {
+        "level_requirement": "Royal 10+ (or Royal 6 with Boost Token)",
+        "drops": [
+          "Royal Equipment",
+          "Royal Weapons",
+          "Loot Orbs (random Royal item)"
+        ]
+      }
+    },
+    "premium": {
+      "premium_dungeon": {
+        "drops": ["Ultimate Entropia Items"],
+        "note": "Can equip all characters with Ultimate items just by playing - no donation required"
+      }
+    }
+  },
+  "currency_and_rewards": {
+    "ecp": {
+      "name": "Entropia Chip Perin",
+      "earned_from": "Leveling to Platinum 50",
+      "uses": [
+        "Buy Shiny Entropia Weapons (100 ECP each)",
+        "Buy Dragon Mask",
+        "Buy Dragon Cloak",
+        "Buy Dragon Fashion Set"
+      ]
+    },
+    "penya": {
+      "name": "Penya",
+      "best_farming_spots": [
+        "Platinum 3 area (early Penya farming)",
+        "Platinum 37 area (best until Oasis)",
+        "Oasis (once you can 1-hit monsters)"
+      ],
+      "uses": [
+        "Buy gear from NPCs and players",
+        "Awaken equipment (/awake command)",
+        "Purchase upgrade materials",
+        "General progression costs"
+      ]
+    },
+    "vote_points": {
+      "name": "Vote Points",
+      "earned_from": "Voting for server (up to 5 times per day)",
+      "uses": ["Vote Shop purchases", "Premium subscription"]
+    },
+    "dungeon_coins": {
+      "earned_from": "Completing dungeons",
+      "uses": [
+        "Buy equipment from dungeon exchangers",
+        "Buy upgrade materials (Scrolls of Uprotect, Ultra Oricalkum, etc.)"
+      ]
+    }
+  },
+  "key_systems": {
+    "awake_system": {
+      "command": "/awake",
+      "purpose": "Add stat bonuses to equipment",
+      "recommended_stats": {
+        "early_game": ["INT", "Cast%"],
+        "general": "Class-specific stats"
+      },
+      "special_merge": "Use Scroll of Armour Merge (Special) to keep awakenings when merging to Black"
+    },
+    "buff_system": {
+      "command": "/buff",
+      "usage": "Stand next to buffer characters in collector fields",
+      "setup": [
+        "Press V to see collector fields",
+        "Create Force Master for party buffing",
+        "Create Seraph for additional buffs"
+      ]
+    },
+    "auto_power_ups": {
+      "location": "Start → Features → Auto Power-Ups",
+      "setup": "Fill window with all common power-ups obtained throughout game",
+      "note": "Scroll of Experience Ultra can be stacked up to 5x"
+    },
+    "f_tool": {
+      "location": "Start → Features → F-Tool",
+      "setup": [
+        "Press O",
+        "Drag 'Attack the selected target' emote to first hotbar slot",
+        "Activate first checkbox",
+        "Type /ToggleFtool in chat (or drag command to hotbar)"
+      ]
+    },
+    "equipment_switch": {
+      "location": "Start → Features → Equip Switch (shortcut in Inventory)",
+      "purpose": "Quick equipment changes (useful for resummoning pets after flying)",
+      "setup": "Drag Vs symbol to hotbar"
+    },
+    "item_recycle": {
+      "location": "Start → Features → Item Recycle",
+      "purpose": "Recycle unneeded equipment parts"
+    },
+    "spirit_dice": {
+      "location": "Start → Features → Spirit Dice",
+      "purpose": "Convert high bonus stat equipment into Spirit Dice"
+    },
+    "couple_system": {
+      "command": "Press O and propose to another character",
+      "benefits": "Couple bonuses for stats",
+      "recommendation": "Propose to one of your alt accounts"
+    },
+    "premium": {
+      "purchase": "Vote Shop (Start → Premium Items → Entropia Shop)",
+      "recommendation": "Buy 1 day of Premium to start",
+      "benefits": "Enhanced EXP and drop rates"
+    },
+    "soulreaver_sacrifice": {
+      "unlock": "Royal Level 15",
+      "purpose": [
+        "Create Trance character mode",
+        "Craft special power-ups",
+        "Create Royal Accessories"
+      ],
+      "requirement": "Quality Soulreaver equipment determines buff strength",
+      "upgrade": "Omega tier available at Royal 15+"
+    },
+    "infinity_grid": {
+      "type": "Endgame progression system",
+      "note": "Details require additional wiki page content"
+    },
+    "celestial_grid": {
+      "unlock": "Royal Level 25",
+      "type": "Advanced endgame progression"
+    }
+  },
+  "equipment_upgrade_paths": {
+    "weapons": {
+      "progression": [
+        "Beginner Weapon → Entropia Weapon (Level 140)",
+        "Shiny Entropia Weapon (100 ECP, Platinum)",
+        "Black Shiny Weapon (merge from Shiny)",
+        "Soulreaver Weapon (merge from Black)",
+        "Royal Weapon (Royal 10+, no merge required)"
+      ],
+      "upgrade_levels": {
+        "shiny": {
+          "target": "+10",
+          "materials_1_10": "Shiny Oricalkum + Scrolls of XProtect"
+        },
+        "black": {
+          "target": "+20",
+          "materials_1_10": "Shiny Oricalkum + Scrolls of XProtect",
+          "materials_10_20": "Ultra Oricalkum + Scrolls of UProtect (Ultra)"
+        },
+        "soulreaver": {
+          "target": "+6 minimum",
+          "system": "New upgrade system with stat boosts"
+        },
+        "royal": {
+          "system": "Completely new upgrade system",
+          "cost": "Drastically increased per level",
+          "material_unlocks": {
+            "royal_20": "+10-15 upgrade materials",
+            "royal_30": "+10-15 upgrade materials"
+          }
+        }
+      },
+      "piercing": {
+        "slots": 10,
+        "materials": "Moonstones + Scrolls of GProtect",
+        "npc": "BoboChan in Flaris"
+      },
+      "elements": {
+        "required_for": "All classes except magic classes",
+        "materials": "Elemental Cards + Scrolls of GProtect",
+        "cards": "A and 7% from Jewel Manager Peach, better cards from players or Rhisis' Trail"
+      },
+      "diamonds": {
+        "insertion": "Never fails",
+        "npc": "Jewel Exchanger Peach",
+        "sources": "Buy from players or farm dungeons (check V menu drop log)",
+        "note": "Lost when merging unless removed with magic diamonds (not recommended unless using spirit diamonds)"
+      },
+      "cards": {
+        "progression": ["7% ATK", "15% ATK", "Z-Cards (endgame)"],
+        "element_progression": ["Water A", "Better element cards"]
+      }
+    },
+    "armor": {
+      "progression": [
+        "Beginner Armor → City Merchant Gear",
+        "Shiny Entropia Equipment",
+        "Black Shiny Equipment (merge from Shiny)",
+        "Soulreaver Equipment (merge from Black)",
+        "Royal Equipment (Royal 10+, no merge required)"
+      ],
+      "upgrade_levels": {
+        "shiny": {
+          "target": "+10",
+          "materials_1_10": "Sunstones + Scrolls of SProtect"
+        },
+        "black": {
+          "target": "+20",
+          "materials_1_10": "Sunstones + Scrolls of SProtect",
+          "materials_10_20": "Ultra Sunstones + Scrolls of UProtect (Ultra)"
+        },
+        "soulreaver": {
+          "target": "+6 minimum",
+          "system": "New upgrade system with stat boosts"
+        },
+        "royal": {
+          "system": "Completely new upgrade system",
+          "cost": "Drastically increased per level"
+        }
+      },
+      "piercing": {
+        "slots": 4,
+        "materials": "Moonstones + Scrolls of GProtect"
+      },
+      "elements": {
+        "required_for": "All classes except magic classes",
+        "materials": "Elemental Cards + Scrolls of GProtect"
+      }
+    },
+    "accessories": {
+      "progression": [
+        "Shiny Entropia Accessory (Platinum 30, 40, 50 rewards)",
+        "Upgraded Platinum Accessory (crafted with recipe)",
+        "Soulreaver Accessory (Deep Temple, +10 target)",
+        "Royal Accessory (from Soulreaver Sacrifice at Royal 15+, Omega upgrade)"
+      ]
+    },
+    "fashion": {
+      "progression": [
+        "Dragon Fashion Set (temporary from Beginner Box)",
+        "Dragon Fashion Set (permanent, bought with ECP)",
+        "Black Dragon Fashion Set (Eden)",
+        "Gaia Fashion Set (Gaia Dungeon)",
+        "Ultimate Fashion (Premium Dungeon or player shops)"
+      ]
+    },
+    "cloak_and_mask": {
+      "progression": [
+        "Dragon Cloak (temporary) → Dragon Cloak (permanent, ECP)",
+        "Dragon Mask (ECP purchase)",
+        "Black Dragon Cloak (Eden)",
+        "Ultimate Cloak & Mask (Premium or player shops)"
+      ]
+    }
+  },
+  "recommended_builds": {
+    "early_leveling_mage": {
+      "class_path": "Magician → Elementor → Arcanist",
+      "reason": "Fastest leveling, strong AoE",
+      "stat_priority": "All points into INT until Platinum 50",
+      "skill_rotation": {
+        "60_90": "Basic Elementor skills",
+        "90_121": "Meteoga (main skill)",
+        "121_plus": "Meteoga, EVA Storm, Cosmic Element (multiple Action Slots)"
+      },
+      "note": "This is for early game only - does not affect final class choice"
+    },
+    "multi_account_setup": {
+      "main": {
+        "role": "Damage Dealer",
+        "class": "Your preferred DPS class"
+      },
+      "tank": {
+        "role": "Tank",
+        "class": "Seraph (best) or Templar (second best)",
+        "special_note": "Templar needs Behemoth's Shield from Ankou's Asylum"
+      },
+      "buffer_1": {
+        "role": "Party Buffer & Collector",
+        "class": "Force Master",
+        "level": "175 (can stop leveling)",
+        "location": "Collector fields",
+        "command": "/buff"
+      },
+      "buffer_2": {
+        "role": "Seraph Buffer",
+        "class": "Seraph",
+        "note": "Skip if already using Seraph as tank"
+      }
+    }
+  },
+  "important_tips": {
+    "beginner": [
+      "Join a guild immediately (Ctrl+G) for powerful buffs and community help",
+      "Join a party (L) with full buffs",
+      "Vote daily for Vote Points (up to 5 times)",
+      "Create at least 3-4 accounts for buffers and farming",
+      "Buy 1 day Premium from Vote Shop to start",
+      "Propose to alt character for couple bonuses (Press O)",
+      "Setup Auto Power-Ups early",
+      "Setup F-Tool for efficient grinding",
+      "Check Discord for help and create tickets if needed"
+    },
+    "platinum": [
+      "Platinum 3 area is great for early Penya farming",
+      "Platinum 37 area is best Penya farming until Oasis",
+      "Replace INT Fox with Bloodhunter at Platinum 30",
+      "Buy 2 Shiny Entropia Staffs (second for Fusion after P50)",
+      "Use Holy and Resurrection Scrolls in dungeons",
+      "Arcanists can kite bosses during rage mode",
+      "Recycle or sell unneeded Shiny parts",
+      "Turn high bonus parts into Spirit Dice",
+      "Check Smith exchange options regularly",
+      "Old EXP power-ups stop working at Platinum 41+"
+    },
+    "merging": [
+      "Use Scroll of Armour Merge (Special) to keep awakenings when merging to Black",
+      "Normal merge scrolls lose awakenings",
+      "Upgrade levels and cards are always kept",
+      "Diamonds are lost unless removed first (not recommended)",
+      "Black equipment bonuses matter for Soulreaver Sacrifice",
+      "Soulreaver merge scrolls are expensive - only merge good parts",
+      "Royal equipment does NOT require merging from previous tiers"
+    ],
+    "soulreaver_importance": [
+      "Required to damage monsters in Royal 0-10 content",
+      "Quality determines survival in Royal zones",
+      "Needed for Trance mode at Royal 15+",
+      "Used in special power-up crafting",
+      "Quality affects buff strength in endgame",
+      "Don't skip this tier even after getting Royal gear"
+    ],
+    "endgame": [
+      "Royal upgrade costs increase drastically per level",
+      "Keep leveling for more content unlocks",
+      "Ultimate items can be obtained without donation",
+      "Not all Ultimate items are equal - check stats",
+      "Celestial Grid unlocks at Royal 25",
+      "Royal 20 and 30 unlock better upgrade materials"
+    ]
+  },
+  "common_mistakes_to_avoid": [
+    "Not joining a guild early (missing buffs)",
+    "Not creating buffer alt accounts",
+    "Merging bad Soulreaver parts (expensive scrolls wasted)",
+    "Using normal merge scroll instead of special (losing awakenings)",
+    "Removing diamonds from weapons before merging (waste of magic diamonds)",
+    "Skipping Soulreaver tier and going straight to Royal (won't survive)",
+    "Not checking Item Wiki for Ultimate item stats before buying",
+    "Dying in Venux with quest items in inventory",
+    "Not setting up Auto Power-Ups early",
+    "Selling high bonus equipment instead of turning into Spirit Dice"
+  ],
+  "quick_reference": {
+    "important_commands": [
+      "/buff - Get buffs from nearby buffer",
+      "/awake - Awaken equipment with stats",
+      "/ToggleFtool - Toggle F-Tool auto-attack",
+      "Ctrl+G - Guild menu",
+      "L - Party menu",
+      "V - Teleport/Dungeon menu",
+      "I - Inventory",
+      "H - Stats/Skill points",
+      "K - Skills menu",
+      "O - Couple/Propose menu",
+      "Y - Place furniture in house"
+    ],
+    "key_locations": {
+      "flaris": "Main hub - NPCs for upgrades, shops, weapons",
+      "saint_morning": "Player shop area + NPC shops",
+      "easter_island": "First leveling zone",
+      "mars_mine": "Level 60+ farming",
+      "halloween_village": "Master level farming (pumpkins)",
+      "entropia_tower": "Platinum 1-5 leveling",
+      "coral_island": "Platinum 5-15",
+      "azria": "Platinum 15-20",
+      "traseia": "Platinum 20-35",
+      "entropia_forest": "Platinum 40 content",
+      "entropia_harbor": "Platinum 41+ content",
+      "oasis": "Best Penya farming (late game)"
+    },
+    "exp_scroll_stacking": "Scroll of Experience Ultra stacks up to 5x"
+  },
+  "wiki_links": {
+    "main": "https://wiki.entropia.top/",
+    "beginner_guide": "https://wiki.entropia.top/new-players/beginner-guide",
+    "equipment_guide": "https://wiki.entropia.top/new-players/equipment-guide",
+    "fashion_guide": "https://wiki.entropia.top/new-players/fashion-set-guide",
+    "jewellery_guide": "https://wiki.entropia.top/new-players/jewellery-guide",
+    "power_ups_guide": "https://wiki.entropia.top/new-players/important-power-ups-guide",
+    "level_boost_royal": "https://wiki.entropia.top/new-players/level-boost-token-royal-level-6",
+    "soulreaver_sacrifice": "https://wiki.entropia.top/systems/soulreaver-sacrifice",
+    "infinity_grid": "https://wiki.entropia.top/systems/infinity-grid",
+    "merge_black_equipment": "https://wiki.entropia.top/sets-weapons-and-items/merge-system/how-do-i-merge-a-black-shiny-equipment",
+    "merge_black_weapon": "https://wiki.entropia.top/sets-weapons-and-items/merge-system/how-do-i-merge-a-black-weapon",
+    "merge_soulreaver_equipment": "https://wiki.entropia.top/sets-weapons-and-items/merge-system/how-do-i-merge-a-soulreaver-equipment",
+    "merge_soulreaver_weapon": "https://wiki.entropia.top/sets-weapons-and-items/merge-system/how-do-i-merge-a-soulreaver-weapon",
+    "cardia_patch": "https://entropia.fun/index.php?site=news&newsid=701"
+  },
+  "spreadsheet_data": {
+    "source": "Entropia_Notes.xlsx",
+    "note": "Additional detailed stats, Royal rolls, and dungeon specifics available in spreadsheet"
+  }
 }
