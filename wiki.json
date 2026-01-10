@@ -1035,7 +1035,7 @@
       "Setup Auto Power-Ups early",
       "Setup F-Tool for efficient grinding",
       "Check Discord for help and create tickets if needed"
-    },
+	],
     "platinum": [
       "Platinum 3 area is great for early Penya farming",
       "Platinum 37 area is best Penya farming until Oasis",
@@ -1047,7 +1047,7 @@
       "Turn high bonus parts into Spirit Dice",
       "Check Smith exchange options regularly",
       "Old EXP power-ups stop working at Platinum 41+"
-    },
+	],
     "merging": [
       "Use Scroll of Armour Merge (Special) to keep awakenings when merging to Black",
       "Normal merge scrolls lose awakenings",
