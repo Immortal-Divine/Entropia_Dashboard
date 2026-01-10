@@ -1,0 +1,100 @@
+{
+  "Home": {
+    "URL": "https://wiki.entropia.top/",
+    "Desc": "Official Entropia Wiki Homepage",
+    "Icon": "Home"
+  },
+  "New Players": {
+    "Desc": "Guides and information for new adventurers.",
+    "Children": {
+      "Beginner Guide": { "URL": "https://wiki.entropia.top/new-players/beginner-guide", "Desc": "Getting started in Entropia." },
+      "Equipment Guide": { "URL": "https://wiki.entropia.top/new-players/equipment-guide", "Desc": "Understanding gear progression." },
+      "Fashion Set Guide": { "URL": "https://wiki.entropia.top/new-players/fashion-set-guide", "Desc": "Cosmetic sets and bonuses." },
+      "Jewellery Guide": { "URL": "https://wiki.entropia.top/new-players/jewellery-guide", "Desc": "Rings, necklaces, and earrings." },
+      "Important Power-Ups": { "URL": "https://wiki.entropia.top/new-players/important-power-ups-guide", "Desc": "Essential buffs and consumables." },
+      "Level Boost / Royal": { "URL": "https://wiki.entropia.top/new-players/level-boost-token-royal-level-6", "Desc": "Level skipping and Royal Level 6 info." }
+    }
+  },
+  "Systems": {
+    "Desc": "Core game mechanics and systems.",
+    "Children": {
+      "Alchemy": { "URL": "https://wiki.entropia.top/systems/alchemy" },
+      "Anarchy Buffs": { "URL": "https://wiki.entropia.top/systems/anarchy-buff-system" },
+      "Auto Power-Ups": { "URL": "https://wiki.entropia.top/systems/auto-power-ups" },
+      "Awake Window": { "URL": "https://wiki.entropia.top/systems/awake-window" },
+      "Black Market": { "URL": "https://wiki.entropia.top/systems/black-market" },
+      "Box Preview": { "URL": "https://wiki.entropia.top/systems/box-preview-system" },
+      "Counter System": { "URL": "https://wiki.entropia.top/systems/counter-system" },
+      "Damage Meter": { "URL": "https://wiki.entropia.top/systems/damage-meter" },
+      "Diamond System": { "URL": "https://wiki.entropia.top/systems/diamond-system" },
+      "Dungeon Entries": { "URL": "https://wiki.entropia.top/systems/dungeon-entries" },
+      "Item Wiki": { "URL": "https://wiki.entropia.top/systems/item-wiki", "Desc": "In-game item database." },
+      "Infinity Grid": { "URL": "https://wiki.entropia.top/systems/infinity-grid", "Desc": "Endgame progression grid." },
+      "Leveling System": { "URL": "https://wiki.entropia.top/systems/leveling-system" },
+      "Vendor & Shop": { "URL": "https://wiki.entropia.top/systems/vendor-system-shop-bank-and-shop-vip" },
+      "Monster Clash": { "URL": "https://wiki.entropia.top/systems/monster-clash" },
+      "Model Change": { "URL": "https://wiki.entropia.top/systems/modelchange" },
+      "Wardrobe": { "URL": "https://wiki.entropia.top/systems/wardrobe-system" },
+      "World Boss": { "URL": "https://wiki.entropia.top/systems/world-boss-system" },
+      "Gathering": { "URL": "https://wiki.entropia.top/systems/gathering-system" },
+      "Treasure Hunt": { "URL": "https://wiki.entropia.top/systems/treasure-hunt" },
+      "Soulreaver Sacrifice": { "URL": "https://wiki.entropia.top/systems/soulreaver-sacrifice" },
+      "Adventure Pass": { "URL": "https://wiki.entropia.top/systems/adventure-pass" },
+      "Fishing": { "URL": "https://wiki.entropia.top/systems/fishing" },
+      "Madrigal Statue": { "URL": "https://wiki.entropia.top/systems/madrigal-statue" }
+    }
+  },
+  "Guides": {
+    "Desc": "Gameplay guides and tutorials.",
+    "Children": {
+      "Card Upgrade": { "URL": "https://wiki.entropia.top/guides/card-upgrade" },
+      "Upgrade Scrolls": { "URL": "https://wiki.entropia.top/guides/upgrade-scrolls-infinity-cards" },
+      "Collector Field": { "URL": "https://wiki.entropia.top/guides/collectorfield" },
+      "Couple Level": { "URL": "https://wiki.entropia.top/guides/couple-level" },
+      "Daily Challenge": { "URL": "https://wiki.entropia.top/guides/daily-challenge" },
+      "Daily Roulette": { "URL": "https://wiki.entropia.top/guides/daily-roulette" },
+      "Pet Filter": { "URL": "https://wiki.entropia.top/guides/petfilter" },
+      "Premium": { "URL": "https://wiki.entropia.top/guides/premium" },
+      "Spirit Dice": { "URL": "https://wiki.entropia.top/guides/spirit-dice" }
+    }
+  },
+  "Items & Equipment": {
+    "Desc": "Weapons, Sets, Fashion, and Upgrades.",
+    "Children": {
+      "Fashion Sets": { "URL": "https://wiki.entropia.top/sets-weapons-and-items/fashion-sets" },
+      "Fashion Combine": { "URL": "https://wiki.entropia.top/sets-weapons-and-items/fashion-combine" },
+      "Fashion Upgrade": { "URL": "https://wiki.entropia.top/sets-weapons-and-items/fashion-upgrade" },
+      "Fashion Location": { "URL": "https://wiki.entropia.top/sets-weapons-and-items/fashion-location", "Desc": "Where to find specific fashion items." },
+      "Weapon Fusion": { "URL": "https://wiki.entropia.top/sets-weapons-and-items/weapon-fusion" },
+      "Royal Equipment": { "URL": "https://wiki.entropia.top/sets-weapons-and-items/royal-equipment" },
+      "Royal Beads": { "URL": "https://wiki.entropia.top/sets-weapons-and-items/royal-beads" },
+      "Ultimate Items": { "URL": "https://wiki.entropia.top/sets-weapons-and-items/ultimate-items" },
+      "Upgrade System": { "URL": "https://wiki.entropia.top/sets-weapons-and-items/upgrade-system" },
+      "Power-Ups": { "URL": "https://wiki.entropia.top/sets-weapons-and-items/power-ups" }
+    }
+  },
+  "Spreadsheets": {
+    "Desc": "Detailed external data sheets.",
+    "Children": {
+      "Power-Up Stats": { "URL": "https://docs.google.com/spreadsheets/d/1UPYGWWyYCut86elWRM7FizbETrYVhKS6/edit?gid=1373991678", "Desc": "Detailed stats for STR, STA, PvE Dmg, etc." },
+      "Fashion Locations": { "URL": "https://docs.google.com/spreadsheets/d/1395aJEmFMlC6FJqcr7NBI0yG6iSUcWaJrL4x2eRRzoU/edit?gid=1329847758", "Desc": "Drop locations for Fashion, Models, Masks, etc." },
+      "Entropia Notes": { "URL": "https://docs.google.com/spreadsheets/d/1B6NmPvZJ9nsFPFG7W_eccGCNqDROuIn9/edit?gid=2220508", "Desc": "General notes, Royal rolls, Dungeon info." }
+    }
+  },
+  "Farm Zones": {
+    "Desc": "Farming locations and drops.",
+    "Children": {
+      "Entropia Oasis": { "URL": "https://wiki.entropia.top/farm-zones/entropia-oasis" },
+      "Mars Mine": { "URL": "https://wiki.entropia.top/farm-zones/mars-mine" },
+      "Dekanes Mine": { "URL": "https://wiki.entropia.top/farm-zones/dekanes-mine" }
+    }
+  },
+  "Guild & PvP": {
+    "Desc": "Guild Siege, Rumble, and buffs.",
+    "Children": {
+      "Guild Buffs": { "URL": "https://wiki.entropia.top/guildwar-and-rumble/guild-buff-system" },
+      "Guild Siege": { "URL": "https://wiki.entropia.top/guildwar-and-rumble/guild-siege" },
+      "PvP Rumble": { "URL": "https://wiki.entropia.top/guildwar-and-rumble/pvp-rumble" }
+    }
+  }
+}
