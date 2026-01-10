@@ -13,5 +13,21 @@
                                  "description":  "The official website."
                              },
                  "description":  "Welcome to the Entropia Wiki.\n\nThis internal wiki provides quick access to essential guides, drop lists, and system explanations.\n\nNavigate using the tree on the left or use the Search bar to find specific items."
-             }
+             },
+    "Genesis":  {
+                    "description":  "New Description",
+                    "Platin":  {
+                                   "description":  "New Description",
+                                   "Platin 1 - 40":  "New Description",
+                                   "Platin 40 - 50":  "New Description"
+                               },
+                    "Royal":  {
+                                  "description":  "New Description",
+                                  "Royal 1 - 6":  "New Description",
+                                  "Royal 0 - 1":  "New Description",
+                                  "Royal 6 - 10":  "New Description",
+                                  "Royal 10 - 15":  "New Description"
+                              }
+                },
+    "Kheldor":  "New Description",
 }
