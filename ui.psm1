@@ -942,6 +942,29 @@ function SyncUIToConfig
 		$UI = $global:DashboardConfig.UI
 		if (-not ($UI -and $global:DashboardConfig.Config)) { return $false }
 
+		# --- START FIX: Map Global Settings from UI to Config ---
+		
+		# Ensure the config sections exist before writing to them
+		if (-not $global:DashboardConfig.Config.Contains('LauncherPath')) { $global:DashboardConfig.Config['LauncherPath'] = [ordered]@{} }
+		if (-not $global:DashboardConfig.Config.Contains('ProcessName')) { $global:DashboardConfig.Config['ProcessName'] = [ordered]@{} }
+		if (-not $global:DashboardConfig.Config.Contains('MaxClients')) { $global:DashboardConfig.Config['MaxClients'] = [ordered]@{} }
+		if (-not $global:DashboardConfig.Config.Contains('Paths')) { $global:DashboardConfig.Config['Paths'] = [ordered]@{} }
+		if (-not $global:DashboardConfig.Config.Contains('Login')) { $global:DashboardConfig.Config['Login'] = [ordered]@{} }
+		if (-not $global:DashboardConfig.Config.Contains('Options')) { $global:DashboardConfig.Config['Options'] = [ordered]@{} }
+
+		# Save General Inputs
+		$global:DashboardConfig.Config['LauncherPath']['LauncherPath'] = $UI.InputLauncher.Text
+		$global:DashboardConfig.Config['ProcessName']['ProcessName']   = $UI.InputProcess.Text
+		$global:DashboardConfig.Config['MaxClients']['MaxClients']     = $UI.InputMax.Text
+		$global:DashboardConfig.Config['Paths']['JunctionTarget']      = $UI.InputJunction.Text
+		
+		# Save Checkbox States (Stored as '1' or '0')
+		$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin'] = if ($UI.NeverRestartingCollectorLogin.Checked) { '1' } else { '0' }
+		$global:DashboardConfig.Config['Options']['WorldBossListener']           = if ($UI.WorldBossListener.Checked) { '1' } else { '0' }
+		$global:DashboardConfig.Config['Options']['ShowBossImages']              = if ($UI.ShowBossImages.Checked) { '1' } else { '0' }
+
+		# --- END FIX ---
+
 		$global:DashboardConfig.Config['Profiles'] = [ordered]@{}
 		$global:DashboardConfig.Config['ReconnectProfiles'] = [ordered]@{}
 		$global:DashboardConfig.Config['HideProfiles'] = [ordered]@{}
