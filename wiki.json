@@ -1,0 +1,34 @@
+{
+    "Home":  {
+                 "Official Wiki":  {
+                                       "url":  "https://wiki.entropia.top/",
+                                       "description":  "The full official web wiki."
+                                   },
+                 "Discord":  {
+                                 "url":  "https://discord.gg/zbcVRsC9uN",
+                                 "description":  "Join the community Discord."
+                             },
+                 "Website":  {
+                                 "url":  "https://entropia.fun/",
+                                 "description":  "The official website."
+                             },
+                 "description":  "Welcome to the Entropia Wiki.\n\nThis internal wiki provides quick access to essential guides, drop lists, and system explanations.\n\nNavigate using the tree on the left or use the Search bar to find specific items.",
+                 "Markdown":  "# Wiki Syntax Guide\n___\n## Complete Syntax Reference\n\u003e Below is every formatting option supported by this wiki.\n___\n| **Feature** | **Syntax (Remove Spaces)** | **Description** |\n|---|---|---|\n| **BOLD** | `**Text**` | Wrap text in double asterisks. |\n| **ITALIC** | `*Text*` | Wrap text in single asterisks. |\n| **STRIKE** | `~~Text~~` | Wrap text in double tildes. |\n| **CODE** | `Text` | Wrap text in backticks. |\n| **HEADER** | `# Title` | Use 1 to 6 hashtags. Must be at start of line. |\n| **LIST** | `* Item` | Use an asterisk or hyphen. Must be at start of line. |\n| **QUOTE** | `\u003e Text` | Use a greater-than sign. Must be at start of line. |\n| **DIVIDER** | `___` | Three underscores create a line. |\n| **LINK (Web)** | `[Name](https://url.com)` | Standard web link. |\n| **LINK (Wiki)** | `[[PageName]]` | Links to another Wiki Node. |\n| **LINK (Named)**| `[Home](wiki:Home) ` | Links to a Node with custom text. |\n| **IMG (Full)** | `[img] URL` | Full size image. |\n| **IMG (Icon)** [imgi]http://i.imgur.com/6hstCd5.png  | `[imgi] URL` | **Icon Size:** Resizes to 32px width. |\n| **IMG (Small)** | `[imgs] URL` | **Small:** Resizes to 25% width. |\n| **IMG (Med)** | `[imgm] URL` | **Medium:** Resizes to 50% width. |\n___\n\n## How to Create Tables\nTo create a table, wrap your text in pipes `|`.\n1. The **First Row** is always the Header (Dark background, Red text).\n2. The **Second Row** is the separator (e.g., `|---|`). The script hides this row automatically.\n3. **Subsequent Rows** are your data.\n\n`| Item | Cost |`\n`|---|---|`\n`| Sword | 100 |`\n\n___\n\n## Important Notes \u0026 Hints\n\n**Headers \u0026 Lists inside Tables:**\n* You cannot use Headers (`#`) or Lists (`*`) **inside** a table cell. The script only detects these if they are at the very start of a new line. Inside a table, the line starts with `|`, so they will be ignored.\n* *Workaround:* Use **Bold** inside tables instead of Headers.\n\n**Code Blocks \u0026 Escaping:**\n* **Note:** Markdown formatting is **disabled** inside code blocks.\n* **Protected Text:** `**Bold**` will appear exactly as `**Bold**`, not bold.\n* **Protected Links:** `[[Link]]` will appear as text, not a clickable link.\n\n**Internal Wiki Linking:**\n* To link between pages within this dashboard, use the exact **Name** of the node.\n* **Quick Link:** Wrap the node name in double brackets: `[[Home]]`\n* **Custom Text Link:** Use the `wiki:` prefix: `[Click Here](wiki:Home)`\n\n**Image Formats:**\n* The script supports direct URLs (e.g., `https://i.imgur.com/example.png`).\n*   `[imgi]` is perfect for item icons inside tables.\n*   `[imgs]` is good for side-by-side screenshots.\n\n**Troubleshooting:**\n*   **Table Formatting:** If your table looks broken, ensure the second row contains only dashes and pipes (e.g., `|---|---|`).\n*   **Images Not Loading:** Ensure the URL is a direct link to the image file (ending in `.png`, `.jpg`, etc.), not a link to a gallery page.\n*   **Raw HTML:** HTML tags (like `\u003cb\u003e`) are disabled for security; use the Markdown syntax instead."
+             },
+    "Genesis":  {
+                    "description":  "New Description",
+                    "Platin":  {
+                                   "description":  "New Description",
+                                   "Platin 1 - 40":  "New Description",
+                                   "Platin 40 - 50":  "New Description"
+                               },
+                    "Royal":  {
+                                  "description":  "New Description",
+                                  "Royal 1 - 6":  "New Description",
+                                  "Royal 0 - 1":  "New Description",
+                                  "Royal 6 - 10":  "New Description",
+                                  "Royal 10 - 15":  "New Description"
+                              }
+                },
+    "Kheldor":  "New Description"
+}
