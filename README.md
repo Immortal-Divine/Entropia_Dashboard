@@ -1,5 +1,7 @@
 [Download](https://github.com/Immortal-Divine/Entropia_Dashboard/raw/refs/heads/main/Entropia%20Dashboard.exe)
 
+<a href='https://ko-fi.com/U7U61S0EGT' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+
 # Entropia Dashboard
 
 > Interface
