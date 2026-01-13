@@ -2,10 +2,6 @@ Author: Immortal / Divine
 Version: 2.4
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
-Todo
-Launch anschauen
-Wiki anschauen
-
 [Changelogs]
    - Added:
     - Comprehensive guide that explains you every feature of the dashboard.
