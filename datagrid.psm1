@@ -147,7 +147,7 @@ function AddNewProcessRow
 		$rowIndex = $Grid.Rows.Add($Index, $ProcessTitle, $Process.Id, $script:States.Checking)
 		$Grid.Rows[$rowIndex].Tag = $Process
 		if (-not $script:ProcessCache.ContainsKey($Process.Id)) { $script:ProcessCache[$Process.Id] = @{} }
-		$script:ProcessCache[$Process.Id]['LastSeen'] = Get-Date
+		$script:ProcessCache[$Process.Id]['LastSeen'] = [DateTime]::Now
 		return $Grid.Rows[$rowIndex]
 	}
  catch { return $null }
@@ -177,7 +177,7 @@ function StartWindowStateCheck
 			$script:PendingChecks.Remove($state.ProcessId) | Out-Null
 			try
 			{
-				$currentGrid = $global:DashboardConfig.UI.DataGridFiller
+				$currentGrid = $global:DashboardConfig.UI.DataGridMain
 				$processId = $state.ProcessId; $rowIndex = $state.RowIndex; $hWnd = $state.hWnd
 				if (-not $currentGrid -or $currentGrid.IsDisposed -or $rowIndex -lt 0 -or $rowIndex -ge $currentGrid.Rows.Count) { return }
 
@@ -267,7 +267,7 @@ function ClearOldProcessCache
 {
 	[CmdletBinding()]
 	param()
-	$now = Get-Date; $keysToRemove = [System.Collections.Generic.List[object]]::new(); $thresholdMinutes = 5
+	$now = [DateTime]::Now; $keysToRemove = [System.Collections.Generic.List[object]]::new(); $thresholdMinutes = 5
 	$cacheKeys = @($script:ProcessCache.Keys)
 	foreach ($key in $cacheKeys)
 	{
@@ -341,17 +341,12 @@ function Save-WindowPositions
 {
 	[CmdletBinding()]
 	param()
-
-	$grid = $global:DashboardConfig.UI.DataGridFiller
+	
+	$grid = $global:DashboardConfig.UI.DataGridMain
 	if (-not $grid) { return }
 	
 	$selectedRows = $grid.SelectedRows
 	if ($selectedRows.Count -eq 0) { return }
-
-	if (-not $global:DashboardConfig.Config.Contains('SavedWindowPositions'))
-	{
-		$global:DashboardConfig.Config['SavedWindowPositions'] = [ordered]@{}
-	}
 
 	$savedCount = 0
 	foreach ($row in $selectedRows)
@@ -378,9 +373,9 @@ function Save-WindowPositions
 	
 	if ($savedCount -gt 0)
 	{
-		if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
+		if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
 	}
-	if (Get-Command Show-DarkMessageBox -ErrorAction SilentlyContinue) { Show-DarkMessageBox "Window positions saved for $($savedCount) of $($selectedRows.Count) client(s).`nMinimized windows were skipped." "Position Saved" "OK" "Information" "success" }
+	if (Get-Command Show-DarkMessageBox -ErrorAction SilentlyContinue -Verbose:$False) { Show-DarkMessageBox "Window positions saved for $($savedCount) of $($selectedRows.Count) client(s).`nMinimized windows were skipped." "Position Saved" "OK" "Information" "success" }
 }
 
 function Restore-WindowPositions
@@ -388,7 +383,7 @@ function Restore-WindowPositions
 	[CmdletBinding()]
 	param()
 
-	$grid = $global:DashboardConfig.UI.DataGridFiller
+	$grid = $global:DashboardConfig.UI.DataGridMain
 	if (-not $grid -or -not $global:DashboardConfig.Config.Contains('SavedWindowPositions')) { return }
 	
 	foreach ($row in $grid.SelectedRows)
@@ -399,7 +394,7 @@ function Restore-WindowPositions
 			$pos = $global:DashboardConfig.Config['SavedWindowPositions'][$identity] -split ','
 			if ($pos.Count -eq 4 -and $row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
 			{
-				[Custom.Native]::PositionWindow($row.Tag.MainWindowHandle, [IntPtr]::Zero, [int]$pos[0], [int]$pos[1], [int]$pos[2], [int]$pos[3], 0x0014) # SWP_NOZORDER | SWP_NOACTIVATE
+				[Custom.Native]::PositionWindow($row.Tag.MainWindowHandle, [IntPtr]::Zero, [int]$pos[0], [int]$pos[1], [int]$pos[2], [int]$pos[3], 0x0014) 
 			}
 		}
 	}
@@ -434,13 +429,13 @@ function UpdateDataGrid
 			if ($script:ProcessCache[$pidVal].ContainsKey('LastWindowCheck')) { $lastWindowCheck = $script:ProcessCache[$pidVal]['LastWindowCheck'] }
 			if ($cachedHWnd -eq [IntPtr]::Zero -or -not [Custom.Native]::IsWindow($cachedHWnd))
 			{
-				if ((Get-Date) -gt $lastWindowCheck.AddSeconds(5))
+				if ([DateTime]::Now -gt $lastWindowCheck.AddSeconds(5))
 				{
 					if ('Custom.SafeWindowCore' -as [Type])
 					{
 						$cachedHWnd = [Custom.SafeWindowCore]::FindBestWindow($pidVal)
 						$script:ProcessCache[$pidVal]['hWnd'] = $cachedHWnd
-						$script:ProcessCache[$pidVal]['LastWindowCheck'] = Get-Date
+						$script:ProcessCache[$pidVal]['LastWindowCheck'] = [DateTime]::Now
 					}
 				}
 			}
@@ -448,7 +443,7 @@ function UpdateDataGrid
 			$shouldUpdateTitle = $true
 			if ($script:ProcessCache[$pidVal].ContainsKey('CachedTitle') -and $script:ProcessCache[$pidVal].ContainsKey('LastTitleCheck'))
 			{
-				if ((Get-Date) -lt $script:ProcessCache[$pidVal]['LastTitleCheck'].AddSeconds(2))
+				if ([DateTime]::Now -lt $script:ProcessCache[$pidVal]['LastTitleCheck'].AddSeconds(2))
 				{
 					$shouldUpdateTitle = $false; $processTitle = $script:ProcessCache[$pidVal]['CachedTitle']
 				}
@@ -462,7 +457,7 @@ function UpdateDataGrid
 					{
 						$processTitle = $safeTitle; $script:ProcessCache[$pidVal]['CachedTitle'] = $safeTitle
 					}
-					$script:ProcessCache[$pidVal]['LastTitleCheck'] = Get-Date
+					$script:ProcessCache[$pidVal]['LastTitleCheck'] = [DateTime]::Now
 				}
 			}
 			elseif ($cachedHWnd -ne [IntPtr]::Zero -and -not $shouldUpdateTitle)
@@ -497,7 +492,7 @@ function UpdateDataGrid
 			$process = $processedProcess.Process; $processTitle = $processedProcess.ProcessTitle; $processProfile = $processedProcess.ProcessProfile; $hWnd = $processedProcess.CachedHWnd
 
 			if (-not [string]::IsNullOrEmpty($processProfile)) { $processTitle = "[$processProfile]$processTitle" }
-			if ($script:ProcessCache.ContainsKey($process.Id)) { $script:ProcessCache[$process.Id].LastSeen = Get-Date }
+			if ($script:ProcessCache.ContainsKey($process.Id)) { $script:ProcessCache[$process.Id].LastSeen = [DateTime]::Now }
 
 			$existingRow = $null
 			if ($rowLookup.ContainsKey($process.Id)) { $existingRow = $rowLookup[$process.Id] }
@@ -574,7 +569,6 @@ function StartDataGridUpdateTimer
     [CmdletBinding()]
     param()
 
-    # Check if already running to prevent double-initialization issues
     if ($global:DashboardConfig.Resources.LaunchResources['DataGridUpdater'] -and 
         $global:DashboardConfig.Resources.LaunchResources['DataGridUpdater'].PowerShell.InvocationStateInfo.State -eq 'Running')
     {
@@ -582,7 +576,6 @@ function StartDataGridUpdateTimer
         return
     }
 
-    # Clean up existing resources
     if ($global:DashboardConfig.Resources.LaunchResources['DataGridUpdater'])
     {
         try { 
@@ -600,47 +593,47 @@ function StartDataGridUpdateTimer
         $global:DashboardConfig.Resources.Timers.Remove('dataGridUpdateTimer')
     }
 
-    $grid = $global:DashboardConfig.UI.DataGridFiller
+    $grid = $global:DashboardConfig.UI.DataGridMain
     if (-not $grid) { return }
     
-    # Enable double buffering
+    
     $prop = $grid.GetType().GetProperty('DoubleBuffered', [System.Reflection.BindingFlags]'Instance, NonPublic')
     if ($prop) { $prop.SetValue($grid, $true, $null) }
 
-    # Create the Action delegate in the Main Runspace.
-    # This captures the context of the Main Runspace (where UpdateDataGrid is defined).
-    # When invoked by the UI message pump, it will execute in the Main Runspace.
+    
+    
+    
     $updateAction = [Action]{
-        if ($global:DashboardConfig.UI.DataGridFiller -and -not $global:DashboardConfig.UI.DataGridFiller.IsDisposed) {
+        if ($global:DashboardConfig.UI.DataGridMain -and -not $global:DashboardConfig.UI.DataGridMain.IsDisposed) {
             try {
-                UpdateDataGrid -Grid $global:DashboardConfig.UI.DataGridFiller
+                UpdateDataGrid -Grid $global:DashboardConfig.UI.DataGridMain
             } catch {
                 Write-Verbose "Error in timer-invoked UpdateDataGrid: $_"
             }
         }
     }
 
-    # Create a background runspace to act as the "Pulse"
+    
     $rs = [runspacefactory]::CreateRunspace()
     $rs.ApartmentState = "STA"
     $rs.ThreadOptions = "ReuseThread"
     $rs.Open()
     
-    # Pass the Grid and the Action to the background runspace
+    
     $rs.SessionStateProxy.SetVariable('TargetGrid', $grid)
     $rs.SessionStateProxy.SetVariable('UpdateAction', $updateAction)
     $rs.SessionStateProxy.SetVariable('Interval', $script:UpdateInterval)
 
-    # The script running in the background. 
-    # It just sleeps and invokes the delegate.
+    
+    
     $pulseScript = {
         while ($true)
         {
             if (-not $TargetGrid -or $TargetGrid.IsDisposed) { break }
             
             try {
-                # BeginInvoke is thread-safe and non-blocking.
-                # It posts the UpdateAction (bound to Main Runspace) to the UI message pump.
+                
+                
                 $TargetGrid.BeginInvoke($UpdateAction) | Out-Null
             }
             catch {

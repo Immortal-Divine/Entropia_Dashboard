@@ -34,7 +34,6 @@ function CopyOrderedDictionary
 	}
 	return $copy
 }
-
 function GetIniFileContent
 {
 
@@ -86,7 +85,6 @@ function GetIniFileContent
 	}
 	return $result
 }
-
 function LoadDefaultConfigOnError
 {
 
@@ -284,7 +282,6 @@ function ReadConfig
 									$global:DashboardConfig.Config[$section][$profileName] = [ordered]@{}
 								}
 								$global:DashboardConfig.Config[$section][$profileName][$settingName] = $settingValue
-								# Write-Verbose "  INI: (ReadConfig): Loaded LoginConfig - Profile '$profileName', Setting '$settingName'"
 							}
 							else
 							{
@@ -300,7 +297,6 @@ function ReadConfig
 								if (-not $global:DashboardConfig.Config[$section][$profileName].Contains($settingName))
 								{
 									$global:DashboardConfig.Config[$section][$profileName][$settingName] = $settingValue
-									# Write-Verbose "  INI: (ReadConfig): Mapped flat key '$settingName' to Profile 'Default'."
 								}
 							}
 						}
@@ -335,25 +331,8 @@ function ReadConfig
 	}
 }
 
-#region Function: WriteConfig
 function WriteConfig
 {
-	<#
-        .SYNOPSIS
-            Writes a configuration dictionary to an INI file with specialized LoginConfig handling.
-        .DESCRIPTION
-            Takes a PowerShell ordered dictionary and writes it to an INI file.
-            - Handles nested 'LoginConfig' sections by flattening profile dictionaries.
-            - Converts array values to comma-separated strings.
-            - Automatically creates the destination directory if missing.
-            - Supports -WhatIf and -Confirm.
-        .PARAMETER Config
-            [System.Collections.IDictionary] The configuration data. Defaults to $global:DashboardConfig.Config.
-        .PARAMETER ConfigPath
-            [string] The full path to the INI file. Defaults to $global:DashboardConfig.Paths.Ini.
-        .OUTPUTS
-            [bool] Returns $true if written successfully.
-    #>
 	[CmdletBinding(SupportsShouldProcess = $true)]
 	[OutputType([bool])]
 	param(
@@ -372,7 +351,7 @@ function WriteConfig
 	}
 	if ($null -eq $Config)
 	{
-		Write-Verbose '  INI: (WriteConfig): Configuration data is null.' -ForegroundColor Red
+		Write-Verbose '  INI: (WriteConfig): Configuration data is null.'
 		return $false
 	}
 
@@ -387,13 +366,13 @@ function WriteConfig
 		$configDir = Split-Path -Path $ConfigPath -Parent
 		if (-not (Test-Path -Path $configDir -PathType Container))
 		{
-			Write-Verbose "  INI: (WriteConfig): Creating directory '$configDir'." -ForegroundColor DarkGray
+			Write-Verbose "  INI: (WriteConfig): Creating directory '$configDir'."
 			$null = New-Item -ItemType Directory -Path $configDir -Force -ErrorAction Stop
 		}
 	}
 	catch
 	{
-		Write-Verbose "  INI: (WriteConfig): Failed to create directory. Error: $($_.Exception.Message)" -ForegroundColor Red
+		Write-Verbose "  INI: (WriteConfig): Failed to create directory. Error: $($_.Exception.Message)"
 		return $false
 	}
 
@@ -409,7 +388,7 @@ function WriteConfig
 
 			if ($sectionValue -isnot [System.Collections.IDictionary])
 			{
-				Write-Verbose "  INI: (WriteConfig): Section '$sectionName' is not a dictionary, skipping." -ForegroundColor Yellow
+				Write-Verbose "  INI: (WriteConfig): Section '$sectionName' is not a dictionary, skipping."
 				continue
 			}
 
@@ -454,6 +433,7 @@ function WriteConfig
 					
 					
 					$preparedValue = if ($value -is [Array]) { ($value | Where-Object { $_ -ne $null }) -join ',' }
+					elseif ($value -is [System.Collections.IDictionary] -or $value -is [PSCustomObject]) { $value | ConvertTo-Json -Compress -Depth 5 }
 					else { if ($null -ne $value) { $value.ToString() } else { '' } }
 					
 					$sectionData.Add($itemKey.ToString(), $preparedValue)
@@ -465,7 +445,7 @@ function WriteConfig
 	}
 	catch
 	{
-		Write-Verbose "  INI: (WriteConfig): Failed to prepare data. Error: $($_.Exception.Message)" -ForegroundColor Red
+		Write-Verbose "  INI: (WriteConfig): Failed to prepare data. Error: $($_.Exception.Message)"
 		return $false
 	}
 
@@ -475,16 +455,15 @@ function WriteConfig
 		$iniFile = [Custom.IniFile]::new($ConfigPath)
 		$iniFile.WriteIniFile($configToWrite)
 
-		Write-Verbose "  INI: (WriteConfig): Config written successfully to '$ConfigPath'." -ForegroundColor Green
+		Write-Verbose "  INI: (WriteConfig): Config written successfully to '$ConfigPath'."
 		return $true
 	}
 	catch
 	{
-		Write-Verbose "  INI: (WriteConfig): C# Class failed to write file. Error: $($_.Exception.Message)" -ForegroundColor Red
+		Write-Verbose "  INI: (WriteConfig): C#Class failed to write file. Error: $($_.Exception.Message)"
 		return $false
 	}
 }
-#endregion
 
 #endregion
 

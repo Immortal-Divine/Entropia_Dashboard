@@ -6,7 +6,7 @@ if (-not $global:DashboardConfig.State) { $global:DashboardConfig.State = @{} }
 
 if (-not $global:LoginNotificationStack) { $global:LoginNotificationStack = [System.Collections.ArrayList]::new() }
 if (-not $global:DashboardConfig.State.LoginNotificationMap) { $global:DashboardConfig.State.LoginNotificationMap = @{} }
-if (-not $global:DashboardConfig.State.ContainsKey('NotificationHoverActive')) { $global:DashboardConfig.State.NotificationHoverActive = $false }
+if (-not $global:DashboardConfig.State.ContainsKey('NotificationHoverActive')) { $global:DashboardConfig.State.NotificationHoverActive = $false }; if (-not $global:DashboardConfig.State.NotificationHistory) { $global:DashboardConfig.State.NotificationHistory = [System.Collections.ArrayList]::new() }
 
 
 #endregion
@@ -69,7 +69,6 @@ function CloseToast
 	}
 }
 
-
 function ShowToast
 {
 	param(
@@ -79,109 +78,126 @@ function ShowToast
 		[int]$Key = 0,
 		[int]$TimeoutSeconds = 5,
 		[int]$Progress = -1,
-		[int]$Height = 0
+		[int]$Height = 0,
+		[switch]$IgnoreCancellation,
+		[switch]$WaitForHover,
+		[hashtable]$ExtraData = @{}
 	)
 
-	
+	if ($global:DashboardConfig.State.IsStopping) { return }
+
+	try {
+		$logEntry = @{ Timestamp = [DateTime]::Now; Type = $Type; Title = $Title; Message = $Message; Key = $Key; TimeoutSeconds = $TimeoutSeconds; Progress = $Progress; IgnoreCancellation = $IgnoreCancellation; ExtraData = $ExtraData }
+		$global:DashboardConfig.State.NotificationHistory.Insert(0, $logEntry)
+		if ($global:DashboardConfig.State.NotificationHistory.Count -gt 100) { $global:DashboardConfig.State.NotificationHistory.RemoveAt(100) }
+		if (Get-Command RefreshNotificationGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNotificationGrid }
+	} catch {}
+
 	if ($Key -ne 0 -and $global:DashboardConfig.State.LoginNotificationMap.ContainsKey($Key))
 	{
 		$existingForm = $global:DashboardConfig.State.LoginNotificationMap[$Key]
 		if ($existingForm -and -not $existingForm.IsDisposed)
 		{
-			
 			$pnl = $null
-			foreach ($c in $existingForm.Controls)
-			{
-				if ($c -is [System.Windows.Forms.Panel] -and ($c.Dock -eq 'Fill' -or $c.BorderStyle -eq 'FixedSingle')) { $pnl = $c; break }
-			}
-			if ($pnl)
-			{
-				$msgLabel = $null
-				foreach ($ctrl in $pnl.Controls)
-				{
-					if ($ctrl -is [System.Windows.Forms.Label])
-					{
-						
-						$isTitle = ($ctrl.Tag -eq 'Title' -or $ctrl.Font.Bold)
-                        
-						if ($isTitle)
-						{
-							$ctrl.Tag = 'Title'
-							$ctrl.Text = $Title
-						}
-						else
-						{
-							$ctrl.Tag = 'MessageContent'
-							$ctrl.Text = $Message
-							$msgLabel = $ctrl
-						}
-					}
-					if ($ctrl -is [System.Windows.Forms.Panel] -and $ctrl.Dock -eq 'Left')
-					{
-						
-						if ($ctrl.Controls.Count -gt 0)
-						{
-							$strip = $ctrl.Controls[0]
-							
-							if ($Progress -ge 0)
-							{
-								$strip.Height = [int]($ctrl.Height * ($Progress / 100))
-							}
-							else
-							{
-								
-								$strip.Height = $ctrl.Height
-							}
-							
-							$strip.BackColor = if ($Type -eq 'Warning') { [System.Drawing.Color]::Orange } elseif ($Type -eq 'Info') { [System.Drawing.Color]::CornflowerBlue } else { [System.Drawing.Color]::IndianRed }
-							$strip.Invalidate(); $strip.Update()
-						}
-					}
+			foreach ($c in $existingForm.Controls) {
+				if ($c -is [System.Windows.Forms.Panel] -and $c.Dock -eq 'Fill') {
+					$pnl = $c
+					break
 				}
+			}
+			if (-not $pnl -and $existingForm.Controls.Count -gt 0) { $pnl = $existingForm.Controls[0] }
 
-				$existingForm.Refresh()
+			$msgLabel = $null
+			$strip = $null
+			$stripContainer = $null
+			$pb = $null
+			$hpFill = $null
 
+			foreach ($ctrl in $pnl.Controls)
+			{
+				if ($ctrl.Tag -eq 'Title') { $ctrl.Text = $Title }
+				if ($ctrl.Tag -eq 'MessageContent') { $ctrl.Text = $Message; $msgLabel = $ctrl }
+				if ($ctrl -is [System.Windows.Forms.PictureBox]) { $pb = $ctrl }
+				if ($ctrl -is [System.Windows.Forms.Panel] -and $ctrl.Dock -eq 'Left') {
+                    $stripContainer = $ctrl
+                    $strip = $ctrl.Controls[0]
+                }
+				if ($ctrl -is [System.Windows.Forms.Panel] -and $ctrl.Dock -eq 'Bottom' -and $ctrl.Tag -eq 'HPBarContainer') {
+					$hpFill = $ctrl.Controls[0]
+				}
+			}
+
+			if ($msgLabel) {
+				$textSize = $msgLabel.GetPreferredSize([System.Drawing.Size]::new(290, 0))
+				$msgBottom = $msgLabel.Top + $textSize.Height
+				$newCalcHeight = $msgBottom + 35
+
+				if ($pb) {
+					$newCalcHeight = $pb.Bottom + 20
+				}
 				
-				if ($msgLabel)
-				{
-					$requiredContentHeight = [Math]::Max(60, $msgLabel.Bottom + 15)
-					
-					$diff = $requiredContentHeight - $pnl.Height
-					if ($diff -ne 0)
-					{
-						$existingForm.Height += $diff
-					}
-				}
-
+				$btnPanel = $existingForm.Controls | Where-Object { $_.Tag -eq 'InteractiveButtons' } | Select-Object -First 1
+				if ($btnPanel) { $newCalcHeight += $btnPanel.Height }
 				
-				if ($TimeoutSeconds -gt 0 -and $existingForm.Tag.Timer)
-				{
-					$t = $existingForm.Tag.Timer
-					$tTag = $t.Tag
-					$tTag.TotalMs = $TimeoutSeconds * 1000
-					$tTag.RemainingMs = $tTag.TotalMs
-					
-					if ($tTag.Strip.Parent) { $tTag.Strip.Height = $tTag.Strip.Parent.Height }
+				$minHeight = 60
+				$targetHeight = [Math]::Max($minHeight, $newCalcHeight)
+				
+				if ($existingForm.Height -ne $targetHeight) {
+					$existingForm.Height = $targetHeight
+					$stripCont = $pnl.Controls | Where-Object { $_.Dock -eq 'Left' } | Select-Object -First 1
+					if ($stripCont) { $stripCont.Height = $targetHeight }
+					UpdateNotificationPositions
 				}
 			}
-			if ($global:DashboardConfig.UI.MainForm -and $global:DashboardConfig.UI.MainForm.InvokeRequired)
-			{
-				$global:DashboardConfig.UI.MainForm.BeginInvoke([Action] { UpdateNotificationPositions })
+
+			if ($stripContainer) {
+				$strip.Height = $stripContainer.Height 
+				$strip.BackColor = if ($Type -eq 'Warning') { [System.Drawing.Color]::Orange } elseif ($Type -eq 'Info') { [System.Drawing.Color]::CornflowerBlue } else { [System.Drawing.Color]::IndianRed }
 			}
-			else
-			{
-				UpdateNotificationPositions
-			}
+
+			if ($hpFill) {
+				if ($Progress -ge 0) {
+					$parentWidth = $hpFill.Parent.Width
+					$hpFill.Width = [int]($parentWidth * ($Progress / 100))
+					
+					if ($Progress -gt 50) { $hpFill.BackColor = [System.Drawing.Color]::Green }
+					elseif ($Progress -gt 25) { $hpFill.BackColor = [System.Drawing.Color]::Green }
+					else { $hpFill.BackColor = [System.Drawing.Color]::Green }
+				} else {
+					$hpFill.Width = 0
+				}
+			} elseif ($Progress -ge 0) {
+                $hpContainer = New-Object System.Windows.Forms.Panel
+                $hpContainer.Height = 6
+                $hpContainer.Dock = 'Bottom'
+                $hpContainer.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+                $hpContainer.Tag = 'HPBarContainer'
+                
+                $hpFill = New-Object System.Windows.Forms.Panel
+                $hpFill.Dock = 'Left'
+                $hpContainer.Controls.Add($hpFill)
+                $pnl.Controls.Add($hpContainer)
+                
+                $hpFill.Width = [int]($pnl.Width * ($Progress / 100))
+                if ($Progress -gt 50) { $hpFill.BackColor = [System.Drawing.Color]::Green }
+                elseif ($Progress -gt 25) { $hpFill.BackColor = [System.Drawing.Color]::Green }
+                else { $hpFill.BackColor = [System.Drawing.Color]::Green }
+            }
+            
+            if ($existingForm.Tag.Timer) {
+                $tTag = $existingForm.Tag.Timer.Tag
+                $tTag.RemainingMs = $tTag.TotalMs
+
+                $tTag.WaitForHover = $false
+
+                if ($tTag.Strip.Parent) { $tTag.Strip.Height = $tTag.Strip.Parent.Height }
+            }
+            
+			$existingForm.Refresh()
 			return
 		}
-		else
-		{
-			
-			$global:DashboardConfig.State.LoginNotificationMap.Remove($Key)
-		}
+		else { $global:DashboardConfig.State.LoginNotificationMap.Remove($Key) }
 	}
-
-
 
 	$form = New-Object System.Windows.Forms.Form
 	$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
@@ -193,141 +209,156 @@ function ShowToast
 
 	if ($Key -ne 0) { $global:DashboardConfig.State.LoginNotificationMap[$Key] = $form }
 	$global:LoginNotificationStack.Add($form)
-	$form.Show()
-	$form.Add_FormClosed({ param($s,$e) if ($global:LoginNotificationStack.Contains($s)) { $global:LoginNotificationStack.Remove($s); $map = $global:DashboardConfig.State.LoginNotificationMap.GetEnumerator() | Where-Object { $_.Value -eq $s } | Select-Object -First 1; if ($map) { $global:DashboardConfig.State.LoginNotificationMap.Remove($map.Key) } } 
-			if ($global:DashboardConfig.UI.MainForm -and $global:DashboardConfig.UI.MainForm.InvokeRequired)
-			{
+
+	$form.Add_FormClosed({ 
+			param($s,$e) 
+			if ($s.Tag -and $s.Tag.Timer) { try { $s.Tag.Timer.Stop(); $s.Tag.Timer.Dispose() } catch {} }
+			if ($global:LoginNotificationStack.Contains($s)) { 
+				$global:LoginNotificationStack.Remove($s)
+				$map = $global:DashboardConfig.State.LoginNotificationMap.GetEnumerator() | Where-Object { $_.Value -eq $s } | Select-Object -First 1
+				if ($map) { $global:DashboardConfig.State.LoginNotificationMap.Remove($map.Key) } 
+			} 
+			if ($global:DashboardConfig.UI.MainForm -and $global:DashboardConfig.UI.MainForm.InvokeRequired) {
 				$global:DashboardConfig.UI.MainForm.BeginInvoke([Action] { UpdateNotificationPositions })
-			}
-			else
-			{
-				UpdateNotificationPositions
-			}
+			} else { UpdateNotificationPositions }
 		})
 
 	$pnl = New-Object System.Windows.Forms.Panel; $pnl.Dock = 'Fill'; $pnl.BorderStyle = 'FixedSingle'; $form.Controls.Add($pnl)
-
-	$stripContainer = New-Object System.Windows.Forms.Panel
-	$stripContainer.Width = 5; $stripContainer.Dock = 'Left'; $stripContainer.BackColor = [System.Drawing.Color]::FromArgb(60, 60, 60)
-	$pnl.Controls.Add($stripContainer)
-
-	$strip = New-Object System.Windows.Forms.Panel
-	$strip.Width = 5; $strip.Dock = 'Bottom'
-    
+	$stripContainer = New-Object System.Windows.Forms.Panel; $stripContainer.Width = 5; $stripContainer.Dock = 'Left'; $stripContainer.BackColor = [System.Drawing.Color]::FromArgb(60, 60, 60); $pnl.Controls.Add($stripContainer)
+	$strip = New-Object System.Windows.Forms.Panel; $strip.Width = 5; $strip.Dock = 'Bottom'
 	$strip.BackColor = if ($Type -eq 'Warning') { [System.Drawing.Color]::Orange } elseif ($Type -eq 'Info') { [System.Drawing.Color]::CornflowerBlue } else { [System.Drawing.Color]::IndianRed }
 	$stripContainer.Controls.Add($strip)
+
 	$lblTitle = New-Object System.Windows.Forms.Label
 	$lblTitle.Text = $Title; $lblTitle.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold); $lblTitle.ForeColor = [System.Drawing.Color]::White
-	$lblTitle.Location = New-Object System.Drawing.Point(15, 10); $lblTitle.AutoSize = $true
-	$lblTitle.Tag = 'Title'
+	$lblTitle.Location = New-Object System.Drawing.Point(15, 10); $lblTitle.AutoSize = $true; $lblTitle.Tag = 'Title'
 	$pnl.Controls.Add($lblTitle)
 
 	$lblMsg = New-Object System.Windows.Forms.Label
 	$lblMsg.Text = $Message; $lblMsg.Font = New-Object System.Drawing.Font('Segoe UI', 9); $lblMsg.ForeColor = [System.Drawing.Color]::LightGray
-	$lblMsg.Location = New-Object System.Drawing.Point(15, 30)
-	$lblMsg.MaximumSize = New-Object System.Drawing.Size(290, 0) 
-	$lblMsg.AutoSize = $true
-	$lblMsg.Tag = 'MessageContent' 
+	$lblMsg.Location = New-Object System.Drawing.Point(15, 35); $lblMsg.MaximumSize = New-Object System.Drawing.Size(290, 0); $lblMsg.AutoSize = $true; $lblMsg.Tag = 'MessageContent' 
 	$pnl.Controls.Add($lblMsg)
 
-	
-	$minHeight = 60
-	$calcHeight = $lblMsg.Bottom + 15
-	if ($Height -eq 0) { $Height = [Math]::Max($minHeight, $calcHeight) }
-    
-	$form.Size = New-Object System.Drawing.Size(320, $Height)
-	$stripContainer.Height = $Height 
-	$strip.Height = $Height
+	$textSize = $lblMsg.GetPreferredSize([System.Drawing.Size]::new(290, 0))
+	$msgBottom = $lblMsg.Top + $textSize.Height
 
-	$form.Tag = @{
-		TitleLabel    = $lblTitle
-		MsgLabel      = $lblMsg
-		ProgressStrip = $strip
+	if ($ExtraData -and $ExtraData.ContainsKey('ImageUrl') -and -not [string]::IsNullOrWhiteSpace($ExtraData['ImageUrl'])) {
+		$pb = New-Object System.Windows.Forms.PictureBox
+		$pb.Location = [System.Drawing.Point]::new(15, ($msgBottom + 10)); $pb.Size = New-Object System.Drawing.Size(290, 150); $pb.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom; $pb.BackColor = [System.Drawing.Color]::Transparent
+		try { $pb.LoadAsync($ExtraData['ImageUrl']) } catch {}
+		$pnl.Controls.Add($pb)
 	}
+	
+	if ($Progress -ge 0) {
+		$hpContainer = New-Object System.Windows.Forms.Panel
+		$hpContainer.Height = 6
+		$hpContainer.Dock = 'Bottom'
+		$hpContainer.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+		$hpContainer.Tag = 'HPBarContainer'
+		
+		$hpFill = New-Object System.Windows.Forms.Panel
+		$hpFill.Dock = 'Left'
+		$hpFill.Width = 0
+		$hpContainer.Controls.Add($hpFill)
+		$pnl.Controls.Add($hpContainer)
+		
+		$hpFill.Width = [int](290 * ($Progress / 100))
+		if ($Progress -gt 50) { $hpFill.BackColor = [System.Drawing.Color]::Green }
+		elseif ($Progress -gt 25) { $hpFill.BackColor = [System.Drawing.Color]::Green }
+		else { $hpFill.BackColor = [System.Drawing.Color]::Green }
+	}
+
+	$minHeight = 60
+	$calcHeight = if ($pb) { $pb.Bottom + 20 } else { $msgBottom + 35 }
+	if ($Progress -ge 0) { $calcHeight += 10 }
+
+	if ($Height -eq 0) { $Height = [Math]::Max($minHeight, $calcHeight) }
+	$form.Size = New-Object System.Drawing.Size(320, $Height)
+	$stripContainer.Height = $Height; $strip.Height = $Height
+
+	$form.Tag = @{ TitleLabel = $lblTitle; MsgLabel = $lblMsg; ProgressStrip = $strip }
 
 	if ($TimeoutSeconds -gt 0)
 	{
 		$timer = New-Object System.Windows.Forms.Timer
 		$timer.Interval = 100
-
 		$timer.Tag = @{
 			Form          = $form
 			TotalMs       = ($TimeoutSeconds * 1000)
 			RemainingMs   = ($TimeoutSeconds * 1000)
 			Strip         = $strip 
-			InitialHeight = $Height
+			IgnoreCancellation = $IgnoreCancellation
+			WaitForHover  = $WaitForHover
+			ShowProgress  = ($Progress -ge 0)
 		}
-	}
- else
-	{
-		
-		if ($Progress -ge 0)
-		{
-			$strip.Height = [int]($stripContainer.Height * ($Progress / 100))
-		}
-		else
-		{
-			$strip.Height = $stripContainer.Height
-		}
-	}
-
-	if ($global:DashboardConfig.UI.MainForm -and $global:DashboardConfig.UI.MainForm.InvokeRequired)
-	{
-		$global:DashboardConfig.UI.MainForm.BeginInvoke([Action] { UpdateNotificationPositions })
-	}
- else
-	{
-		UpdateNotificationPositions
-	}
-
-	if ($TimeoutSeconds -gt 0)
-	{
-		$form.Tag.Timer = $timer
+        
 		$timer.Add_Tick({ 
 				param($s,$e) 
 				$tag = $s.Tag
 				if ($tag.Form.IsDisposed) { $s.Stop(); $s.Dispose(); return }
-            
-				
+
 				$mousePos = [System.Windows.Forms.Cursor]::Position
 				$anyHover = $false
-				$stackCopy = [object[]]@($global:LoginNotificationStack)
-				foreach ($f in $stackCopy)
-				{
-					if ($f -and -not $f.IsDisposed -and $f.Visible -and $f.Bounds.Contains($mousePos))
-					{
-						$anyHover = $true
-						break
-					}
-				}
+                
+                if ($global:LoginNotificationStack -and $global:LoginNotificationStack.Count -gt 0) {
+                    $stackCopy = $global:LoginNotificationStack.ToArray()
+                    foreach ($f in $stackCopy) {
+                        if ($f -and -not $f.IsDisposed -and $f.Visible -and $f.Bounds.Contains($mousePos)) {
+                            $anyHover = $true
+                            break
+                        }
+                    }
+                }
 				$global:DashboardConfig.State.NotificationHoverActive = $anyHover
 
+				if (-not $tag.IgnoreCancellation -and $global:LoginCancellation.IsCancelled) {
+					$s.Stop(); if ($tag.Form -and -not $tag.Form.IsDisposed) { $tag.Form.Close() }; $s.Dispose(); return
+				}
 				
-				if ($global:DashboardConfig.State.LoginActive -or $global:DashboardConfig.State.NotificationHoverActive) { return }
+				if ($tag.WaitForHover) {
+					if ($tag.Form.Bounds.Contains($mousePos)) {
+						$tag.WaitForHover = $false
+					}
+					return
+				}
+
+				if ($anyHover) { return }
 
 				$tag.RemainingMs -= $s.Interval
-				if ($tag.RemainingMs -le 0) { $s.Stop(); if ($tag.Form -and -not $tag.Form.IsDisposed) { $tag.Form.Close() }; $s.Dispose(); return } 
-            
-				$currentContainerHeight = if ($tag.Strip.Parent) { $tag.Strip.Parent.Height } else { $tag.Form.Height }
-				$pct = $tag.RemainingMs / $tag.TotalMs
-				if ($pct -lt 0) { $pct = 0 } if ($pct -gt 1) { $pct = 1 } 
-				$newHeight = [int]($currentContainerHeight * $pct)
-				$tag.Strip.Height = $newHeight 
-			})
+                
+                if ($tag.Strip -and -not $tag.Strip.IsDisposed) {
+                    $currentContainerHeight = if ($tag.Strip.Parent) { $tag.Strip.Parent.Height } else { $tag.Form.Height }
+                    $pct = $tag.RemainingMs / $tag.TotalMs
+                    if ($pct -lt 0) { $pct = 0 } if ($pct -gt 1) { $pct = 1 }
+                    $newHeight = [int]($currentContainerHeight * $pct)
+                    $tag.Strip.Height = $newHeight
+                }
 
+				if ($tag.RemainingMs -le 0) { 
+					$s.Stop(); if ($tag.Form -and -not $tag.Form.IsDisposed) { $tag.Form.Close() }; $s.Dispose(); return 
+				} 
+			})
 		$timer.Start()
+        $form.Tag.Timer = $timer
 	}
+
 	$form.Show()
+
+	if ($global:DashboardConfig.UI.MainForm -and $global:DashboardConfig.UI.MainForm.InvokeRequired) {
+		$global:DashboardConfig.UI.MainForm.BeginInvoke([Action] { UpdateNotificationPositions })
+	} else { UpdateNotificationPositions }
 }
 
 function ShowInteractiveNotification
 {
 	param(
-		[string]$Title, [string]$Message, [array]$Buttons, [string]$Type = 'Info', [int]$Key = 0, [int]$TimeoutSeconds = 15
+		[string]$Title, [string]$Message, [array]$Buttons, [string]$Type = 'Info', [int]$Key = 0, [int]$TimeoutSeconds = 15, [int]$Progress = -1, [switch]$IgnoreCancellation, [string]$ImageUrl, [switch]$WaitForHover
 	)
 	
-	
-	ShowToast -Title $Title -Message $Message -Type $Type -Key $Key -TimeoutSeconds $TimeoutSeconds -Height 0
+	$extraData = @{ Buttons = $Buttons; IsInteractive = $true }
+    if (-not [string]::IsNullOrEmpty($ImageUrl)) { $extraData['ImageUrl'] = $ImageUrl }
+
+	ShowToast -Title $Title -Message $Message -Type $Type -Key $Key -TimeoutSeconds $TimeoutSeconds -Height 0 -Progress $Progress -IgnoreCancellation $IgnoreCancellation -ExtraData $extraData -WaitForHover:$WaitForHover
 
 	
 	$form = $null
@@ -366,10 +397,15 @@ function ShowInteractiveNotification
 		$nonFullWidthCount = $nonFullWidthButtons.Count
 		$totalWidth = 300 
 		$margin = 3
-		$totalButtonWidth = $totalWidth
-		if ($nonFullWidthCount -gt 1) { $totalButtonWidth = $totalWidth - ($margin * ($nonFullWidthCount - 1)) }
-		$baseWidth = if ($nonFullWidthCount -gt 0) { [math]::Floor($totalButtonWidth / $nonFullWidthCount) } else { 0 }
-		$remainder = if ($nonFullWidthCount -gt 0) { $totalButtonWidth % $nonFullWidthCount } else { 0 }
+		
+        $sharedButtonWidth = 0
+        $sharedRemainder = 0
+        
+        if ($nonFullWidthCount -gt 0) {
+            $availableWidthForShared = $totalWidth - ($margin * ($nonFullWidthCount - 1))
+            $sharedButtonWidth = [math]::Floor($availableWidthForShared / $nonFullWidthCount)
+            $sharedRemainder = $availableWidthForShared % $nonFullWidthCount
+        }
 
 		
 		Write-Verbose "ShowInteractiveNotification: Attaching $($Buttons.Count) button(s)"
@@ -397,13 +433,17 @@ function ShowInteractiveNotification
 
 				if ($b.ContainsKey('FullWidth') -and $b['FullWidth'])
 				{
-					$btn.Width = ($totalButtonWidth + 6)
+					$btn.Width = $totalWidth
 					$btn.Margin = [System.Windows.Forms.Padding]::new(0, $margin, 0, 0)
+				}
+				elseif ($b.ContainsKey('WidthPercent'))
+				{
+					$btn.Width = [int]($totalWidth * ($b['WidthPercent'] / 100)) - $margin
 				}
 				else
 				{
-					$btn.Width = $baseWidth
-					if ($nonFullWidthIndex -lt $remainder)
+					$btn.Width = $sharedButtonWidth
+					if ($nonFullWidthIndex -lt $sharedRemainder)
 					{
 						$btn.Width++
 					}
@@ -527,7 +567,7 @@ function ShowReconnectInteractiveNotification
 		$btnArray += $delayBtn
 	}
 
-	ShowInteractiveNotification -Title $Title -Message $Message -Buttons $btnArray -Type $Type -Key $RelatedPid -TimeoutSeconds $TimeoutSeconds
+	ShowInteractiveNotification -Title $Title -Message $Message -Buttons $btnArray -Type $Type -Key $RelatedPid -TimeoutSeconds $TimeoutSeconds -IgnoreCancellation
 }
 
 Export-ModuleMember -Function *

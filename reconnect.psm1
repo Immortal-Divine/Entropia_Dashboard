@@ -37,6 +37,7 @@ if (-not $global:DashboardConfig.State.ContainsKey('QueuePaused')) { $global:Das
 
 if (-not $global:DashboardConfig.State.WasInGamePids) { $global:DashboardConfig.State.WasInGamePids = [System.Collections.Generic.HashSet[int]]::new() }
 if (-not $global:DashboardConfig.State.FlashingPids) { $global:DashboardConfig.State.FlashingPids = @{} }
+if (-not $global:DashboardConfig.State.InGameStability) { $global:DashboardConfig.State.InGameStability = @{} }
 
 if (-not $global:DashboardConfig.State.Timers) { $global:DashboardConfig.State.Timers = @{} }
 if (-not $global:DashboardConfig.State.ActiveLoginPids) { $global:DashboardConfig.State.ActiveLoginPids = [System.Collections.Generic.HashSet[int]]::new() }
@@ -308,6 +309,7 @@ function StartDisconnectWatcher
 	if ($global:DashboardConfig.State.WasInGamePids) { $global:DashboardConfig.State.WasInGamePids.Clear() }
 	if ($global:DashboardConfig.State.FlashingPids) { $global:DashboardConfig.State.FlashingPids.Clear() }
 	if ($global:DashboardConfig.State.ScheduledReconnects) { $global:DashboardConfig.State.ScheduledReconnects.Clear() }
+	if ($global:DashboardConfig.State.InGameStability) { $global:DashboardConfig.State.InGameStability.Clear() }
 	if ($global:DashboardConfig.State.ManualReconnectOverrides) { $global:DashboardConfig.State.ManualReconnectOverrides.Clear() }
 	if ($global:DashboardConfig.State.NotificationActionQueue) { $global:DashboardConfig.State.NotificationActionQueue.Clear() }
 
@@ -324,7 +326,7 @@ function StartDisconnectWatcher
 
 		try
 		{
-			$now = Get-Date
+			$now = [DateTime]::Now
 			if ($global:DashboardConfig.State.ScheduledReconnects.Count -gt 0)
 			{
 				$scheduledPids = [int[]]@($global:DashboardConfig.State.ScheduledReconnects.Keys)
@@ -344,9 +346,9 @@ function StartDisconnectWatcher
 					if ($now -ge $triggerTime)
 					{
 						$details = ''
-						if ($global:DashboardConfig.UI.DataGridFiller)
+						if ($global:DashboardConfig.UI.DataGridMain)
 						{
-							$row = $global:DashboardConfig.UI.DataGridFiller.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $sPid } | Select-Object -First 1
+							$row = $global:DashboardConfig.UI.DataGridMain.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $sPid } | Select-Object -First 1
 							if ($row)
 							{
 								$proc = $row.Tag
@@ -365,7 +367,7 @@ function StartDisconnectWatcher
 									elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
 								}
 								$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
-								$details = "Profile: $pName | Title: $wTitle`nPID: $sPid | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $(Get-Date -Format 'HH:mm:ss')"
+								$details = "Profile: $pName | Title: $wTitle`nPID: $sPid | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 							}
 						}
 						if (-not $global:DashboardConfig.State.ReconnectQueue.Contains($sPid))
@@ -373,15 +375,16 @@ function StartDisconnectWatcher
 							Write-Verbose "Auto-Reconnect Triggered for PID $sPid"
 							$global:DashboardConfig.State.ReconnectQueue.Enqueue($sPid)
 						}
-						$global:DashboardConfig.State.ScheduledReconnects.Remove($sPid)
-						CloseToast -Key $sPid
-						ShowReconnectInteractiveNotification -Title 'Reconnecting...' -Message "Initiating reconnection sequence...`n$details" -Type 'Info' -RelatedPid $sPid -TimeoutSeconds 0
+						try {
+							ShowReconnectInteractiveNotification -Title 'Reconnecting...' -Message "Initiating reconnection sequence...`n$details" -Type 'Info' -RelatedPid $sPid -TimeoutSeconds 0
+							$global:DashboardConfig.State.ScheduledReconnects.Remove($sPid)
+						} catch { Write-Verbose "RECONNECT: Failed to transition notification: $_" }
 
 					}
 				}
 			}
 
-			if (-not $global:DashboardConfig.UI.DataGridFiller) { return }
+			if (-not $global:DashboardConfig.UI.DataGridMain) { return }
 
 			$PidConnectionCounts = @{}
 			$CheckFailed = $false
@@ -389,7 +392,7 @@ function StartDisconnectWatcher
 			{
 				
 				
-				$AllConns = @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue)
+				$AllConns = @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue 4>$null)
 				if ($AllConns)
 				{
 					foreach ($c in $AllConns)
@@ -414,7 +417,7 @@ function StartDisconnectWatcher
 				$Flashing = $global:DashboardConfig.State.FlashingPids
 				$Cooldowns = $global:DashboardConfig.State.PidCooldowns
 
-				foreach ($row in $global:DashboardConfig.UI.DataGridFiller.Rows)
+				foreach ($row in $global:DashboardConfig.UI.DataGridMain.Rows)
 				{
 					if (-not ($row.Tag -is [System.Diagnostics.Process])) { continue }
 
@@ -430,23 +433,37 @@ function StartDisconnectWatcher
 						{
 							$global:DashboardConfig.State.ScheduledReconnects.Remove($pidInt)
 						}
+						if ($global:DashboardConfig.State.InGameStability.ContainsKey($pidInt)) { $global:DashboardConfig.State.InGameStability.Remove($pidInt) }
 						continue
 					}
 
 					$CurrentCount = if ($PidConnectionCounts.ContainsKey($pidInt)) { $PidConnectionCounts[$pidInt] } else { 0 }
 
 					
-					if (-not (Get-Variable -Name 'ReconnectConnectionThreshold' -Scope Script -ErrorAction SilentlyContinue)) { Set-Variable -Scope Script -Name ReconnectConnectionThreshold -Value 2 -Option ReadOnly }
+					if (-not (Get-Variable -Name 'ReconnectConnectionThreshold' -Scope Script -ErrorAction SilentlyContinue -Verbose:$False)) { Set-Variable -Scope Script -Name ReconnectConnectionThreshold -Value 2 -Option ReadOnly }
 
 					if ($CurrentCount -ge $script:ReconnectConnectionThreshold)
 					{
-						if (-not $WasInGame.Contains($pidInt)) { [void]$WasInGame.Add($pidInt); Write-Verbose "RECONNECT: PID $pidInt marked in-game (connections=$CurrentCount)" }
-						if ($Flashing.ContainsKey($pidInt)) { $Flashing.Remove($pidInt) }
-						if ($global:DashboardConfig.State.ScheduledReconnects.ContainsKey($pidInt))
+						if (-not $global:DashboardConfig.State.InGameStability.ContainsKey($pidInt)) { $global:DashboardConfig.State.InGameStability[$pidInt] = 0 }
+						$global:DashboardConfig.State.InGameStability[$pidInt]++
+
+						$stabilityThreshold = 1
+						if ($global:DashboardConfig.State.ScheduledReconnects.ContainsKey($pidInt)) { $stabilityThreshold = 3 }
+
+						if ($global:DashboardConfig.State.InGameStability[$pidInt] -ge $stabilityThreshold)
 						{
-							$global:DashboardConfig.State.ScheduledReconnects.Remove($pidInt)
+							if (-not $WasInGame.Contains($pidInt)) { [void]$WasInGame.Add($pidInt); Write-Verbose "RECONNECT: PID $pidInt marked in-game (connections=$CurrentCount)" }
+							if ($Flashing.ContainsKey($pidInt)) { $Flashing.Remove($pidInt) }
+							if ($global:DashboardConfig.State.ScheduledReconnects.ContainsKey($pidInt))
+							{
+								$global:DashboardConfig.State.ScheduledReconnects.Remove($pidInt)
+							}
+							CloseToast -Key $pidInt
 						}
-						CloseToast -Key $pidInt
+					}
+					else
+					{
+						if ($global:DashboardConfig.State.InGameStability.ContainsKey($pidInt)) { $global:DashboardConfig.State.InGameStability[$pidInt] = 0 }
 					}
 
 					if ($CurrentCount -eq 0 -and $WasInGame.Contains($pidInt))
@@ -455,6 +472,23 @@ function StartDisconnectWatcher
 						if ($global:DashboardConfig.State.ActiveLoginPids.Contains($pidInt)) { continue }
 						if ($global:DashboardConfig.State.ReconnectQueue.Contains($pidInt)) { continue }
 						if ($global:DashboardConfig.State.ScheduledReconnects.ContainsKey($pidInt)) { continue }
+
+						$isProfileAutoReconnect = $false
+						$rp = $global:DashboardConfig.Config['ReconnectProfiles']
+						if ($rp)
+						{
+							$pClean = $profileName
+							if ($pClean -match '\[(.*?)\]') { $pClean = $matches[1] }
+
+							if ($rp -is [System.Collections.Hashtable])
+							{
+								if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true }
+							}
+							elseif ($rp.Contains($profileName) -or $rp.Contains($pClean))
+							{
+								$isProfileAutoReconnect = $true
+							}
+						}
 
 						$isFocused = $false
 						try
@@ -474,7 +508,7 @@ function StartDisconnectWatcher
 						$isCooldown = $false
 						if ($Cooldowns.ContainsKey($pidInt))
 						{
-							if ((Get-Date) -lt $Cooldowns[$pidInt].AddSeconds(120)) { $isCooldown = $true }
+							if ([DateTime]::Now -lt $Cooldowns[$pidInt].AddSeconds(120)) { $isCooldown = $true }
 						}
 
 						$WasInGame.Remove($pidInt)
@@ -485,26 +519,8 @@ function StartDisconnectWatcher
 						if ($profileName -match '^\[(.*?)\](.*)') { $pName = $matches[1]; $wTitle = $matches[2] }
 						$launcherPath = if ($global:DashboardConfig.Config['LauncherPath'] -and $global:DashboardConfig.Config['LauncherPath']['LauncherPath']) { $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] } else { '' }
 
-						$isProfileAutoReconnect = $false
-
-						$rp = $global:DashboardConfig.Config['ReconnectProfiles']
-						if ($rp)
-						{
-							$pClean = $profileName
-							if ($pClean -match '\[(.*?)\]') { $pClean = $matches[1] }
-
-							if ($rp -is [System.Collections.Hashtable])
-							{
-								if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true }
-							}
-							elseif ($rp.Contains($profileName) -or $rp.Contains($pClean))
-							{
-								$isProfileAutoReconnect = $true
-							}
-						}
-
 						$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
-						$details = "Profile: $pName | Title: $wTitle`nPID: $pidInt | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $(Get-Date -Format 'HH:mm:ss')"
+						$details = "Profile: $pName | Title: $wTitle`nPID: $pidInt | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 
 						$btns = [ordered]@{
 							'Reconnect Now'                = 'Reconnect'
@@ -581,9 +597,9 @@ function StartDisconnectWatcher
 						}
 
 						$details = ''
-						if ($global:DashboardConfig.UI.DataGridFiller)
+						if ($global:DashboardConfig.UI.DataGridMain)
 						{
-							$row = $global:DashboardConfig.UI.DataGridFiller.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $cPid } | Select-Object -First 1
+							$row = $global:DashboardConfig.UI.DataGridMain.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $cPid } | Select-Object -First 1
 							if ($row)
 							{
 								$proc = $row.Tag
@@ -602,7 +618,7 @@ function StartDisconnectWatcher
 									elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
 								}
 								$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
-								$details = "Profile: $pName | Title: $wTitle`nPID: $cPid | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $(Get-Date -Format 'HH:mm:ss')"
+								$details = "Profile: $pName | Title: $wTitle`nPID: $pidInt | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 							}
 						}
 						ShowReconnectInteractiveNotification -Title 'Reconnecting...' -Message "Initiating reconnection sequence...`n$details" -Type 'Info' -RelatedPid $cPid -TimeoutSeconds 0
@@ -619,14 +635,14 @@ function StartDisconnectWatcher
 
 					'Delay'
 					{
-						$global:DashboardConfig.State.ScheduledReconnects[$cPid] = (Get-Date).AddMinutes(2)
+						$global:DashboardConfig.State.ScheduledReconnects[$cPid] = [DateTime]::Now.AddMinutes(2)
 						if ($global:DashboardConfig.State.ManualReconnectOverrides) { [void]$global:DashboardConfig.State.ManualReconnectOverrides.Add($cPid) }
 						Write-Verbose "PID $cPid Reconnect delayed 2m"
                         
 						$details = ''
-						if ($global:DashboardConfig.UI.DataGridFiller)
+						if ($global:DashboardConfig.UI.DataGridMain)
 						{
-							$row = $global:DashboardConfig.UI.DataGridFiller.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $cPid } | Select-Object -First 1
+							$row = $global:DashboardConfig.UI.DataGridMain.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $cPid } | Select-Object -First 1
 							if ($row)
 							{
 								$proc = $row.Tag
@@ -645,7 +661,7 @@ function StartDisconnectWatcher
 									elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
 								}
 								$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
-								$details = "Profile: $pName | Title: $wTitle`nPID: $cPid | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $(Get-Date -Format 'HH:mm:ss')"
+								$details = "Profile: $pName | Title: $wTitle`nPID: $pidInt | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 							}
 						}
 
@@ -715,7 +731,11 @@ function StopDisconnectWatcher
 
 	if ($global:DashboardConfig.State.NotificationMap)
 	{
-		$keysToClose = [int[]]@($global:DashboardConfig.State.NotificationMap.Keys)
+		$reconnectPids = @{}
+		$global:DashboardConfig.State.FlashingPids.Keys | ForEach-Object { $reconnectPids[$_] = $true }
+		$global:DashboardConfig.State.ScheduledReconnects.Keys | ForEach-Object { $reconnectPids[$_] = $true }
+
+		$keysToClose = @($global:DashboardConfig.State.NotificationMap.Keys | Where-Object { $reconnectPids.ContainsKey($_) })
 		foreach ($key in $keysToClose)
 		{
 			CloseToast -Key $key
@@ -733,6 +753,7 @@ function StopDisconnectWatcher
 		if ($global:DashboardConfig.State.ReconnectQueue) { $global:DashboardConfig.State.ReconnectQueue.Clear() }
 		if ($global:DashboardConfig.State.WasInGamePids) { $global:DashboardConfig.State.WasInGamePids.Clear() }
 		if ($global:DashboardConfig.State.FlashingPids) { $global:DashboardConfig.State.FlashingPids.Clear() }
+		if ($global:DashboardConfig.State.InGameStability) { $global:DashboardConfig.State.InGameStability.Clear() }
 		if ($global:DashboardConfig.State.ManualReconnectOverrides) { $global:DashboardConfig.State.ManualReconnectOverrides.Clear() }
 		if ($global:DashboardConfig.State.NotificationActionQueue) { $global:DashboardConfig.State.NotificationActionQueue.Clear() }
 	}
@@ -740,19 +761,14 @@ function StopDisconnectWatcher
 	$global:WatcherBusy = $false
 	$global:WorkerBusy = $false
 }
-
-#endregion
-
-#region Core Logic: Reconnection Sequence
-
 function InvokeReconnectionSequence
 {
 	param([int]$PidToReconnect)
 
 	$Row = $null
-	if ($global:DashboardConfig.UI.DataGridFiller)
+	if ($global:DashboardConfig.UI.DataGridMain)
 	{
-		$Row = $global:DashboardConfig.UI.DataGridFiller.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $PidToReconnect } | Select-Object -First 1
+		$Row = $global:DashboardConfig.UI.DataGridMain.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $PidToReconnect } | Select-Object -First 1
 	}
 
 	if (-not $Row) { return }
@@ -815,7 +831,7 @@ try
 			}
 		}
 
-		$global:DashboardConfig.State.PidCooldowns[$PidToReconnect] = Get-Date
+		$global:DashboardConfig.State.PidCooldowns[$PidToReconnect] = [DateTime]::Now
 
 		$loginConfig = $global:DashboardConfig.Config['LoginConfig']
 		$profileConfig = $null
@@ -992,11 +1008,11 @@ try
 									return 
 								}
 
-								if ($global:DashboardConfig.UI -and $global:DashboardConfig.UI.DataGridFiller)
+								if ($global:DashboardConfig.UI -and $global:DashboardConfig.UI.DataGridMain)
 								{
-									try { $global:DashboardConfig.UI.DataGridFiller.ClearSelection() } catch {}
+									try { $global:DashboardConfig.UI.DataGridMain.ClearSelection() } catch {}
 									try { $rowRef.Selected = $true } catch {}
-									try { $global:DashboardConfig.UI.DataGridFiller.CurrentCell = $rowRef.Cells[0] } catch {}
+									try { $global:DashboardConfig.UI.DataGridMain.CurrentCell = $rowRef.Cells[0] } catch {}
 								}
                         
 								
@@ -1004,7 +1020,7 @@ try
 								if ($hWndRef) { $safeHwnd = $hWndRef }
 
 								Write-Verbose "RECONNECT (UI): Invoking LoginSelectedRow for PID $($rowRef.Tag.Id) (Entry=$CachedEntryNumber)"
-								if (Get-Command 'LoginSelectedRow' -ErrorAction SilentlyContinue)
+								if (Get-Command 'LoginSelectedRow' -ErrorAction SilentlyContinue -Verbose:$False)
 								{ 
 									LoginSelectedRow -RowInput $rowRef -WindowHandle $safeHwnd -LogFilePath $logRef 
 								}
@@ -1015,7 +1031,7 @@ try
 			else
 			{
 				Write-Verbose "RECONNECT: UI not available, invoking LoginSelectedRow directly for PID $PidToReconnect (Entry=$CachedEntryNumber)"
-				if (Get-Command 'LoginSelectedRow' -ErrorAction SilentlyContinue) { LoginSelectedRow -RowInput $Row -WindowHandle $hWnd -LogFilePath $logPath }
+				if (Get-Command 'LoginSelectedRow' -ErrorAction SilentlyContinue -Verbose:$False) { LoginSelectedRow -RowInput $Row -WindowHandle $hWnd -LogFilePath $logPath }
 			}
 		}
 		catch { Write-Verbose "RECONNECT: Error while scheduling LoginSelectedRow: $_" }

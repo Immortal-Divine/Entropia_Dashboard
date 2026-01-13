@@ -7,7 +7,7 @@ $global:LoginCancellation = [hashtable]::Synchronized(@{
 		ScriptInitiatedMove = $false
 	})
 $TOTAL_STEPS_PER_CLIENT = 15
-$script:LastToastUpdateTime = $null
+$script:LastLoginToastTick = 0
 
 if (-not $global:LoginResources)
 {
@@ -115,7 +115,7 @@ function GetClientLogPath
 		$determinedLogBaseFolder = Join-Path -Path $env:APPDATA -ChildPath 'Entropia_Dashboard'
 	}
 
-	$actualLogPath = Join-Path -Path $determinedLogBaseFolder -ChildPath "Log\network_$(Get-Date -Format 'yyyyMMdd').log"
+	$actualLogPath = Join-Path -Path $determinedLogBaseFolder -ChildPath "Log\network_$([DateTime]::Now.ToString('yyyyMMdd')).log"
 	return $actualLogPath
 }
 
@@ -158,9 +158,9 @@ function LoginSelectedRow
 		{
 			$rawSelection += $RowInput
 		}
-		elseif ($global:DashboardConfig.UI.DataGridFiller.SelectedRows.Count -gt 0)
+		elseif ($global:DashboardConfig.UI.DataGridMain.SelectedRows.Count -gt 0)
 		{
-			$rawSelection = $global:DashboardConfig.UI.DataGridFiller.SelectedRows | Sort-Object Index
+			$rawSelection = $global:DashboardConfig.UI.DataGridMain.SelectedRows | Sort-Object Index
 		}
 		else
 		{
@@ -208,8 +208,8 @@ function LoginSelectedRow
 		}
 		
 		$sortedData = $enrichedData | Sort-Object @{Expression = {$profilePriorityMap[$_.Profile.ToString()]}; Ascending = $true}, @{Expression = {$_.EntryNum}; Ascending = $true}
-
-		$jobs = @()
+		
+		$loginTasks = New-Object System.Collections.Generic.LinkedList[PSObject]
 		foreach ($dataItem in $sortedData)
 		{
 			$row = $dataItem.OriginalRow
@@ -217,20 +217,7 @@ function LoginSelectedRow
             
 			$process = $row.Tag
 			$processTitle = $row.Cells[1].Value
-
-			$profileName = 'Default'
-			if ($global:DashboardConfig.Config['LoginConfig'])
-			{
-				$allProfileNames = $global:DashboardConfig.Config['LoginConfig'].Keys | Where-Object { $_ -ne 'Default' }
-				foreach ($knownProfile in $allProfileNames)
-				{
-					if ($processTitle -match "\[$([regex]::Escape($knownProfile))\]")
-					{
-						$profileName = $knownProfile
-						break
-					}
-				}
-			}
+			$profileName = if ($processTitle -match '^\[([^\]]+)\]') { $Matches[1] } else { 'Default' }
 
 			$actualLogPath = $LogFilePath
 			if ([string]::IsNullOrEmpty($actualLogPath))
@@ -239,29 +226,17 @@ function LoginSelectedRow
 			}
 			if ($null -eq $actualLogPath) { $actualLogPath = '' }
 
-			$clientLoginConfig = @{}
-			if ($global:DashboardConfig.Config['LoginConfig'] -and $global:DashboardConfig.Config['LoginConfig'][$profileName])
-			{
-				$clientLoginConfig = $global:DashboardConfig.Config['LoginConfig'][$profileName]
-			}
-
-			$thisJobHandle = [IntPtr]::Zero
-			if ($WindowHandle -ne [IntPtr]::Zero)
-			{
-				if ($RowInput -eq $row -or ($RowInput.Row -eq $row))
-				{
-					$thisJobHandle = $WindowHandle
-				}
-			}
-
-			$jobs += [PSCustomObject]@{
+			$jobData = [PSCustomObject]@{
 				EntryNumber    = $entryNum
 				ProcessId      = if ($process) { $process.Id } else { 0 }
-				ExplicitHandle = $thisJobHandle
+				ExplicitHandle = if (($WindowHandle -ne [IntPtr]::Zero) -and ($RowInput -eq $row -or ($RowInput.Row -eq $row))) { $WindowHandle } else { [IntPtr]::Zero }
 				LogPath        = $actualLogPath
-				Config         = $clientLoginConfig
+				Config         = if ($global:DashboardConfig.Config['LoginConfig'] -and $global:DashboardConfig.Config['LoginConfig'][$profileName]) { $global:DashboardConfig.Config['LoginConfig'][$profileName] } else { @{} }
 				ProfileName    = $profileName
+				ClientTitle    = $processTitle
 			}
+			
+			$loginTasks.AddLast([PSCustomObject]@{ JobData = $jobData; RetryCount = 0 })
 		}
 		
 		ShowToast -Title 'Login Process' -Message 'Starting Login Process...' -Type 'Info' -Key 9999 -TimeoutSeconds 0
@@ -376,7 +351,8 @@ function LoginSelectedRow
 		
 		$loginScript = {
 			param($Jobs, $TotalStepsPerClient, $GlobalOptions, $LoginConfig, $CancellationContext, $State)
-            
+			$LoginTasks = $Jobs
+
 			if (-not $TotalStepsPerClient -or $TotalStepsPerClient -eq 0) { $TotalStepsPerClient = 15 }
 
 			if (-not ('Custom.Native' -as [Type]))
@@ -413,7 +389,7 @@ function LoginSelectedRow
 				$sw = [System.Diagnostics.Stopwatch]::StartNew()
 				while (-not $proc.Responding)
 				{
-					if ($sw.Elapsed.TotalSeconds -gt 15) { throw 'Timeout: Window is Not Responding (Hung).' }
+					if ($sw.Elapsed.TotalSeconds -gt 60) { throw 'Timeout: Window is Not Responding (Hung).' }
 					CheckCancel
 					$proc.Refresh()
 					Start-Sleep -Milliseconds 10
@@ -579,13 +555,13 @@ function LoginSelectedRow
 
 			function Wait-UntilWorldLoaded
 			{
-				param($LogPath, $Config, $TotalSteps, $CurrentStep, $ClientIdx, $ClientCount, $EntryNum, $ProfileName)
+				param($LogPath, $Config, $TotalSteps, $CurrentStep, $ClientIdx, $ClientCount, $EntryNum, $ProfileName, $ServerID, $ChannelID, $ClientTitle)
 				$threshold = 3; $searchStr = '13 - CACHE_ACK_JOIN'
 				if ($Config['WorldLoadLogThreshold']) { $threshold = [int]$Config['WorldLoadLogThreshold'] }
 				if ($Config['WorldLoadLogEntry']) { $searchStr = $Config['WorldLoadLogEntry'] }
 				$foundCount = 0; $timeout = New-TimeSpan -Minutes 2; $sw = [System.Diagnostics.Stopwatch]::StartNew()
 				$null = $pct; $pct = 0; if ($TotalSteps -gt 0) { $pct = [int](($CurrentStep / $TotalSteps) * 100) }
-				$currentStep++; ReportLoginProgress -Action 'Waiting for World Load...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+				$currentStep++; ReportLoginProgress -Action 'Waiting for World Load...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
 				while ($foundCount -lt $threshold)
 				{
 					if ($sw.Elapsed -gt $timeout) { throw 'World load timeout' }
@@ -615,7 +591,7 @@ function LoginSelectedRow
 				[CmdletBinding()]
 				param([string]$Message, [string]$ForegroundColor = 'DarkGray')
                 
-				$dateStr = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+				$dateStr = [DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')
 				$callerName = 'LoginSelectedRow'
 				$bracketedCaller = "[$callerName]"
 				$paddedCaller = $bracketedCaller.PadRight(35)
@@ -634,11 +610,49 @@ function LoginSelectedRow
 
 			function ReportLoginProgress
 			{
-				param($Action, $Step, $TotalSteps, $ClientIdx, $ClientCount, $EntryNum, $ProfileName)
+				param($Action, $Step, $TotalSteps, $ClientIdx, $ClientCount, $EntryNum, $ProfileName, $ServerID, $ChannelID, $ClientTitle)
+				
+				$finalClientTitle = $ClientTitle
+				$setupName = $DashboardConfig.Resources['CurrentLaunchSetupName']
+				if ((-not [string]::IsNullOrEmpty($setupName)) -and $DashboardConfig.Config)
+				{
+					$setupKey = "Setup_$setupName"
+					if ($DashboardConfig.Config.Contains($setupKey))
+					{
+						$setupData = $DashboardConfig.Config[$setupKey]
+						foreach ($clientSetupKey in $setupData.Keys)
+						{
+							$parts = $setupData[$clientSetupKey] -split ',', 5
+							if ($parts.Length -ge 4)
+							{
+								if (($parts[1].Trim() -eq $ProfileName) -and (($parts[2].Trim() -as [int]) -eq $EntryNum))
+								{
+									$finalClientTitle = $parts[3].Trim()
+									break
+								}
+							}
+						}
+					}
+				}
+
 				$pct = 0; if ($TotalSteps -gt 0) { $pct = [int](($Step / $TotalSteps) * 100) }
-				$msg = "Total: $pct% | Client $ClientIdx/$ClientCount`nProfile: $ProfileName | Account: ($EntryNum)`n$Action"
+				
+				$accDisplay = "($EntryNum)"
+				if (-not [string]::IsNullOrEmpty($finalClientTitle))
+				{
+					$cleanTitle = $finalClientTitle
+					if ($cleanTitle -match '^\[.*?\]\s*(.*)') { $cleanTitle = $Matches[1] }
+					$accDisplay = "$cleanTitle ($EntryNum)"
+				}
+				
+				$msg = "Profile: $ProfileName | Server ($ServerID) | Channel ($ChannelID)`nAccount: $accDisplay`n$Action"
 				Write-Verbose -Message $msg
-				Write-Information -MessageData @{ Text = $msg; Percent = $pct } -Tags 'LoginStatus'
+				if ($State -and $State.LoginStatus) {
+					$status = $State.LoginStatus
+					$status['Text'] = $msg
+					$status['Percent'] = $pct
+					$status['LastUpdateTick'] = [DateTime]::Now.Ticks
+				}
 			}
 
 			try
@@ -646,182 +660,294 @@ function LoginSelectedRow
 				$totalClients = $Jobs.Count
 				$totalGlobalSteps = $totalClients * $TotalStepsPerClient
 				$currentClientIndex = 0
+				$clientsLoggedInCount = 0
 
 				if ($State -and -not $State['LoginGracePids']) { $State['LoginGracePids'] = [System.Collections.Hashtable]::Synchronized(@{}) }
 
-				foreach ($job in $Jobs)
+				while ($LoginTasks.Count -gt 0)
 				{
-					CheckCancel; EnsureWindowResponsive; CheckCancel; SleepWithCancel -Milliseconds 50
+					$task = $LoginTasks.First.Value
+					$LoginTasks.RemoveFirst()
+					$job = $task.JobData
+
+					$Global:CurrentActiveProcessId = 0
+					$Global:CurrentActiveWindowHandle = [IntPtr]::Zero
+
 					$currentClientIndex++
-					$entryNumber = $job.EntryNumber
-					$processId = $job.ProcessId
-					$explicitHandle = if ($job.ExplicitHandle -and $job.ExplicitHandle -ne 0) { $job.ExplicitHandle } else { [IntPtr]::Zero }
-					$Global:CurrentActiveProcessId = $processId
-					$profileName = $job.ProfileName
+					$loginAttemptDisplay = $clientsLoggedInCount + 1
 
-					if ($processId -gt 0) { if ($State -and $State['ActiveLoginPids']) { [void]$State['ActiveLoginPids'].Add($processId) } }
-                
-					$logPath = $job.LogPath
-					$config = $job.Config
-					$stepBase = ($currentClientIndex - 1) * $TotalStepsPerClient
-					$currentStep = $stepBase
-
-					$currentStep++; ReportLoginProgress -Action 'Starting Login Process...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-                
-					if ($processId -eq 0) { throw "Process ID not found for Client $entryNumber" }
-					$process = Get-Process -Id $processId -ErrorAction SilentlyContinue
-					if (-not $process) { throw "Process $processId is gone." }
-
-					$serverID = '1'; $channelID = '1'; $charSlot = '1'; $startCollector = 'No'
-					$settingKey = "Client${entryNumber}_Settings"
-					if ($config[$settingKey])
+					try
 					{
-						$parts = $config[$settingKey] -split ','
-						if ($parts.Count -eq 4) { $serverID = $parts[0]; $channelID = $parts[1]; $charSlot = $parts[2]; $startCollector = $parts[3] }
-					}
+						CheckCancel; SleepWithCancel -Milliseconds 50
+						$entryNumber = $job.EntryNumber
+						$processId = $job.ProcessId
+						$explicitHandle = if ($job.ExplicitHandle -and $job.ExplicitHandle -ne 0) { $job.ExplicitHandle } else { [IntPtr]::Zero }
+						$Global:CurrentActiveProcessId = $processId
+						$profileName = $job.ProfileName
+						$clientTitle = $job.ClientTitle
 
-					Write-LogWithRetry -FilePath $logPath -Value ''
-					$workingHwnd = if ($explicitHandle -ne [IntPtr]::Zero) { $explicitHandle } else { $process.MainWindowHandle }
-					$Global:CurrentActiveWindowHandle = $workingHwnd
-					$currentStep++; ReportLoginProgress -Action 'Getting Client ready...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+						if ($processId -gt 0) { if ($State -and $State['ActiveLoginPids']) { [void]$State['ActiveLoginPids'].Add($processId) } }
+					
+						$logPath = $job.LogPath
+						$config = $job.Config
+						$stepBase = ($loginAttemptDisplay - 1) * $TotalStepsPerClient
+						$currentStep = $stepBase
+					
+						if ($processId -eq 0) { throw "Process ID not found for Client $entryNumber" }
+						$process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+						if (-not $process) { throw "Process $processId is gone." }
 
-					EnsureWindowState; CheckCancel; EnsureWindowResponsive; CheckCancel; SleepWithCancel -Milliseconds 50
-
-					$rect = New-Object Custom.Native+RECT
-					[Custom.Native]::GetWindowRect($workingHwnd, [ref]$rect)
-					$x = $rect.Left + 100; $y = $rect.Top + 100
-                
-					$currentStep++; ReportLoginProgress -Action "Log into Account $($entryNumber)..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-
-					$firstNickCoords = ParseCoordinates $config['FirstNickCoords']
-					$scrollDownCoords = ParseCoordinates $config['ScrollDownCoords']
-					$scrollbaseX = if ($scrollDownCoords) { $rect.Left + $scrollDownCoords.X } else { [int](($rect.Left + $rect.Right) / 2) + 160 }
-					$scrollbaseY = if ($scrollDownCoords) { $rect.Top + $scrollDownCoords.Y } else { [int](($rect.Top + $rect.Bottom) / 2) + 46 }
-
-					if ($firstNickCoords)
-					{
-						$baseX = $rect.Left + $firstNickCoords.X
-						$baseY = $rect.Top + $firstNickCoords.Y
-						if ($entryNumber -ge 6 -and $entryNumber -le 10)
+						$serverID = '1'; $channelID = '1'; $charSlot = '1'; $startCollector = 'No'
+						$settingKey = "Client${entryNumber}_Settings"
+						if ($config[$settingKey])
 						{
+							$parts = $config[$settingKey] -split ','
+							if ($parts.Count -eq 4) { $serverID = $parts[0]; $channelID = $parts[1]; $charSlot = $parts[2]; $startCollector = $parts[3] }
+						}
+						
+						$currentStep++; ReportLoginProgress -Action 'Starting Login Process...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+
+						Write-LogWithRetry -FilePath $logPath -Value ''
+						$workingHwnd = if ($explicitHandle -ne [IntPtr]::Zero) { $explicitHandle } else { $process.MainWindowHandle }
+						$Global:CurrentActiveWindowHandle = $workingHwnd
+						$currentStep++; ReportLoginProgress -Action 'Getting Client ready...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+
+						EnsureWindowState; CheckCancel; EnsureWindowResponsive; CheckCancel; SleepWithCancel -Milliseconds 50
+
+						$rect = New-Object Custom.Native+RECT
+						[Custom.Native]::GetWindowRect($workingHwnd, [ref]$rect)
+						$x = $rect.Left + 100; $y = $rect.Top + 100
+					
+						$currentStep++; ReportLoginProgress -Action "Log into Account $($entryNumber)..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+
+						$firstNickCoords = ParseCoordinates $config['FirstNickCoords']
+						$scrollDownCoords = ParseCoordinates $config['ScrollDownCoords']
+						$scrollbaseX = if ($scrollDownCoords) { $rect.Left + $scrollDownCoords.X } else { [int](($rect.Left + $rect.Right) / 2) + 160 }
+						$scrollbaseY = if ($scrollDownCoords) { $rect.Top + $scrollDownCoords.Y } else { [int](($rect.Top + $rect.Bottom) / 2) + 46 }
+
+						if ($firstNickCoords)
+						{
+							$baseX = $rect.Left + $firstNickCoords.X
+							$baseY = $rect.Top + $firstNickCoords.Y
+							if ($entryNumber -ge 6 -and $entryNumber -le 10)
+							{
+								CheckCancel; EnsureWindowResponsive; CheckCancel
+								Invoke-MouseClick -X ($scrollbaseX + 5) -Y ($scrollbaseY - 5); SleepWithCancel -Milliseconds 50
+								$targetY = $baseY + (($entryNumber - 6) * 18)
+								Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
+								Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
+							}
+							elseif ($entryNumber -ge 1 -and $entryNumber -le 5)
+							{
+								$targetY = $baseY + (($entryNumber - 1) * 18)
+								CheckCancel; EnsureWindowResponsive; CheckCancel
+								Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
+								Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
+							}
+						}
+						else
+						{
+							$centerX = [int](($rect.Left + $rect.Right) / 2) + 25
+							$centerY = [int](($rect.Top + $rect.Bottom) / 2) + 18
+							$adjustedY = $centerY
+							if ($entryNumber -ge 6 -and $entryNumber -le 10)
+							{
+								$yOffset = ($entryNumber - 8) * 18
+								$adjustedY = $centerY + $yOffset
+								Invoke-MouseClick -X ($centerX + 145) -Y ($centerY + 28); SleepWithCancel -Milliseconds 50
+							}
+							elseif ($entryNumber -ge 1 -and $entryNumber -le 5)
+							{
+								$yOffset = ($entryNumber - 3) * 18
+								$adjustedY = $centerY + $yOffset
+							}
+							elseif ($entryNumber -ge 11) { return }
 							CheckCancel; EnsureWindowResponsive; CheckCancel
-							Invoke-MouseClick -X ($scrollbaseX + 5) -Y ($scrollbaseY - 5); SleepWithCancel -Milliseconds 50
-							$targetY = $baseY + (($entryNumber - 6) * 18)
-							Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
-							Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
+							Invoke-MouseClick -X $centerX -Y $adjustedY; Invoke-MouseClick -X $centerX -Y $adjustedY
+							Invoke-MouseClick -X $centerX -Y $adjustedY; Invoke-MouseClick -X $centerX -Y $adjustedY
+							SleepWithCancel -Milliseconds 50
 						}
-						elseif ($entryNumber -ge 1 -and $entryNumber -le 5)
-						{
-							$targetY = $baseY + (($entryNumber - 1) * 18)
-							CheckCancel; EnsureWindowResponsive; CheckCancel
-							Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
-							Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
-						}
-					}
-					else
-					{
-						$centerX = [int](($rect.Left + $rect.Right) / 2) + 25
-						$centerY = [int](($rect.Top + $rect.Bottom) / 2) + 18
-						$adjustedY = $centerY
-						if ($entryNumber -ge 6 -and $entryNumber -le 10)
-						{
-							$yOffset = ($entryNumber - 8) * 18
-							$adjustedY = $centerY + $yOffset
-							Invoke-MouseClick -X ($centerX + 145) -Y ($centerY + 28); SleepWithCancel -Milliseconds 50
-						}
-						elseif ($entryNumber -ge 1 -and $entryNumber -le 5)
-						{
-							$yOffset = ($entryNumber - 3) * 18
-							$adjustedY = $centerY + $yOffset
-						}
-						elseif ($entryNumber -ge 11) { return }
-						CheckCancel; EnsureWindowResponsive; CheckCancel
-						Invoke-MouseClick -X $centerX -Y $adjustedY; Invoke-MouseClick -X $centerX -Y $adjustedY
-						Invoke-MouseClick -X $centerX -Y $adjustedY; Invoke-MouseClick -X $centerX -Y $adjustedY
 						SleepWithCancel -Milliseconds 50
-					}
-					SleepWithCancel -Milliseconds 50
-                
 					
-					CheckCancel; EnsureWindowResponsive; CheckCancel
-					if ($config["Server${serverID}Coords"])
-					{
-						$coords = ParseCoordinates $config["Server${serverID}Coords"]
-						if ($coords)
+						
+						CheckCancel; EnsureWindowResponsive; CheckCancel
+						if ($config["Server${serverID}Coords"])
 						{
-							$currentStep++; ReportLoginProgress -Action "Selecting Server $serverID..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
-							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
-							SleepWithCancel -Milliseconds 50
+							$coords = ParseCoordinates $config["Server${serverID}Coords"]
+							if ($coords)
+							{
+								$currentStep++; ReportLoginProgress -Action "Selecting Server $serverID..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+								Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+								Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+								SleepWithCancel -Milliseconds 50
+							}
+						}
+						SleepWithCancel -Milliseconds 50; CheckCancel; EnsureWindowResponsive; CheckCancel
+					
+						
+						if ($config["Channel${channelID}Coords"])
+						{
+							$coords = ParseCoordinates $config["Channel${channelID}Coords"]
+							if ($coords)
+							{
+								$currentStep++; ReportLoginProgress -Action "Selecting Channel $channelID..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+								Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+								Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+								SleepWithCancel -Milliseconds 50
+							}
+						}
+						SleepWithCancel -Milliseconds 50; CheckCancel; EnsureWindowResponsive; CheckCancel
+						$currentStep++; ReportLoginProgress -Action 'Entering Character Selection...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+						Invoke-KeyPress -VirtualKeyCode 0x0D
+
+						$currentStep++
+						$loginReady = Wait-ForLogEntry -LogPath $logPath -SearchStrings @('6 - LOGIN_PLAYER_LIST') -TimeoutSeconds 25
+						if (-not $loginReady) { throw "CERT Login Timeout for Client $entryNumber" }
+						SleepWithCancel -Milliseconds 50; CheckCancel; EnsureWindowResponsive; CheckCancel
+					
+						
+						if ($config["Char${charSlot}Coords"] -and $config["Char${charSlot}Coords"] -ne '0,0')
+						{
+							$coords = ParseCoordinates $config["Char${charSlot}Coords"]
+							if ($coords)
+							{
+								$currentStep++; ReportLoginProgress -Action "Selecting Character in Slot $charSlot" -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+								Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+								SleepWithCancel -Milliseconds 50
+							}
+						}
+						CheckCancel; EnsureWindowResponsive; CheckCancel
+						Invoke-KeyPress -VirtualKeyCode 0x0D; SleepWithCancel -Milliseconds 50
+
+						$currentStep++
+						$cacheJoin = Wait-forLogEntry -LogPath $logPath -SearchStrings @('13 - CACHE_ACK_JOIN') -TimeoutSeconds 60
+						if (-not $cacheJoin) { throw "Main Login Timeout for Client $entryNumber" }
+
+						$currentStep++; Wait-UntilWorldLoaded -LogPath $logPath -Config $config -TotalSteps $totalGlobalSteps -CurrentStep $currentStep -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+						CheckCancel; EnsureWindowResponsive; CheckCancel
+					
+						$delay = if ($config['PostLoginDelay']) { [int]$config['PostLoginDelay'] } else { 1 }
+						$currentStep++; ReportLoginProgress -Action "Post Login Delay ($delay s)" -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+						SleepWithCancel -Milliseconds ($delay * 1000)
+						CheckCancel; EnsureWindowResponsive; CheckCancel
+
+						
+						if ($startCollector -eq 'Yes' -and $config['CollectorStartCoords'] -and $config['CollectorStartCoords'] -ne '0,0')
+						{
+							$coords = ParseCoordinates $config['CollectorStartCoords']
+							if ($coords)
+							{
+								$currentStep++; ReportLoginProgress -Action 'Starting Collector...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+								Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+								SleepWithCancel -Milliseconds 1000
+							}
+						}
+
+						$currentStep++; ReportLoginProgress -Action 'Minimizing...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+						[Custom.Native]::SendMessage($workingHwnd, 0x0112, 0xF020, 0)
+						$currentStep++; ReportLoginProgress -Action 'Optimizing...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+						[Custom.Native]::EmptyWorkingSet($process.Handle)
+						$currentStep++; ReportLoginProgress -Action 'Finished...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+						
+						$clientsLoggedInCount++
+					}
+					catch
+					{
+						if ($_.Exception.Message -eq 'LoginCancelled' -or $_.ToString() -eq 'LoginCancelled') { throw }
+
+						Write-Verbose "LOGIN: Client $($job.EntryNumber) failed. Error: $($_.Exception.Message)"
+						$processIdToKill = $job.ProcessId
+						if ($processIdToKill -gt 0)
+						{
+							Write-Verbose "LOGIN: Killing unresponsive client PID $processIdToKill"
+							try { Stop-Process -Id $processIdToKill -Force -ErrorAction SilentlyContinue } catch {}
+						}
+						
+						$task.RetryCount++
+						$relaunchSuccess = $false
+
+						if ($task.RetryCount -le 2)
+						{
+							try
+							{
+								Write-Verbose "LOGIN: Attempting to relaunch client (Attempt $($task.RetryCount + 1))..."
+								$lPath = $DashboardConfig.Config['LauncherPath']['LauncherPath']
+								$pName = $DashboardConfig.Config['ProcessName']['ProcessName']
+								
+								if ($job.ProfileName -and $job.ProfileName -ne 'Default' -and $DashboardConfig.Config['Profiles'] -and $DashboardConfig.Config['Profiles'][$job.ProfileName])
+								{
+									$profPath = $DashboardConfig.Config['Profiles'][$job.ProfileName]
+									if (Test-Path $profPath)
+									{
+										$exeName = [System.IO.Path]::GetFileName($lPath)
+										$profLPath = Join-Path $profPath $exeName
+										if (Test-Path $profLPath) { $lPath = $profLPath }
+									}
+								}
+
+								if (Test-Path $lPath)
+								{
+									$existingPids = @(Get-Process -Name $pName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+									$lDir = [System.IO.Path]::GetDirectoryName($lPath)
+									$null = Start-Process -FilePath $lPath -WorkingDirectory $lDir -PassThru -WindowStyle Normal
+									
+									$timeout = [DateTime]::Now.AddSeconds(60)
+									while ([DateTime]::Now -lt $timeout)
+									{
+										CheckCancel
+										$currentPids = @(Get-Process -Name $pName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+										$diff = $currentPids | Where-Object { $_ -notin $existingPids }
+										if ($diff)
+										{
+											$newPid = $diff[0]
+											$job.ProcessId = $newPid
+											$job.ExplicitHandle = [IntPtr]::Zero
+											
+											$wTimeout = [DateTime]::Now.AddSeconds(30)
+											while ([DateTime]::Now -lt $wTimeout)
+											{
+												CheckCancel
+												try {
+													$p = Get-Process -Id $newPid -ErrorAction SilentlyContinue
+													if ($p -and $p.MainWindowHandle -ne [IntPtr]::Zero)
+													{
+														$job.ExplicitHandle = $p.MainWindowHandle
+														$relaunchSuccess = $true
+														break
+													}
+												} catch {}
+												Start-Sleep -Milliseconds 500
+											}
+											break
+										}
+										Start-Sleep -Milliseconds 500
+									}
+								}
+							}
+							catch { Write-Verbose "LOGIN: Relaunch failed: $_" }
+						}
+
+						if ($relaunchSuccess)
+						{
+							Write-Verbose "LOGIN: Relaunch successful. Retrying login..."
+							if ($task.RetryCount -eq 1) { $LoginTasks.AddFirst($task) }
+							else { $LoginTasks.AddLast($task) }
+						}
+						elseif ($task.RetryCount -eq 1)
+						{
+							Write-Verbose "LOGIN: Retrying client immediately (Attempt 2)"
+							$LoginTasks.AddFirst($task)
+						}
+						elseif ($task.RetryCount -eq 2)
+						{
+							Write-Verbose "LOGIN: Retrying client at end of sequence (Attempt 3)"
+							$LoginTasks.AddLast($task)
+						}
+						else
+						{
+							Write-Verbose "LOGIN: Client failed 3 times. Skipping."
 						}
 					}
-					SleepWithCancel -Milliseconds 50; CheckCancel; EnsureWindowResponsive; CheckCancel
-                
-					
-					if ($config["Channel${channelID}Coords"])
-					{
-						$coords = ParseCoordinates $config["Channel${channelID}Coords"]
-						if ($coords)
-						{
-							$currentStep++; ReportLoginProgress -Action "Selecting Channel $channelID..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
-							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
-							SleepWithCancel -Milliseconds 50
-						}
-					}
-					SleepWithCancel -Milliseconds 50; CheckCancel; EnsureWindowResponsive; CheckCancel
-					$currentStep++; ReportLoginProgress -Action 'Entering Character Selection...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-					Invoke-KeyPress -VirtualKeyCode 0x0D
-
-					$currentStep++
-					$loginReady = Wait-ForLogEntry -LogPath $logPath -SearchStrings @('6 - LOGIN_PLAYER_LIST') -TimeoutSeconds 25
-					if (-not $loginReady) { throw "CERT Login Timeout for Client $entryNumber" }
-					SleepWithCancel -Milliseconds 50; CheckCancel; EnsureWindowResponsive; CheckCancel
-                
-					
-					if ($config["Char${charSlot}Coords"] -and $config["Char${charSlot}Coords"] -ne '0,0')
-					{
-						$coords = ParseCoordinates $config["Char${charSlot}Coords"]
-						if ($coords)
-						{
-							$currentStep++; ReportLoginProgress -Action "Selecting Character in Slot $charSlot" -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
-							SleepWithCancel -Milliseconds 50
-						}
-					}
-					CheckCancel; EnsureWindowResponsive; CheckCancel
-					Invoke-KeyPress -VirtualKeyCode 0x0D; SleepWithCancel -Milliseconds 50
-
-					$currentStep++
-					$cacheJoin = Wait-ForLogEntry -LogPath $logPath -SearchStrings @('13 - CACHE_ACK_JOIN') -TimeoutSeconds 60
-					if (-not $cacheJoin) { throw "Main Login Timeout for Client $entryNumber" }
-
-					$currentStep++; Wait-UntilWorldLoaded -LogPath $logPath -Config $config -TotalSteps $totalGlobalSteps -CurrentStep $currentStep -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-					CheckCancel; EnsureWindowResponsive; CheckCancel
-                
-					$delay = if ($config['PostLoginDelay']) { [int]$config['PostLoginDelay'] } else { 1 }
-					$currentStep++; ReportLoginProgress -Action "Post Login Delay ($delay s)" -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-					SleepWithCancel -Milliseconds ($delay * 1000)
-					CheckCancel; EnsureWindowResponsive; CheckCancel
-
-					
-					if ($startCollector -eq 'Yes' -and $config['CollectorStartCoords'] -and $config['CollectorStartCoords'] -ne '0,0')
-					{
-						$coords = ParseCoordinates $config['CollectorStartCoords']
-						if ($coords)
-						{
-							$currentStep++; ReportLoginProgress -Action 'Starting Collector...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-							Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
-							SleepWithCancel -Milliseconds 1000
-						}
-					}
-
-					$currentStep++; ReportLoginProgress -Action 'Minimizing...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-					[Custom.Native]::SendMessage($workingHwnd, 0x0112, 0xF020, 0)
-					$currentStep++; ReportLoginProgress -Action 'Optimizing...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-					[Custom.Native]::EmptyWorkingSet($process.Handle)
-					$currentStep++; ReportLoginProgress -Action 'Finished...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
-
 				}
 			}
 			catch
@@ -841,43 +967,10 @@ function LoginSelectedRow
 			}
 		}
 
-		$infoEvent = {
-			param($s, $e)
-			if ($global:LoginResources['IsStopping']) { return }
-			$now = Get-Date
-			if ($null -eq $script:LastToastUpdateTime -or ($now - $script:LastToastUpdateTime).TotalMilliseconds -ge 150)
-			{
-				$script:LastToastUpdateTime = $now
-				
-				$record = $s[$e.Index]
-				if ($record -and $record.Tags -contains 'LoginStatus')
-				{
-					$data = $record.MessageData
-					$text = $data.Text
-					$pct = $data.Percent
-
-					$mainForm = $global:DashboardConfig.UI.MainForm
-					if ($mainForm -and -not $mainForm.IsDisposed)
-					{
-						$mainForm.BeginInvoke([Action] {
-								try
-								{
-									
-									ShowToast -Title 'Login Progress' -Message $text -Type 'Info' -Key 9999 -TimeoutSeconds 0 -Progress $pct
-								}
-								catch
-        						{
-									Write-Warning "Toast Update Failed: $($_.Exception.Message)"
-								}
-							})
-					}
-				}
-			}
-		}
 		$completionEvent = {
 			param($s, $e)
 			$state = $e.InvocationStateInfo.State
-			$mainForm = $global:DashboardConfig.UI.GlobalProgressBar.FindForm()
+			$mainForm = $global:DashboardConfig.UI.MainForm
 			if ($state -eq 'Failed') { Write-Verbose "LOGIN EXCEPTION: $($e.InvocationStateInfo.Reason)" }
 			if ($state -match 'Completed|Failed|Stopped')
 			{
@@ -891,16 +984,20 @@ function LoginSelectedRow
 		$eventName = 'LoginOp_' + [Guid]::NewGuid().ToString('N')
 
 		
+		$global:DashboardConfig.State.LoginStatus = [hashtable]::Synchronized(@{
+			Text = "Starting Login Process..."
+			Percent = 0
+			LastUpdateTick = [DateTime]::Now.Ticks
+		})
+
 		$stepsVal = if ($TOTAL_STEPS_PER_CLIENT) { $TOTAL_STEPS_PER_CLIENT } else { 15 }
-		$result = InvokeInManagedRunspace -RunspacePool $localRunspace -ScriptBlock $loginScript -AsJob -ArgumentList $jobs, $stepsVal, $global:DashboardConfig.Config['Options'], $global:DashboardConfig.Config['LoginConfig'], $global:LoginCancellation, $global:DashboardConfig.State
+		$result = InvokeInManagedRunspace -RunspacePool $localRunspace -ScriptBlock $loginScript -AsJob -ArgumentList $loginTasks, $stepsVal, $global:DashboardConfig.Config['Options'], $global:DashboardConfig.Config['LoginConfig'], $global:LoginCancellation, $global:DashboardConfig.State
 
 		if ($result -and $result.PowerShell)
 		{
 			$loginPS = $result.PowerShell
 
-			
-			$infoSub = Register-ObjectEvent -InputObject $loginPS.Streams.Information -EventName DataAdded -Action $infoEvent
-			$global:LoginResources['InfoSubscription'] = $infoSub
+			$global:LoginResources['InfoSubscription'] = $null
 
 			$eventSub = Register-ObjectEvent -InputObject $loginPS -EventName InvocationStateChanged -SourceIdentifier $eventName -Action $completionEvent
 			$global:LoginResources['EventSubscriptionId'] = $eventName
@@ -908,6 +1005,21 @@ function LoginSelectedRow
 
 			$global:LoginResources['PowerShellInstance'] = $loginPS
 			$global:LoginResources['AsyncResult'] = $result.AsyncResult
+
+			$uiUpdateTimer = New-Object System.Windows.Forms.Timer
+			$uiUpdateTimer.Interval = 100
+			$uiUpdateTimer.Add_Tick({
+				try {
+					$status = $global:DashboardConfig.State.LoginStatus
+					if ($status -and $status.LastUpdateTick -gt $script:LastLoginToastTick)
+					{
+						$script:LastLoginToastTick = $status.LastUpdateTick
+						ShowToast -Title 'Login Progress' -Message $status.Text -Type 'Info' -Key 9999 -TimeoutSeconds 0 -Progress $status.Percent
+					}
+				} catch {}
+			})
+			$uiUpdateTimer.Start()
+			$global:DashboardConfig.Resources.Timers['loginUITimer'] = $uiUpdateTimer
 
 			Write-Verbose 'LOGIN: Background process started.'
 		}
@@ -950,7 +1062,7 @@ function CleanUpLoginResources
 		$pidsToGrace = @($global:DashboardConfig.State.ActiveLoginPids)
 		foreach ($pidToGrace in $pidsToGrace)
 		{
-			$global:DashboardConfig.State.LoginGracePids[$pidToGrace] = (Get-Date).AddSeconds(120)
+			$global:DashboardConfig.State.LoginGracePids[$pidToGrace] = [DateTime]::Now.AddSeconds(120)
 		}
 		$global:DashboardConfig.State.ActiveLoginPids.Clear()
 	}
@@ -976,6 +1088,16 @@ function CleanUpLoginResources
 		CloseToast -Key 9999
 	}
 
+	if ($global:DashboardConfig.Resources.Timers.Contains('loginUITimer'))
+	{
+		try
+		{
+			$global:DashboardConfig.Resources.Timers['loginUITimer'].Stop()
+			$global:DashboardConfig.Resources.Timers['loginUITimer'].Dispose()
+			$global:DashboardConfig.Resources.Timers.Remove('loginUITimer')
+		}
+		catch {}
+	}
 	
 	$uiCleanupAction = {
 		$ui = $global:DashboardConfig.UI
@@ -991,7 +1113,7 @@ function CleanUpLoginResources
 		}
 	}
 	
-	$mainForm = $global:DashboardConfig.UI.GlobalProgressBar.FindForm()
+	$mainForm = $global:DashboardConfig.UI.MainForm
     
 	
 	

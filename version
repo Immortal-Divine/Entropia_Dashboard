@@ -1,33 +1,71 @@
 Author: Immortal / Divine
-Version: 2.3
+Version: 2.4
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
+Todo
+Launch anschauen
+Wiki anschauen
 
 [Changelogs]
    - Added:
-    - New Hotkey Manager in the settings to see and edit all current active Hotkeys
-	- New interactive notification progress system for all features
-	- Manual disconnect by right clicking the Terminate button
-	- Remembers last position of dashboard
-	- Redesigned the message windows for true dark mode
-	- DataGrid Contextmenu:
-	 - Set Hotkey to bring a set of saved clients to front
-	 - Manual reposition of clients to a saved location
-	 - Manual reconnect after disconnect
-	- Worldboss Notification System through Discord (privat, pm for access)
+    - Comprehensive guide that explains you every feature of the dashboard.
+
+	- New wiki, allows you to create your own custom wiki! Or use it for something completely different!
+
+    - One Click Setup Profiles, instead of single Setup, you can create multiple setups now
+     - The "One Click Setup" now calculates the exact difference between running clients and the setup requirements, launching only the missing amount rather than a fixed number
+
+	- Macro System to have a fixed sequence of actions replayed
+
+    - Setup logs in already started but not logged in clients in now
+     - As long as a client is in the login screen, it won't start an extra client
+
+    - Worldboss Notifications within the Dashboard for the Divine Server (and Genesis)
+     - Both worldboss channel can recieve and send worldboss notifications through the dashboard, access code required (check discord)
+
+    - Resizeable dashboard
+     - If you had many clients open your client list had to be scrolled
+
+    - Notes / Timer / Reminder feature in the Extra Tab
+     - Can add custom notifications with functionality, highly customizable 
+
+    - Notification history in the Extra Tab
+     - You can reshow and hide old notification there
+
+    - Launch and Login retrys (3) added to ensure a successful setup start
+     - If a client is not ready within 60 seconds, it retrys the process. The old client gets closed
+
+    - More informations inside notifications
+
+    - Window Position Management
+     - Right-click a client in the grid to "Save Position" or "Load Position"
+     - Dashboard remembers its own size and position on close
+
+	- Force Disconnect (TCP Kill)
+     - Right-clicking the "Terminate" button now offers a "Disconnect" option, which severs the TCP connection without closing the client to simulate a connection loss.
+
+	- Login Priority Sorting
+     - The login automation now sorts clients by profile priority before account number, ensuring critical profiles log in first
+
 
    - Fixed:
-	- Minimizes clients that timeout during login
-	- Increased login/reconnect speed
-	- Increased window detection to prevent false clicks during login
-	- You can open the profile location by double clicking the path now
-	- Ftool key settings were not being saved, fixed
-	- Ftool positioning fixed when window not focused
-	- Removed the initial wait time of an Ftool instance for start. It now starts instant.
+    - Auto updater is working again from now on
+
+    - Ftool not being able to press Key Combinations strings ingame
+     - Ctrl + F1 can now also be set as Ftool key
+	- Multiple different Hotkeys can now be pressed at the same time
+
+    - Some broken dialog boxes
+    - Launch sometimes not minimizing
+    - Launch Progress Notification being frozen
+    - Rare pipeline bug where dashboard could go idle and not trigger any notifications at all
+    - Dashboard UI Freezing
+     - The client list (DataGrid), Launch, and Login processes now run in separate threads (Runspaces) to keep the UI responsive
+    - Window State Detection
 
    - More:
-	- Code cleanup
+    - Code Cleanup
+    - Themed Dashboard
+     - All alerts and input boxes now use a custom Dark Mode
 
-   - Hotfix 2.3:
-	- Fixed broken dialog messages and profile selector
 

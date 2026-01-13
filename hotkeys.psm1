@@ -6,6 +6,57 @@ if (-not $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys = @{
 if (-not $global:PausedIdMap) { $global:PausedIdMap = @{} }
 if (-not $global:NextPausedFakeId) { $global:NextPausedFakeId = -1 }
 
+function InvokeHotkeyAction
+{
+	param([Parameter(Mandatory = $true)]$Action)
+
+	# 1. Define the logic to run.
+	# We use $Action here, but we must capture it using GetNewClosure() below.
+	$runLogic = {
+		try
+		{
+			if ($Action -is [ScriptBlock])
+			{ 
+				& $Action 
+			}
+			elseif ($Action -is [System.Delegate] -or $Action -is [System.Action])
+			{ 
+				$Action.Invoke() 
+			}
+			elseif ($Action -is [string])
+			{
+				$cmd = Get-Command $Action -ErrorAction SilentlyContinue -Verbose:$False
+				if ($cmd) { & $cmd.Name } else { Invoke-Expression $Action }
+			}
+		}
+		catch
+		{
+			Write-Verbose ('HOTKEYS-DEBUG: InvokeHotkeyAction: Exception invoking action: {0}' -f $_.Exception.Message)
+		}
+	}
+
+	# 2. Capture the current variable scope (including $Action) into the script block.
+	# This ensures $Action is not null when the UI thread runs this later.
+	$boundLogic = $runLogic.GetNewClosure()
+
+	# 3. Find a valid UI context (Form) to invoke upon.
+	$uiContext = [System.Windows.Forms.Application]::OpenForms[0]
+    if (-not $uiContext -and $global:DashboardConfig.UI.MainForm) {
+        $uiContext = $global:DashboardConfig.UI.MainForm
+    }
+
+	if ($uiContext -and -not $uiContext.IsDisposed)
+	{
+		# 4. Offload to UI thread asynchronously. Returns immediately.
+		$uiContext.BeginInvoke([System.Action]$boundLogic)
+	}
+	else
+	{
+		# Fallback: Run synchronously if no UI context is available yet.
+		& $boundLogic
+	}
+}
+
 function SetHotkey
 {
 	param(
@@ -20,18 +71,10 @@ function SetHotkey
 		[int]$OldHotkeyId = $null
 	)
 
-	if ($Action -is [System.Action])
-	{
-		$actionDelegate = $Action
-	}
-	elseif ($Action -is [System.Delegate])
-	{
-		$actionDelegate = $Action -as [System.Action]
-	}
-	else
-	{
-		$actionDelegate = [System.Action]$Action
-	}
+    # Wrap the provided action so it always goes through InvokeHotkeyAction (async).
+    # GetNewClosure() is crucial here too to capture the specific $Action for this hotkey.
+    $wrappedAction = { InvokeHotkeyAction -Action $Action }.GetNewClosure()
+	$actionDelegate = [System.Action]$wrappedAction
 
 	if (-not [string]::IsNullOrEmpty($OwnerKey))
 	{
@@ -647,31 +690,6 @@ function TestHotkeyConflict
 	}
 
 	return $false
-}
-
-function InvokeHotkeyAction
-{
-	param([Parameter(Mandatory = $true)]$Action)
-	try
-	{
-		if ($Action -is [ScriptBlock])
-		{ 
-			& $Action 
-		}
-		elseif ($Action -is [System.Delegate] -or $Action -is [System.Action])
-		{ 
-			$Action.Invoke() 
-		}
-		elseif ($Action -is [string])
-		{
-			$cmd = Get-Command $Action -ErrorAction SilentlyContinue
-			if ($cmd) { & $cmd.Name } else { Invoke-Expression $Action }
-		}
-	}
-	catch
-	{
-		Write-Verbose ('HOTKEYS-DEBUG: InvokeHotkeyAction: Exception invoking action: {0}' -f $_.Exception.Message)
-	}
 }
 
 function PauseAllHotkeys
@@ -1389,8 +1407,8 @@ function Show-KeyCaptureDialog
     $captureForm.KeyPreview = $true
     $captureForm.TopMost = $true
     
-    # --- CHANGE START ---
-    # Configure ownership but rely on Show-FormAsDialog for the display loop
+    
+    
     if ($Owner)
     {
         $captureForm.Owner = $Owner

@@ -10,6 +10,7 @@ $script:LauncherTimeout = 30
 $script:LaunchDelay = 3
 $script:MaxRetryAttempts = 3
 $script:LastLaunchToastUpdateTime = $null
+$script:LastLaunchToastTick = 0
 
 $script:ProcessConfig = @{
 	MaxRetries = 3
@@ -38,19 +39,25 @@ function StartClientLaunch
 		[switch]$SavedLaunchLoginConfig,
 
 		[Parameter(Mandatory = $false)]
+		[string]$SetupName,
+
+		[Parameter(Mandatory = $false)]
+		[int]$SequenceRemainingCount = 0,
+
+		[Parameter(Mandatory = $false)]
 		[switch]$FromSequence
 	)
 
 	if ($SavedLaunchLoginConfig)
 	{
 		$global:LaunchCancellation.IsCancelled = $false
-		InvokeSavedLaunchSequence
+		InvokeSavedLaunchSequence -SetupName $SetupName
 		return
 	}
 
 	if ($global:DashboardConfig.State.LaunchActive -and -not $FromSequence)
 	{
-		Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'Launch operation already in progress' 'Launch' 'Ok' 'Information'
+		Show-DarkMessageBox 'Launch operation already in progress' 'Launch' 'Ok' 'Information'
 		return
 	}
 
@@ -67,33 +74,25 @@ function StartClientLaunch
 		}
 	}
 
-	if (Get-Command ReadConfig -ErrorAction SilentlyContinue) { ReadConfig }
+	if (Get-Command ReadConfig -ErrorAction SilentlyContinue -Verbose:$False) { ReadConfig }
 
 	$neuzName = $settingsDict['ProcessName']['ProcessName']
 	$launcherPath = $settingsDict['LauncherPath']['LauncherPath']
 
-	$profileToUse = $null
-	if (-not [string]::IsNullOrEmpty($ProfileNameOverride))
-	{
-		$profileToUse = $ProfileNameOverride
-		Write-Verbose "LAUNCH: Overriding profile with '$profileToUse'"
-	}
-	elseif ($settingsDict['Options'] -and $settingsDict['Options']['SelectedProfile'])
-	{
-		$profileToUse = $settingsDict['Options']['SelectedProfile']
-	}
 	$profileToUse = 'Default'
-	if (-not [string]::IsNullOrEmpty($ProfileNameOverride))
-	{
-		$profileToUse = $ProfileNameOverride
-		Write-Verbose "LAUNCH: Overriding profile with '$profileToUse'"
-	}
-	elseif ($settingsDict['Options'] -and $settingsDict['Options']['SelectedProfile'])
+
+	if ($settingsDict['Options'] -and $settingsDict['Options']['SelectedProfile'])
 	{
 		if (-not [string]::IsNullOrWhiteSpace($settingsDict['Options']['SelectedProfile']))
 		{
 			$profileToUse = $settingsDict['Options']['SelectedProfile']
 		}
+	}
+
+	if (-not [string]::IsNullOrEmpty($ProfileNameOverride))
+	{
+		$profileToUse = $ProfileNameOverride
+		Write-Verbose "LAUNCH: Overriding profile with '$profileToUse'"
 	}
 
 	if ($profileToUse)
@@ -149,6 +148,7 @@ function StartClientLaunch
 		$maxClients = $currentCount + 1
 		Write-Verbose "LAUNCH: OneClientOnly override active. Target total: $maxClients"
 	}
+	
 	$clientsToLaunch = 0
 	$profileClientCount = 0
 
@@ -164,9 +164,9 @@ function StartClientLaunch
 	}
 	else
 	{
-		if (Get-Command GetProcessProfile -ErrorAction SilentlyContinue)
+		if (Get-Command GetProcessProfile -ErrorAction SilentlyContinue -Verbose:$False)
 		{
-			$allClients = Get-Process -Name $neuzName -ErrorAction SilentlyContinue
+			$allClients = Get-Process -Name $neuzName -ErrorAction SilentlyContinue -Verbose:$False
 			foreach ($client in $allClients)
 			{
 				$clientProfile = GetProcessProfile -Process $client
@@ -179,19 +179,58 @@ function StartClientLaunch
 		$clientsToLaunch = [Math]::Max(0, $maxClients - $profileClientCount)
 	}
 
+	$launcherTimeoutSeconds = 60
+	if ($settingsDict['Options'] -and $settingsDict['Options']['LauncherTimeout'])
+	{
+		if (-not [int]::TryParse($settingsDict['Options']['LauncherTimeout'], [ref]$launcherTimeoutSeconds)) { $launcherTimeoutSeconds = 60 }
+	}
+
 	if ($clientsToLaunch -le 0 -and -not $SavedLaunchLoginConfig)
 	{
 		Write-Verbose "LAUNCH: No clients to launch for profile '$profileToUse'. (Max: $maxClients, Current: $profileClientCount)"
 		$global:DashboardConfig.State.LaunchActive = $false
 		return
 	}
-
 	
 	$varsToInject = @{
 		'LaunchCancellation' = $global:LaunchCancellation
 		'DashboardConfig'    = $global:DashboardConfig
 	}
     
+	$assembliesToAdd = [System.Collections.Generic.HashSet[string]]::new()
+	$customTypesToLoad = @('Custom.Native', 'Custom.ColorWriter')
+    
+	foreach ($typeName in $customTypesToLoad)
+	{
+		$type = $typeName -as [Type]
+		if ($type -and -not [string]::IsNullOrEmpty($type.Assembly.Location))
+		{
+			$assembliesToAdd.Add($type.Assembly.Location) | Out-Null
+		}
+	}
+    
+	if ($assembliesToAdd.Count -eq 0)
+	{
+		$loadedAssemblies = [AppDomain]::CurrentDomain.GetAssemblies()
+		foreach ($asm in $loadedAssemblies)
+		{
+			try
+			{
+				if ($asm.IsDynamic) { continue }
+				if ([string]::IsNullOrWhiteSpace($asm.Location)) { continue }
+
+				foreach ($t in $asm.GetExportedTypes())
+				{
+					if ($customTypesToLoad -contains $t.FullName)
+					{
+						$assembliesToAdd.Add($asm.Location) | Out-Null
+						break
+					}
+				}
+			}
+			catch {}
+		}
+	}
 	
 	try
 	{
@@ -199,15 +238,17 @@ function StartClientLaunch
 			-Name 'LaunchRunspace' `
 			-MinRunspaces 1 `
 			-MaxRunspaces 1 `
-			-SessionVariables $varsToInject
+			-SessionVariables $varsToInject `
+			-Assemblies ($assembliesToAdd | Select-Object -Unique)
+
+		if (-not $localRunspace) { throw "Runspace creation returned null." }
 	}
- catch
+	catch
 	{
 		Write-Verbose "LAUNCH: Error creating runspace: $_"
 		$global:DashboardConfig.State.LaunchActive = $false
 		return
 	}
-
 	
 	$global:LaunchResources = @{
 		PowerShellInstance  = $null
@@ -221,6 +262,12 @@ function StartClientLaunch
 
 	ShowToast -Title 'Launch Process' -Message 'Starting Launch Process...' -Type 'Info' -Key 9998 -TimeoutSeconds 0
 
+	$global:DashboardConfig.State.LaunchStatus = [hashtable]::Synchronized(@{
+		Text = "Starting Launch Process..."
+		Percent = 0
+		LastUpdateTick = [DateTime]::Now.Ticks
+	})
+
 	$launchScript = {
 		param(
 			$Settings,
@@ -229,7 +276,11 @@ function StartClientLaunch
 			$MaxClients,
 			$ClientsToLaunch,
 			$IniPath,
-			$CancellationContext
+			$CancellationContext,
+			$SetupName,
+			$SequenceRemainingCount,
+			$ProfileName,
+			$LauncherTimeoutSeconds
 		)
 
 		function CheckCancel
@@ -240,10 +291,17 @@ function StartClientLaunch
 		function ReportLaunchProgress
 		{
 			param($Action, $Step, $TotalSteps)
-			$pct = [int](($Step / $TotalSteps) * 100)
-			$msg = "Total: $pct% | $Action"
-			Write-Verbose -Message $msg
-			Write-Information -MessageData @{ Text = $msg; Percent = $pct } -Tags 'LaunchStatus'
+			try {
+				$pct = 0; if ($TotalSteps -gt 0) { $pct = [int](($Step / $TotalSteps) * 100) }
+				$msg = "Profile: $ProfileName | Total: $pct%`n$Action"
+				Write-Verbose -Message $msg
+				if ($DashboardConfig -and $DashboardConfig.State -and $DashboardConfig.State.LaunchStatus) {
+					$status = $DashboardConfig.State.LaunchStatus
+					$status['Text'] = $msg
+					$status['Percent'] = $pct
+					$status['LastUpdateTick'] = [DateTime]::Now.Ticks
+				}
+			} catch {}
 		}
 
 		function SleepWithCancel
@@ -263,20 +321,28 @@ function StartClientLaunch
 		{
 			CheckCancel
 			Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+			$InformationPreference = 'SilentlyContinue'
 
 			function Write-Verbose
 			{
 				[CmdletBinding()]
 				param([string]$Message, [string]$ForegroundColor = 'DarkGray')
                 
-				$dateStr = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-				$callerName = 'LoginSelectedRow'
+				$dateStr = [DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')
+				$callerName = 'StartClientLaunch'
 				$bracketedCaller = "[$callerName]"
 				$paddedCaller = $bracketedCaller.PadRight(35)
 				$prefix = " | $dateStr - $paddedCaller - "
 				$finalMsg = "$prefix$Message"
 
-				Write-Host $finalMsg -ForegroundColor $ForegroundColor
+				if ('Custom.ColorWriter' -as [Type])
+				{
+					[Custom.ColorWriter]::WriteColored($finalMsg, $ForegroundColor)
+				}
+				else
+				{
+					Write-Host $finalMsg -ForegroundColor $ForegroundColor
+				}
 			}
 
 			$launcherDir = [System.IO.Path]::GetDirectoryName($LauncherPath)
@@ -291,43 +357,80 @@ function StartClientLaunch
 
 			Write-Verbose "LAUNCH: Launching $ClientsToLaunch more"
 
-			$existingPIDs = $currentClients | Select-Object -ExpandProperty Id
+			$existingPIDs = New-Object System.Collections.Generic.List[int]
+			if ($currentClients) {
+				$currentClients | ForEach-Object { $existingPIDs.Add($_.Id) }
+			}
 			$currentClients = $null
+
+			$launchTasks = New-Object System.Collections.Generic.LinkedList[PSObject]
+			1..$ClientsToLaunch | ForEach-Object { $launchTasks.AddLast([PSCustomObject]@{ RetryCount = 0; Id = $_ }) }
 
 			$stepsPerClient = 8
 			$totalSteps = $ClientsToLaunch * $stepsPerClient
 			$currentStep = 0
+			$clientsLaunchedCount = 0
 
-			for ($attempt = 1; $attempt -le $ClientsToLaunch; $attempt++)
+			while ($launchTasks.Count -gt 0)
 			{
+				$task = $launchTasks.First.Value
+				$launchTasks.RemoveFirst()
+
+				$actualRunning = @(Get-Process -Name $NeuzName -ErrorAction SilentlyContinue)
+				foreach ($proc in $actualRunning) {
+					if (-not $existingPIDs.Contains($proc.Id)) {
+						$existingPIDs.Add($proc.Id)
+					}
+				}
+
 				CheckCancel
 				$currentStep++
-				ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Starting Launch Process..." -Step $currentStep -TotalSteps $totalSteps
+				
+				$clientsLeftInBatch = $launchTasks.Count + 1
+				$totalLeft = $SequenceRemainingCount + $clientsLeftInBatch
+				$prefix = ""
+				if (-not [string]::IsNullOrEmpty($SetupName)) { $prefix = "Setup: $SetupName [$totalLeft Left] | " }
+				$attemptDisplay = $clientsLaunchedCount + 1
 
-				$launcherRunning = $null -ne (Get-Process -Name $launcherName -ErrorAction SilentlyContinue)
+				ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Starting..." -Step $currentStep -TotalSteps $totalSteps
+
+				$GetRelevantLaunchers = {
+					$candidates = @(Get-Process -Name $launcherName -ErrorAction SilentlyContinue)
+					if ($NeuzName -and $NeuzName -ne $launcherName) {
+						$candidates += @(Get-Process -Name $NeuzName -ErrorAction SilentlyContinue)
+					}
+					if ($candidates.Count -eq 0) { return @() }
+					return $candidates | Where-Object { 
+						if ($existingPIDs.Contains($_.Id)) { return $false }
+						if ($_.ProcessName -eq $NeuzName) { return $true }
+						if ($_.ProcessName -eq $launcherName) {
+							try {
+								return ($_.MainModule.FileName -eq $LauncherPath)
+							} catch { return $false }
+						}
+						return $false
+					}
+				}
+
+				$relevantLaunchers = &$GetRelevantLaunchers
 				$currentStep++
-				if ($launcherRunning)
+				if ($relevantLaunchers.Count -gt 0)
 				{
-					ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Waiting for Launcher..." -Step $currentStep -TotalSteps $totalSteps
-					$launcherTimeout = New-TimeSpan -Seconds 60
+					ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Waiting for Launcher (Timeout: ${LauncherTimeoutSeconds}s)..." -Step $currentStep -TotalSteps $totalSteps
+					$launcherTimeout = New-TimeSpan -Seconds $LauncherTimeoutSeconds
 					$launcherStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-					$progressReported = @(5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60)
 
-					while ($null -ne (Get-Process -Name $launcherName -ErrorAction SilentlyContinue))
+					while (($relevantLaunchers = &$GetRelevantLaunchers).Count -gt 0)
 					{
 						CheckCancel
 						$elapsedSeconds = [int]$launcherStopwatch.Elapsed.TotalSeconds
 
-						if ($elapsedSeconds -in $progressReported)
-						{
-							$progressReported = $progressReported | Where-Object { $_ -ne $elapsedSeconds }
-							Write-Verbose "LAUNCH: Waiting. ($elapsedSeconds s / 60)"
-						}
-
 						if ($launcherStopwatch.Elapsed -gt $launcherTimeout)
 						{
-							Write-Verbose 'LAUNCH: Timeout - killing'
-							try { Stop-Process -Name $launcherName -Force -ErrorAction SilentlyContinue } catch {}
+							Write-Verbose 'LAUNCH: Timeout - killing stuck launcher(s)'
+							try { 
+								foreach ($p in $relevantLaunchers) { try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {} }
+							} catch {}
 							Start-Sleep -Seconds 1
 							break
 						}
@@ -336,18 +439,39 @@ function StartClientLaunch
 				}
 				else
 				{
-					ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Launcher Ready..." -Step $currentStep -TotalSteps $totalSteps
+					ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Launcher Ready..." -Step $currentStep -TotalSteps $totalSteps
 				}
 
 				CheckCancel
 				$currentStep++
-				ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Executing Launcher..." -Step $currentStep -TotalSteps $totalSteps 
-				$launcherProcess = Start-Process -FilePath $LauncherPath -WorkingDirectory $launcherDir -PassThru
-				$launcherPID = $launcherProcess.Id
-				Write-Verbose "LAUNCH: PID: $launcherPID"
+				ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Executing Launcher..." -Step $currentStep -TotalSteps $totalSteps 
+				
+				$launcherProcess = Start-Process -FilePath $LauncherPath -WorkingDirectory $launcherDir -PassThru -WindowStyle Normal
+				
+				if ($launcherProcess)
+				{
+					$launcherPID = $launcherProcess.Id
+					Write-Verbose "LAUNCH: PID: $launcherPID"
+					
+					Start-Sleep -Milliseconds 500
+					try {
+						$lProc = Get-Process -Id $launcherPID -ErrorAction SilentlyContinue
+						if ($lProc -and $lProc.MainWindowHandle -ne [IntPtr]::Zero) {
+							if ('Custom.Native' -as [Type]) {
+								[Custom.Native]::ShowWindow($lProc.MainWindowHandle, 1)
+								[Custom.Native]::SetForegroundWindow($lProc.MainWindowHandle)
+							}
+						}
+					} catch {}
+				}
+				else 
+				{
+					Write-Verbose "LAUNCH: Failed to start Launcher process."
+					continue
+				}
 
 				$currentStep++
-				ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Initializing Client..." -Step $currentStep -TotalSteps $totalSteps 
+				ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Initializing Client..." -Step $currentStep -TotalSteps $totalSteps 
 				SleepWithCancel -Milliseconds 1000
 
 				$timeout = New-TimeSpan -Minutes 2
@@ -357,15 +481,24 @@ function StartClientLaunch
 				$progressReported = @(1, 5, 15, 30, 60, 90, 120)
 
 				$currentStep++
-				ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Monitoring/Patching..." -Step $currentStep -TotalSteps $totalSteps 
-				while (-not $launcherClosed -and $stopwatch.Elapsed -lt $timeout)
+				ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Monitoring/Patching (Timeout: ${LauncherTimeoutSeconds}s)..." -Step $currentStep -TotalSteps $totalSteps 
+				while (-not $launcherClosed -and $stopwatch.Elapsed -lt (New-TimeSpan -Seconds $LauncherTimeoutSeconds))
 				{
 					CheckCancel
+
+					$currentPIDs = @(Get-Process -Name $NeuzName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+					$newPIDs = $currentPIDs | Where-Object { -not $existingPIDs.Contains($_) }
+					if ($newPIDs.Count -gt 0)
+					{
+						$launcherClosed = $true
+						break
+					}
+
 					$elapsedSeconds = [int]$stopwatch.Elapsed.TotalSeconds
 					if ($elapsedSeconds -in $progressReported)
 					{
 						$progressReported = $progressReported | Where-Object { $_ -ne $elapsedSeconds }
-						ReportLaunchProgress -Action "Patching... ($elapsedSeconds s / 120)" -Step $currentStep -TotalSteps $totalSteps 
+						ReportLaunchProgress -Action "${prefix}Patching... ($elapsedSeconds s / $LauncherTimeoutSeconds)" -Step $currentStep -TotalSteps $totalSteps 
 
 					}
 
@@ -412,23 +545,17 @@ function StartClientLaunch
 				$clientStarted = $false
 				$newClientPID = 0
 				$stopwatch.Restart()
-				$clientDetectionTimeout = New-TimeSpan -Seconds 30
-				$progressReported = @(5, 10, 15, 20, 25)
+				$clientDetectionTimeout = New-TimeSpan -Seconds $LauncherTimeoutSeconds
 
 				$currentStep++
-				ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Waiting for Client Process..." -Step $currentStep -TotalSteps $totalSteps 
+				ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Waiting for Client Process (Timeout: ${LauncherTimeoutSeconds}s)..." -Step $currentStep -TotalSteps $totalSteps 
 				while (-not $clientStarted -and $stopwatch.Elapsed -lt $clientDetectionTimeout)
 				{
 					CheckCancel
 					$elapsedSeconds = [int]$stopwatch.Elapsed.TotalSeconds
-					if ($elapsedSeconds -in $progressReported)
-					{
-						$progressReported = $progressReported | Where-Object { $_ -ne $elapsedSeconds }
-						Write-Verbose "LAUNCH: Waiting. ($elapsedSeconds s / 60)"
-					}
 
 					$currentPIDs = @(Get-Process -Name $NeuzName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
-					$newPIDs = $currentPIDs | Where-Object { $_ -notin $existingPIDs }
+					$newPIDs = $currentPIDs | Where-Object { -not $existingPIDs.Contains($_) }
 
 					if ($newPIDs.Count -gt 0)
 					{
@@ -440,7 +567,7 @@ function StartClientLaunch
 							{
 								$newClientPID = $tempNewClient.Id
 								$clientStarted = $true
-								$existingPIDs += $newClientPID
+								$existingPIDs.Add($newClientPID)
 								Write-Verbose "LAUNCH: Client started PID: $newClientPID"
 							}
 						}
@@ -450,7 +577,7 @@ function StartClientLaunch
 							{
 								$newClientPID = $newPIDs[0]
 								$clientStarted = $true
-								$existingPIDs += $newClientPID
+								$existingPIDs.Add($newClientPID)
 								Write-Verbose "LAUNCH: Using PID: $newClientPID (fallback)"
 							}
 						}
@@ -458,11 +585,11 @@ function StartClientLaunch
 						if ($clientStarted)
 						{
 							$windowReady = $false
-							$innerTimeout = New-TimeSpan -Seconds 30
+							$innerTimeout = New-TimeSpan -Seconds $LauncherTimeoutSeconds
 							$innerStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 							$currentStep++
-							ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Waiting for Window..." -Step $currentStep -TotalSteps $totalSteps 
+							ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Waiting for Window (Timeout: ${LauncherTimeoutSeconds}s)..." -Step $currentStep -TotalSteps $totalSteps 
 							while (-not $windowReady -and $innerStopwatch.Elapsed -lt $innerTimeout)
 							{
 								CheckCancel
@@ -470,6 +597,7 @@ function StartClientLaunch
 								$clientWindowHandle = [IntPtr]::Zero
 								$clientHandle = [IntPtr]::Zero
 								$clientResponding = $false
+								$tempClient = $null
 
 								try
 								{
@@ -477,9 +605,9 @@ function StartClientLaunch
 									if ($tempClient)
 									{
 										$clientExists = $true
-										$clientResponding = $tempClient.Responding
-										$clientWindowHandle = $tempClient.MainWindowHandle
-										$clientHandle = $tempClient.Handle
+										try { $clientResponding = $tempClient.Responding } catch { $clientResponding = $false }
+										try { $clientWindowHandle = $tempClient.MainWindowHandle } catch { $clientWindowHandle = [IntPtr]::Zero }
+										try { $clientHandle = $tempClient.Handle } catch { $clientHandle = [IntPtr]::Zero }
 									}
 								}
 								catch { $clientExists = $false }
@@ -488,6 +616,7 @@ function StartClientLaunch
 								{
 									Write-Verbose 'LAUNCH: Client terminated'
 									$clientStarted = $false
+									if ($tempClient) { $tempClient.Dispose() }
 									break
 								}
 
@@ -495,12 +624,15 @@ function StartClientLaunch
 								{
 									$currentWindowHandle = $clientWindowHandle
 									$windowReady = $true
-									$currentStep++; ReportLaunchProgress -Action "Client $attempt/$ClientsToLaunch Finalizing..." -Step $currentStep -TotalSteps $totalSteps
+									$currentStep++; ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Finalizing..." -Step $currentStep -TotalSteps $totalSteps
 									SleepWithCancel -Milliseconds 500
-									[Custom.Native]::ShowWindow($clientWindowHandle, [Custom.Native]::SW_MINIMIZE)
+									[Custom.Native]::SendMessage($clientWindowHandle, 0x0112, 0xF020, 0)
 									try { [Custom.Native]::EmptyWorkingSet($clientHandle) } catch {}
 									Write-Verbose "LAUNCH: Client ready: $newClientPID"
 								}
+								
+								if ($tempClient) { $tempClient.Dispose() }
+								
 								SleepWithCancel -Milliseconds 500
 							}
 						}
@@ -508,9 +640,34 @@ function StartClientLaunch
 					SleepWithCancel -Milliseconds 500
 				}
 
-				if (-not $clientStarted)
+				if (-not $clientStarted -or -not $windowReady)
 				{
-					Write-Verbose 'LAUNCH: No client detected'
+					Write-Verbose "LAUNCH: Client failed to start or become responsive (Started: $clientStarted, Ready: $windowReady)"
+					if ($newClientPID -gt 0)
+					{
+						Write-Verbose "LAUNCH: Killing unresponsive client PID $newClientPID"
+						try { Stop-Process -Id $newClientPID -Force -ErrorAction SilentlyContinue } catch {}
+					}
+					
+					$task.RetryCount++
+					if ($task.RetryCount -eq 1)
+					{
+						Write-Verbose "LAUNCH: Retrying client immediately (Attempt 2)"
+						$launchTasks.AddFirst($task)
+					}
+					elseif ($task.RetryCount -eq 2)
+					{
+						Write-Verbose "LAUNCH: Retrying client at end of batch (Attempt 3)"
+						$launchTasks.AddLast($task)
+					}
+					else
+					{
+						Write-Verbose "LAUNCH: Client failed 3 times. Skipping."
+					}
+				}
+				else
+				{
+					$clientsLaunchedCount++
 				}
 
 				SleepWithCancel -Milliseconds 2000
@@ -554,14 +711,14 @@ function StartClientLaunch
 			$state = $e.InvocationStateInfo.State
 			if ($state -eq 'Completed')
 			{
-				if (Get-Command -Name StopClientLaunch -ErrorAction SilentlyContinue)
+				if (Get-Command -Name StopClientLaunch -ErrorAction SilentlyContinue -Verbose:$False)
 				{
 					StopClientLaunch -StepCompleted
 				}
 			}
 			elseif ($state -eq 'Failed' -or $state -eq 'Stopped')
 			{
-				if (Get-Command -Name StopClientLaunch -ErrorAction SilentlyContinue)
+				if (Get-Command -Name StopClientLaunch -ErrorAction SilentlyContinue -Verbose:$False)
 				{
 					StopClientLaunch
 				}
@@ -573,36 +730,13 @@ function StartClientLaunch
 			-RunspacePool $localRunspace `
 			-ScriptBlock $launchScript `
 			-AsJob `
-			-ArgumentList $settingsDict, $launcherPath, $neuzName, $maxClients, $clientsToLaunch, $global:DashboardConfig.Paths.Ini, $global:LaunchCancellation
+			-ArgumentList $settingsDict, $launcherPath, $neuzName, $maxClients, $clientsToLaunch, $global:DashboardConfig.Paths.Ini, $global:LaunchCancellation, $SetupName, $SequenceRemainingCount, $profileToUse, $launcherTimeoutSeconds
 
 		if (-not $res -or -not $res.PowerShell) { throw 'Failed to start launch background operation' }
 
 		$launchPS = $res.PowerShell
 
-		$launchInfoEvent = {
-			param($s, $e)
-			$now = Get-Date
-			if ($null -eq $script:LastLaunchToastUpdateTime -or ($now - $script:LastLaunchToastUpdateTime).TotalMilliseconds -ge 150)
-			{
-				$script:LastLaunchToastUpdateTime = $now
-				$record = $s[$e.Index]
-				if ($record -and $record.Tags -contains 'LaunchStatus')
-				{
-					$data = $record.MessageData
-					$text = $data.Text
-					$pct = $data.Percent
-					$mainForm = $global:DashboardConfig.UI.MainForm
-					if ($mainForm -and -not $mainForm.IsDisposed)
-					{
-						$mainForm.BeginInvoke([Action] {
-								try { ShowToast -Title 'Launch Progress' -Message $text -Type 'Info' -Key 9998 -TimeoutSeconds 0 -Progress $pct } catch {}
-							})
-					}
-				}
-			}
-		}
-		$infoSub = Register-ObjectEvent -InputObject $launchPS.Streams.Information -EventName DataAdded -Action $launchInfoEvent
-		$global:LaunchResources.InfoSubscription = $infoSub
+		$global:LaunchResources.InfoSubscription = $null
 
 		$eventSub = Register-ObjectEvent -InputObject $launchPS -EventName InvocationStateChanged -SourceIdentifier $eventName -Action $simpleEventAction
 
@@ -618,11 +752,26 @@ function StartClientLaunch
 
 		$safetyTimer.Add_Elapsed({
 				Write-Verbose 'LAUNCH: Safety timer elapsed'
-				if (Get-Command -Name StopClientLaunch -ErrorAction SilentlyContinue) { StopClientLaunch }
+				if (Get-Command -Name StopClientLaunch -ErrorAction SilentlyContinue -Verbose:$False) { StopClientLaunch }
 			})
 
 		$safetyTimer.Start()
 		$global:DashboardConfig.Resources.Timers['launchSafetyTimer'] = $safetyTimer
+
+		$uiUpdateTimer = New-Object System.Windows.Forms.Timer
+		$uiUpdateTimer.Interval = 100
+		$uiUpdateTimer.Add_Tick({
+			try {
+				$status = $global:DashboardConfig.State.LaunchStatus
+				if ($status -and $status.LastUpdateTick -gt $script:LastLaunchToastTick)
+				{
+					$script:LastLaunchToastTick = $status.LastUpdateTick
+					ShowToast -Title 'Launch Progress' -Message $status.Text -Type 'Info' -Key 9998 -TimeoutSeconds 0 -Progress $status.Percent
+				}
+			} catch {}
+		})
+		$uiUpdateTimer.Start()
+		$global:DashboardConfig.Resources.Timers['launchUITimer'] = $uiUpdateTimer
 
 		$global:LaunchResources.AsyncResult = $res.AsyncResult
 
@@ -643,16 +792,29 @@ function StartClientLaunch
 
 function InvokeSavedLaunchSequence
 {
+	param([string]$SetupName)
+
 	Write-Verbose 'LAUNCH: Initiating Smart Saved Launch Sequence...'
 
-	if (-not $global:DashboardConfig.Config['SavedLaunchConfig'] -or $global:DashboardConfig.Config['SavedLaunchConfig'].Count -eq 0)
+	$configSection = $null
+	if (-not [string]::IsNullOrEmpty($SetupName))
 	{
-		Show-DarkMessageBox $global:DashboardConfig.UI.MainForm "No saved configuration found.`nPlease setup your clients first and create a One-Click Setup!" 'One-Click Setup' 'OK' 'Warning' 
+		$sectionKey = "Setup_$SetupName"
+		if ($global:DashboardConfig.Config.Contains($sectionKey)) { $configSection = $global:DashboardConfig.Config[$sectionKey] }
+	}
+	elseif ($global:DashboardConfig.Config['SavedLaunchConfig'])
+	{
+		$configSection = $global:DashboardConfig.Config['SavedLaunchConfig']
+	}
+
+	if (-not $configSection -or $configSection.Count -eq 0)
+	{
+		Show-DarkMessageBox "No saved configuration found for setup '$SetupName'.`nPlease create a setup first!" 'Launch Setup' 'OK' 'Warning' 
 		return
 	}
 	if ($global:DashboardConfig.State.LaunchActive)
 	{
-		Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'Launch operation already in progress' 'One-Click Setup' 'Ok' 'Information'
+		Show-DarkMessageBox 'Launch operation already in progress' 'One-Click Setup' 'Ok' 'Information'
 		return
 	}
 
@@ -662,7 +824,6 @@ function InvokeSavedLaunchSequence
 
 	
 	$requirements = [ordered]@{}
-	$configSection = $global:DashboardConfig.Config['SavedLaunchConfig']
     
 	foreach ($key in $configSection.Keys)
 	{
@@ -690,7 +851,7 @@ function InvokeSavedLaunchSequence
 
 	
 	$currentState = @{}
-	$grid = $global:DashboardConfig.UI.DataGridFiller
+	$grid = $global:DashboardConfig.UI.DataGridMain
 
 	foreach ($row in $grid.Rows)
 	{
@@ -723,13 +884,17 @@ function InvokeSavedLaunchSequence
 		$curTotal = $cur.Login + $cur.NoLogin
 		$totalToLaunch = [Math]::Max(0, ($reqTotal - $curTotal))
 
+		$missingLogin = [Math]::Max(0, ($req.Login - $cur.Login))
+		if ($missingLogin -gt 0) { $loginTargets[$p] = $missingLogin }
+
 		if ($totalToLaunch -gt 0)
 		{
 			$launchQueue += @{ Profile = $p; Count = $totalToLaunch }
-			$missingLoginRaw = [Math]::Max(0, ($req.Login - $cur.Login))
-			$countToLogin = [Math]::Min($totalToLaunch, $missingLoginRaw)
-			$loginTargets[$p] = $countToLogin
-			Write-Verbose "LAUNCH PLAN [$p]: Launching $totalToLaunch. (Will Auto-Login: $countToLogin)"
+			Write-Verbose "LAUNCH PLAN [$p]: Launching $totalToLaunch. (Will Auto-Login: $missingLogin)"
+		}
+		elseif ($missingLogin -gt 0)
+		{
+			Write-Verbose "LAUNCH PLAN [$p]: No launch needed. (Will Auto-Login: $missingLogin)"
 		}
 	}
 
@@ -739,15 +904,19 @@ function InvokeSavedLaunchSequence
 
 	if ($launchQueue.Count -eq 0)
 	{
-		Write-Verbose 'LAUNCH SEQUENCE: State matches saved config. No action.'
-		Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'All clients already match the saved configuration.' 'One-Click Setup' 'OK' 'Information'
-		$global:DashboardConfig.State.LaunchActive = $false
-		$global:DashboardConfig.State.SequenceActive = $false
-		return
+		if ($loginTargets.Count -eq 0)
+		{
+			Write-Verbose 'LAUNCH SEQUENCE: State matches saved config. No action.'
+			Show-DarkMessageBox 'All clients already match the saved configuration.' 'One-Click Setup' 'OK' 'Information'
+			$global:DashboardConfig.State.LaunchActive = $false
+			$global:DashboardConfig.State.SequenceActive = $false
+			return
+		}
 	}
 
 	$global:DashboardConfig.Resources['LaunchQueue'] = $launchQueue
 	$global:DashboardConfig.Resources['LaunchQueueIndex'] = 0
+	$global:DashboardConfig.Resources['CurrentLaunchSetupName'] = $SetupName
 
 	if ($global:DashboardConfig.Resources.Timers.Contains('SequenceTimer'))
 	{
@@ -778,13 +947,17 @@ function InvokeSavedLaunchSequence
 				$item = $queue[$idx]
 				$global:DashboardConfig.Resources['LaunchQueueIndex'] = $idx + 1
 
+				$remainingInSeq = 0
+				for ($i = $idx + 1; $i -lt $queue.Count; $i++) { $remainingInSeq += $queue[$i].Count }
+				$sName = $global:DashboardConfig.Resources['CurrentLaunchSetupName']
+
 				if ($item.Profile -eq 'Default')
 				{
-					StartClientLaunch -ClientAddCount $item.Count -FromSequence
+					StartClientLaunch -ClientAddCount $item.Count -FromSequence -SetupName $sName -SequenceRemainingCount $remainingInSeq
 				}
 				else
 				{
-					StartClientLaunch -ProfileNameOverride $item.Profile -ClientAddCount $item.Count -FromSequence
+					StartClientLaunch -ProfileNameOverride $item.Profile -ClientAddCount $item.Count -FromSequence -SetupName $sName -SequenceRemainingCount $remainingInSeq
 				}
 			}
 			else
@@ -792,10 +965,10 @@ function InvokeSavedLaunchSequence
 				$this.Stop(); $this.Dispose()
 				$global:DashboardConfig.Resources.Timers.Remove('SequenceTimer')
 
-				Write-Verbose 'LAUNCH SEQUENCE: Launches complete. Waiting 5s for clients to appear...'
+				Write-Verbose 'LAUNCH SEQUENCE: Launches complete. Waiting for clients to appear...'
 
 				$loginWaitTimer = New-Object System.Windows.Forms.Timer
-				$loginWaitTimer.Interval = 5000
+				$loginWaitTimer.Interval = 1000
 				$loginWaitTimer.Tag = 'OneShot'
 				$loginWaitTimer.Add_Tick({
 						$this.Stop(); $this.Dispose()
@@ -804,17 +977,27 @@ function InvokeSavedLaunchSequence
 
 						$oldPIDs = $global:DashboardConfig.Resources['RestoreSnapshotPIDs']
 						$targets = $global:DashboardConfig.Resources['LoginTargets']
-						$grid = $global:DashboardConfig.UI.DataGridFiller
+						$grid = $global:DashboardConfig.UI.DataGridMain
 
+						$sName = $global:DashboardConfig.Resources['CurrentLaunchSetupName']
+						$cSection = $null
+						if (-not [string]::IsNullOrEmpty($sName))
+						{
+							$k = "Setup_$sName"
+							if ($global:DashboardConfig.Config.Contains($k)) { $cSection = $global:DashboardConfig.Config[$k] }
+						}
+						elseif ($global:DashboardConfig.Config['SavedLaunchConfig'])
+						{
+							$cSection = $global:DashboardConfig.Config['SavedLaunchConfig']
+						}
 						
 						$savedSlots = [System.Collections.Generic.List[PSObject]]::new()
-						if ($global:DashboardConfig.Config['SavedLaunchConfig'])
+						if ($cSection)
 						{
-							$configSection = $global:DashboardConfig.Config['SavedLaunchConfig']
                     
-							foreach ($key in $configSection.Keys)
+							foreach ($key in $cSection.Keys)
 							{
-								$val = $configSection[$key]
+								$val = $cSection[$key]
 								$parts = $val -split ',', 5
                         
 								if ($parts.Length -ge 3)
@@ -850,106 +1033,106 @@ function InvokeSavedLaunchSequence
 							}
 						}
 
+						$allRows = [System.Collections.Generic.List[Object]]::new()
+						$allRows.AddRange($existingRows)
+						$allRows.AddRange($newRows)
 						
-						foreach ($row in $existingRows)
-						{
-							$rowTitle = $row.Cells[1].Value.ToString()
-                    
-							
-							foreach ($slot in $savedSlots)
-							{
-								if ($null -eq $slot.AssignedRow -and $slot.Title -eq $rowTitle)
-								{
-									$slot.AssignedRow = $row
-									
-									break
-								}
+						$assignedRows = [System.Collections.Generic.HashSet[Object]]::new()
+
+						$rowProfileCounters = @{}
+						$rowsWithInfo = [System.Collections.Generic.List[Object]]::new()
+
+						foreach ($row in $allRows) {
+							$rt = $row.Cells[1].Value.ToString()
+							$pn = 'Default'
+							$ct = $rt
+							if ($rt -match '^\[([^\]]+)\]\s*(.*)') { 
+								$pn = $matches[1]
+								$ct = $matches[2].Trim()
 							}
-                    
 							
-							if ($null -eq ($savedSlots | Where-Object { $_.AssignedRow -eq $row }))
-							{
-								$pName = 'Default'
-								if ($rowTitle -match '^\[([^\]]+)\]') { $pName = $matches[1] }
-								foreach ($slot in $savedSlots)
-								{
-									if ($null -eq $slot.AssignedRow -and $slot.Profile -eq $pName)
-									{
+							if (-not $rowProfileCounters.ContainsKey($pn)) { $rowProfileCounters[$pn] = 0 }
+							$rowProfileCounters[$pn]++
+							
+							$rowsWithInfo.Add([PSCustomObject]@{
+								Row = $row
+								Title = $rt
+								Profile = $pn
+								CleanTitle = $ct
+								RelativePos = $rowProfileCounters[$pn]
+							})
+						}
+
+						foreach ($info in $rowsWithInfo) {
+							$row = $info.Row
+							if ($assignedRows.Contains($row)) { continue }
+							
+							foreach ($slot in $savedSlots) {
+								if ($null -eq $slot.AssignedRow) {
+									if ($slot.Title -eq $info.Title -or $slot.Title -eq $info.CleanTitle) {
 										$slot.AssignedRow = $row
+										$assignedRows.Add($row) | Out-Null
 										break
 									}
 								}
 							}
 						}
 
-						
-						$finalLoginList = @()
-						$loginCounts = @{}
+						foreach ($info in $rowsWithInfo) {
+							$row = $info.Row
+							if ($assignedRows.Contains($row)) { continue }
 
-						foreach ($row in $newRows)
-						{
-							$rowTitle = $row.Cells[1].Value.ToString()
-							$pName = 'Default'
-							if ($rowTitle -match '^\[([^\]]+)\]') { $pName = $matches[1] }
-                    
-							$matchedSlot = $null
-                    
-							
-							foreach ($slot in $savedSlots)
-							{
-								if ($null -eq $slot.AssignedRow -and $slot.Title -eq $rowTitle)
-								{
-									$matchedSlot = $slot
+							foreach ($slot in $savedSlots) {
+								if ($null -eq $slot.AssignedRow -and $slot.Profile -eq $info.Profile -and $slot.GridPos -eq $info.RelativePos) {
+									if ($slot.Title -ne $info.CleanTitle -and $slot.Title -match ' - ' -and $info.CleanTitle -match ' - ') { continue }
+									
+									$slot.AssignedRow = $row
+									$assignedRows.Add($row) | Out-Null
 									break
 								}
 							}
+						}
 
-							
-							if ($null -eq $matchedSlot)
-							{
-								$visualGridPos = $row.Cells[0].Value -as [int]
-								foreach ($slot in $savedSlots)
-								{
-									if ($null -eq $slot.AssignedRow -and $slot.Profile -eq $pName -and $slot.GridPos -eq $visualGridPos)
-									{
-										$matchedSlot = $slot
-										break
-									}
+						foreach ($info in $rowsWithInfo) {
+							$row = $info.Row
+							if ($assignedRows.Contains($row)) { continue }
+
+							foreach ($slot in $savedSlots) {
+								if ($null -eq $slot.AssignedRow -and $slot.Profile -eq $info.Profile) {
+									if ($slot.Title -ne $info.CleanTitle -and $slot.Title -match ' - ' -and $info.CleanTitle -match ' - ') { continue }
+									
+									$slot.AssignedRow = $row
+									$assignedRows.Add($row) | Out-Null
+									break
 								}
 							}
+						}
 
-							
-							if ($null -eq $matchedSlot)
-							{
-								foreach ($slot in $savedSlots)
-								{
-									if ($null -eq $slot.AssignedRow -and $slot.Profile -eq $pName)
-									{
-										$matchedSlot = $slot
-										break
-									}
-								}
-							}
+						$finalLoginList = @()
+						$loginCounts = @{}
 
-							if ($matchedSlot)
-							{
-								$matchedSlot.AssignedRow = $row 
+						foreach ($slot in $savedSlots) {
+							if ($slot.AssignedRow) {
+								$row = $slot.AssignedRow
+								$pName = $slot.Profile
 
-								if ($targets.Contains($pName))
-								{
-									if (-not $loginCounts.Contains($pName)) { $loginCounts[$pName] = 0 }
-									if ($loginCounts[$pName] -lt $targets[$pName])
-									{
-                                
-										
-										$wrapper = [PSCustomObject]@{
-											Row               = $row
-											OverrideAccountID = $matchedSlot.AccountID 
+								$rowTitle = $row.Cells[1].Value.ToString()
+								$cleanTitle = $rowTitle
+								if ($rowTitle -match '^\[([^\]]+)\](.*)') { $cleanTitle = $matches[2] }
+								$isLoggedIn = ($cleanTitle -match ' - ')
+
+								if (-not $isLoggedIn) {
+									if ($targets.Contains($pName)) {
+										if (-not $loginCounts.Contains($pName)) { $loginCounts[$pName] = 0 }
+										if ($loginCounts[$pName] -lt $targets[$pName]) {
+											$wrapper = [PSCustomObject]@{
+												Row               = $row
+												OverrideAccountID = $slot.AccountID
+											}
+											$wrapper.PSObject.TypeNames.Insert(0, 'LoginOverrideWrapper')
+											$finalLoginList += $wrapper
+											$loginCounts[$pName]++
 										}
-										$wrapper.PSObject.TypeNames.Insert(0, 'LoginOverrideWrapper')
-                                
-										$finalLoginList += $wrapper
-										$loginCounts[$pName]++
 									}
 								}
 							}
@@ -970,7 +1153,7 @@ function InvokeSavedLaunchSequence
 							Write-Verbose "LAUNCH SEQUENCE: Auto-logging into $($finalLoginList.Count) specific clients."
 							Write-Verbose "LAUNCH PLAN MAP: $detailString"
 
-							if (Get-Command LoginSelectedRow -ErrorAction SilentlyContinue)
+							if (Get-Command LoginSelectedRow -ErrorAction SilentlyContinue -Verbose:$False)
 							{
 								LoginSelectedRow -RowInput $finalLoginList
 							}
@@ -995,7 +1178,7 @@ function InvokeSavedLaunchSequence
 function StopClientLaunch
 {
 	[CmdletBinding()]
-	param([switch]$StepCompleted)
+	param([switch]$StepCompleted, [switch]$Sync)
 
 	if ($StepCompleted)
 	{
@@ -1088,8 +1271,8 @@ function StopClientLaunch
 		}
 		$localRes = $global:LaunchResources.Clone()
 
-		[System.Threading.Tasks.Task]::Run([Action]{
-			try
+        $cleanupAction = {
+            try
 			{
 				$ps = $localRes.PowerShellInstance; $rs = $localRes.Runspace; $ar = $localRes.AsyncResult
 				if ($ps)
@@ -1100,7 +1283,13 @@ function StopClientLaunch
 				}
 				if ($rs) { try { $rs.Dispose() } catch {} }
 			} catch {}
-		}) | Out-Null
+        }
+
+        if ($Sync) {
+            & $cleanupAction
+        } else {
+		    [System.Threading.Tasks.Task]::Run([Action]$cleanupAction) | Out-Null
+        }
 
 		if ($global:DashboardConfig.Resources.Timers.Contains('launchSafetyTimer'))
 		{
@@ -1109,6 +1298,16 @@ function StopClientLaunch
 				$global:DashboardConfig.Resources.Timers['launchSafetyTimer'].Stop()
 				$global:DashboardConfig.Resources.Timers['launchSafetyTimer'].Dispose()
 				$global:DashboardConfig.Resources.Timers.Remove('launchSafetyTimer')
+			}
+			catch {}
+		}
+		if ($global:DashboardConfig.Resources.Timers.Contains('launchUITimer'))
+		{
+			try
+			{
+				$global:DashboardConfig.Resources.Timers['launchUITimer'].Stop()
+				$global:DashboardConfig.Resources.Timers['launchUITimer'].Dispose()
+				$global:DashboardConfig.Resources.Timers.Remove('launchUITimer')
 			}
 			catch {}
 		}

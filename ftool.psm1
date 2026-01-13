@@ -22,6 +22,12 @@ function ToggleSpecificFtoolInstance
 	$form = $global:DashboardConfig.Resources.FtoolForms[$InstanceId]
 	if ($form -and -not $form.IsDisposed)
 	{
+		if ($form.InvokeRequired)
+		{
+			$form.BeginInvoke([System.Action]{ ToggleSpecificFtoolInstance -InstanceId $InstanceId -ExtKey $ExtKey }) | Out-Null
+			return
+		}
+
 		$formData = $form.Tag
 
 		if (-not [string]::IsNullOrEmpty($ExtKey))
@@ -53,7 +59,6 @@ function ToggleSpecificFtoolInstance
 	}
 }
 
-
 function ToggleInstanceHotkeys
 {
 	param(
@@ -62,6 +67,16 @@ function ToggleInstanceHotkeys
 		[Parameter(Mandatory = $true)]
 		[bool]$ToggleState
 	)
+
+	if ($global:DashboardConfig.Resources.FtoolForms.Contains($InstanceId))
+	{
+		$form = $global:DashboardConfig.Resources.FtoolForms[$InstanceId]
+		if ($form -and -not $form.IsDisposed -and $form.InvokeRequired)
+		{
+			$form.BeginInvoke([System.Action]{ ToggleInstanceHotkeys -InstanceId $InstanceId -ToggleState $ToggleState }) | Out-Null
+			return
+		}
+	}
     
 	if (-not $global:DashboardConfig.Resources.InstanceHotkeysPaused) { $global:DashboardConfig.Resources.InstanceHotkeysPaused = @{} }
     
@@ -111,6 +126,7 @@ function ToggleInstanceHotkeys
 
 #region Helper Functions
 
+
 function Invoke-FtoolSpamAction
 {
 	param($timerData)
@@ -118,27 +134,27 @@ function Invoke-FtoolSpamAction
 	{
 		if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
 
+		$keyCombinationString = $timerData['Key']
+		$parsedKey = ParseKeyString -KeyCombinationString $keyCombinationString
+		if (-not $parsedKey -or -not $parsedKey.Primary)
+		{
+			Write-Verbose "FTOOL: Invalid key to spam: '$keyCombinationString'"
+			return
+		}
+
+		$primaryKeyName = $parsedKey.Primary
+		$modifierNames = $parsedKey.Modifiers
+
 		$keyMappings = GetVirtualKeyMappings
-		$virtualKeyCode = $keyMappings[$timerData['Key']]
+		$virtualKeyCode = $keyMappings[$primaryKeyName]
 
 		if ($virtualKeyCode)
 		{
-			$WM_KEYDOWN = 0x0100
-			$WM_KEYUP = 0x0101
-			$WM_LBUTTONDOWN = 0x0201
-			$WM_LBUTTONUP = 0x0202
-			$WM_RBUTTONDOWN = 0x0204
-			$WM_RBUTTONUP = 0x0205
-			$WM_MBUTTONDOWN = 0x0207
-			$WM_MBUTTONUP = 0x0208
-			$WM_XBUTTONDOWN = 0x020B
-			$WM_XBUTTONUP = 0x020C
-
-			$MK_LBUTTON = 0x0001
-			$MK_RBUTTON = 0x0002
-			$MK_MBUTTON = 0x0010
-			$MK_XBUTTON1 = 0x0020
-			$MK_XBUTTON2 = 0x0040
+			$WM_KEYDOWN = 0x0100; $WM_KEYUP = 0x0101
+			$WM_LBUTTONDOWN = 0x0201; $WM_LBUTTONUP = 0x0202
+			$WM_RBUTTONDOWN = 0x0204; $WM_RBUTTONUP = 0x0205
+			$WM_MBUTTONDOWN = 0x0207; $WM_MBUTTONUP = 0x0208
+			$WM_XBUTTONDOWN = 0x020B; $WM_XBUTTONUP = 0x020C
 
 			$point = New-Object Custom.Win32Point
 			[Custom.Win32MouseUtils]::GetCursorPos([ref]$point) | Out-Null
@@ -147,43 +163,80 @@ function Invoke-FtoolSpamAction
 
 			$dwellTime = Get-Random -Minimum 2 -Maximum 9
 
-			if ($virtualKeyCode -eq 0x01)
+			if ($virtualKeyCode -ge 0x01 -and $virtualKeyCode -le 0x06)
 			{
-				$wDown = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_LBUTTON, $true, $virtualKeyCode)
-				$wUp = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_LBUTTON, $false, $virtualKeyCode)
-				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_LBUTTONDOWN, $wDown, $lParam)
+				$MK_LBUTTON = 0x0001; $MK_RBUTTON = 0x0002; $MK_SHIFT = 0x0004
+				$MK_CONTROL = 0x0008; $MK_MBUTTON = 0x0010; $MK_XBUTTON1 = 0x0020
+				$MK_XBUTTON2 = 0x0040
+
+				$wDown = 0
+
+				if ($modifierNames -contains 'Ctrl') { $wDown = $wDown -bor $MK_CONTROL }
+				if ($modifierNames -contains 'Shift') { $wDown = $wDown -bor $MK_SHIFT }
+
+				$targetButtonFlag = 0; $xButtonData = 0
+				$msgDown = 0; $msgUp = 0
+
+				switch ($virtualKeyCode)
+				{
+					0x01 { $targetButtonFlag = $MK_LBUTTON; $msgDown = $WM_LBUTTONDOWN; $msgUp = $WM_LBUTTONUP }
+					0x02 { $targetButtonFlag = $MK_RBUTTON; $msgDown = $WM_RBUTTONDOWN; $msgUp = $WM_RBUTTONUP }
+					0x04 { $targetButtonFlag = $MK_MBUTTON; $msgDown = $WM_MBUTTONDOWN; $msgUp = $WM_MBUTTONUP }
+					0x05 { $targetButtonFlag = $MK_XBUTTON1; $xButtonData = 0x00010000; $msgDown = $WM_XBUTTONDOWN; $msgUp = $WM_XBUTTONUP }
+					0x06 { $targetButtonFlag = $MK_XBUTTON2; $xButtonData = 0x00020000; $msgDown = $WM_XBUTTONDOWN; $msgUp = $WM_XBUTTONUP }
+				}
+
+				$wDown = $wDown -bor $targetButtonFlag
+				$wUp = $wDown -bxor $targetButtonFlag
+
+				if ($xButtonData -ne 0)
+				{
+					$wDown = $wDown -bor $xButtonData
+					$wUp = $wUp -bor $xButtonData
+				}
+
+				if ($modifierNames -contains 'Alt')
+				{
+					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, 0x12, 0)
+				}
+
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $msgDown, [IntPtr]$wDown, $lParam)
 				Start-Sleep -Milliseconds $dwellTime
-				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_LBUTTONUP, $wUp, $lParam)
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $msgUp, [IntPtr]$wUp, $lParam)
+
+				if ($modifierNames -contains 'Alt')
+				{
+					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, 0x12, 0xC0000000)
+				}
 			}
-			elseif ($virtualKeyCode -eq 0x02)
+			else
 			{
-				$wDown = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_RBUTTON, $true, $virtualKeyCode)
-				$wUp = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_RBUTTON, $false, $virtualKeyCode)
-				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_RBUTTONDOWN, $wDown, $lParam)
+				$modifierVks = @()
+				foreach ($modName in $modifierNames)
+				{
+					switch ($modName.ToUpper())
+					{
+						'CTRL' { $modifierVks += 0x11 }
+						'ALT' { $modifierVks += 0x12 }
+						'SHIFT' { $modifierVks += 0x10 }
+					}
+				}
+
+				foreach ($modVk in $modifierVks)
+				{
+					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $modVk, 0)
+				}
+
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $virtualKeyCode, 0)
 				Start-Sleep -Milliseconds $dwellTime
-				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_RBUTTONUP, $wUp, $lParam)
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $virtualKeyCode, 0xC0000000)
+
+				$reversedMods = $modifierVks | Sort-Object -Descending
+				foreach ($modVk in $reversedMods)
+				{
+					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $modVk, 0xC0000000)
+				}
 			}
-			elseif ($virtualKeyCode -eq 0x04)
-			{
-				$wDown = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_MBUTTON, $true, $virtualKeyCode)
-				$wUp = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_MBUTTON, $false, $virtualKeyCode)
-				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_MBUTTONDOWN, $wDown, $lParam)
-				Start-Sleep -Milliseconds $dwellTime
-				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_MBUTTONUP, $wUp, $lParam)
-			}
-			elseif ($virtualKeyCode -eq 0x05)
-			{
-				$wDown = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON1, $true, $virtualKeyCode); $wUp = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON1, $false, $virtualKeyCode)
-				$wDown = $wDown.ToInt64() -bor 0x00010000; $wUp = $wUp.ToInt64() -bor 0x00010000
-				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONDOWN, [IntPtr]$wDown, $lParam); Start-Sleep -Milliseconds $dwellTime;[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONUP, [IntPtr]$wUp, $lParam)
-			}
-			elseif ($virtualKeyCode -eq 0x06)
-			{
-				$wDown = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON2, $true, $virtualKeyCode); $wUp = [Custom.Win32MouseUtils]::GetCurrentInputStateWParam($MK_XBUTTON2, $false, $virtualKeyCode)
-				$wDown = $wDown.ToInt64() -bor 0x00020000; $wUp = $wUp.ToInt64() -bor 0x00020000
-				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONDOWN, [IntPtr]$wDown, $lParam); Start-Sleep -Milliseconds $dwellTime;[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_XBUTTONUP, [IntPtr]$wUp, $lParam)
-			}
-			else { [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $virtualKeyCode, 0); Start-Sleep -Milliseconds $dwellTime;[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $virtualKeyCode, 0xC0000000) }
 		}
 	}
 	catch { Write-Verbose ('FTOOL: Spammer Error: {0}' -f $_.Exception.Message) }
@@ -192,15 +245,6 @@ function Invoke-FtoolSpamAction
 function LoadFtoolSettings
 {
 	param($formData)
-    
-	if (-not $global:DashboardConfig.Config)
-	{ 
-		$global:DashboardConfig.Config = [ordered]@{} 
-	}
-	if (-not $global:DashboardConfig.Config.Contains('Ftool'))
-	{ 
-		$global:DashboardConfig.Config['Ftool'] = [ordered]@{} 
-	}
     
 	$profilePrefix = FindOrCreateProfile $formData.WindowTitle
 	$formData.ProfilePrefix = $profilePrefix
@@ -673,12 +717,10 @@ function CreatePositionTimer
             
 				$rect = New-Object Custom.Native+RECT
                     
-				if ([Custom.Native]::IsWindow($timerData['WindowHandle']))
+				if ([Custom.Native]::IsWindow($timerData['WindowHandle']) -and [Custom.Native]::GetWindowRect($timerData['WindowHandle'], [ref]$rect))
 				{
-					if ([Custom.Native]::GetWindowRect($timerData['WindowHandle'], [ref]$rect))
+					try
 					{
-						try
-						{
                                 
 							$sliderValueX = $timerData.FormData.PositionSliderX.Value
 							$maxLeft = $rect.Right - $timerData['FtoolForm'].Width - 8
@@ -702,26 +744,71 @@ function CreatePositionTimer
 							$foregroundWindow = [Custom.Native]::GetForegroundWindow()
 							$flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
 
-							if ($foregroundWindow -eq $linkedHandle -or $foregroundWindow -eq $ftoolHandle)
+							$shouldBeTopMost = $false
+							if ($foregroundWindow -eq $linkedHandle) {
+								$shouldBeTopMost = $true
+							} else {
+								$activeCtrl = [System.Windows.Forms.Control]::FromHandle($foregroundWindow)
+								if ($activeCtrl -and -not $activeCtrl.IsDisposed -and $activeCtrl.Tag) {
+									if ($activeCtrl.Tag.PSObject.Properties['SelectedWindow'] -and $activeCtrl.Tag.SelectedWindow -eq $linkedHandle) {
+										$shouldBeTopMost = $true
+									}
+								}
+							}
+
+							if ($shouldBeTopMost)
 							{
-                                                            
-								if ($timerData.FtoolZState -ne 'topmost')
+								$forceUpdate = $false
+								if ($foregroundWindow -eq $linkedHandle) {
+									$testPrev = [Custom.Native]::GetWindow($ftoolHandle, 3)
+									$checkCount = 0
+									while ($testPrev -ne [IntPtr]::Zero -and $checkCount -lt 50) {
+										if ($testPrev -eq $linkedHandle) { $forceUpdate = $true; break }
+										$testPrev = [Custom.Native]::GetWindow($testPrev, 3)
+										$checkCount++
+									}
+								}
+
+								if ($timerData.FtoolZState -ne 'topmost' -or $forceUpdate)
 								{
+									if ($forceUpdate) {
+										[Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
+									}
 									[Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
 									$timerData.FtoolZState = 'topmost'
 								}
-                                                            
-								elseif ($timerData.FtoolZState -ne 'standard')
+							}
+							else
+							{
+								if ($timerData.FtoolZState -ne 'standard')
 								{
 									[Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
 									$timerData.FtoolZState = 'standard'
 								}
+
+								$next = [Custom.Native]::GetWindow($ftoolHandle, 2) 
+								$amIAboveGame = $false
+								$loopCount = 0
+								
+								while ($next -ne [IntPtr]::Zero -and $loopCount -lt 50)
+								{
+									if ($next -eq $linkedHandle) { $amIAboveGame = $true; break }
+									$next = [Custom.Native]::GetWindow($next, 2)
+									$loopCount++
+								}
+
+								if (-not $amIAboveGame)
+								{
+									$bottomOfCluster = [Custom.Native]::GetWindow($linkedHandle, 3)
+									if ($bottomOfCluster -ne [IntPtr]::Zero) { [Custom.Native]::PositionWindow($ftoolHandle, $bottomOfCluster, 0, 0, 0, 0, $flags) | Out-Null }
+									else { [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::TopWindowHandle, 0, 0, 0, 0, $flags) | Out-Null }
+								}
 							}
-						}
-						catch
-						{
-							Write-Verbose ('FTOOL: Position timer error: {0} for {1}' -f $_.Exception.Message, $($timerData['InstanceId']))
-						}
+							$timerData.LastForegroundWindow = $foregroundWindow
+					}
+					catch
+					{
+						Write-Verbose ('FTOOL: Position timer error: {0} for {1}' -f $_.Exception.Message, $($timerData['InstanceId']))
 					}
 				}
 				else
@@ -895,9 +982,9 @@ function ToggleButtonState
 
 function CheckRateLimit
 {
-	param($controlId, $minInterval = 100)
+	param($controlId, $minInterval = 10)
     
-	$currentTime = Get-Date
+	$currentTime = [DateTime]::Now
 	if ($global:DashboardConfig.Resources.LastEventTimes.Contains($controlId) -and 
 		($currentTime - $global:DashboardConfig.Resources.LastEventTimes[$controlId]).TotalMilliseconds -lt $minInterval)
 	{
@@ -960,10 +1047,20 @@ function CleanupInstanceResources
 				$extData.RunningSpammer.Stop()
 				$extData.RunningSpammer.Dispose()
 			}
+			if ($extData.HotkeyId)
+			{
+				try
+				{
+					UnregisterHotkeyInstance -Id $extData.HotkeyId -OwnerKey $key
+				}
+				catch
+				{
+					Write-Warning "FTOOL: Failed to unregister hotkey ID $($extData.HotkeyId) for extension $key during cleanup. Error: $_"
+				}
+			}
 			$keysToRemove += $key
 		}
 	}
-    
 	foreach ($key in $keysToRemove)
 	{
 		$global:DashboardConfig.Resources.ExtensionData.Remove($key)
@@ -995,9 +1092,9 @@ function CleanupInstanceResources
 		if ($form -and $form.Tag)
 		{
             
-			if ($form.Tag.ToolTip)
+			if ($form.Tag.ToolTipFtool)
 			{
-				$form.Tag.ToolTip.Dispose()
+				$form.Tag.ToolTipFtool.Dispose()
 			}
 			if ($form.Tag.HotkeyId)
 			{
@@ -1238,7 +1335,6 @@ function CreateFtoolForm
 	$ftoolForm = New-Object Custom.FtoolFormWindow
     
 	
-	$ftoolForm.Visible = $true
 	$ftoolForm.Width = 235
 	$ftoolForm.Height = 130
 	$ftoolForm.Top = ($targetWindowRect.Top + 30)
@@ -1277,30 +1373,24 @@ function CreateFtoolForm
 	$ftoolToolTip.ReshowDelay = 10
 	$ftoolToolTip.ShowAlways = $true
 	$ftoolToolTip.OwnerDraw = $true
+	$ftoolToolTip | Add-Member -MemberType NoteProperty -Name 'TipFont' -Value (New-Object System.Drawing.Font('Segoe UI', 9))
 	$ftoolToolTip.Add_Draw({
-			param($s, $e)
-			$g = $e.Graphics
-			$b = $e.Bounds
-			$bg = [System.Drawing.Color]::FromArgb(30, 30, 30)
-			$fg = [System.Drawing.Color]::FromArgb(240, 240, 240)
-			$border = [System.Drawing.Color]::FromArgb(100, 100, 100)
-			$brush = New-Object System.Drawing.SolidBrush($bg)
-			$g.FillRectangle($brush, $b)
-			$brush.Dispose()
-			$pen = New-Object System.Drawing.Pen($border)
-			$g.DrawRectangle($pen, $b.X, $b.Y, $b.Width - 1, $b.Height - 1)
-			$pen.Dispose()
-			$textBrush = New-Object System.Drawing.SolidBrush($fg)
-			$g.DrawString($e.ToolTipText, $e.Font, $textBrush, [System.Drawing.PointF]::new(2, 2))
-			$textBrush.Dispose()
+			$g, $b, $c = $_.Graphics, $_.Bounds, [System.Drawing.Color]
+			$g.FillRectangle((New-Object System.Drawing.SolidBrush $c::FromArgb(30,30,30)), $b)
+			$g.DrawRectangle((New-Object System.Drawing.Pen $c::FromArgb(100,100,100)), $b.X, $b.Y, $b.Width-1, $b.Height-1)
+			$g.DrawString($_.ToolTipText, $this.TipFont, (New-Object System.Drawing.SolidBrush $c::FromArgb(240,240,240)), 3, 3, [System.Drawing.StringFormat]::GenericTypographic)
 		})
-	$ftoolToolTip.Add_Popup({ param($s, $e) $e.ToolTipSize = [System.Drawing.Size]::new($e.ToolTipSize.Width + 4, $e.ToolTipSize.Height + 4) })
+	$ftoolToolTip.Add_Popup({
+			$g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
+			$s = $g.MeasureString($this.GetToolTip($_.AssociatedControl), $this.TipFont, [System.Drawing.PointF]::new(0,0), [System.Drawing.StringFormat]::GenericTypographic)
+			$g.Dispose(); $_.ToolTipSize = [System.Drawing.Size]::new($s.Width+12, $s.Height+8)
+		})
     
     
-	$previousToolTip = $global:DashboardConfig.UI.ToolTip
+	$previousToolTip = $global:DashboardConfig.UI.ToolTipFtool
     
     
-	$global:DashboardConfig.UI.ToolTip = $ftoolToolTip
+	$global:DashboardConfig.UI.ToolTipFtool = $ftoolToolTip
     
 
 	try
@@ -1308,51 +1398,51 @@ function CreateFtoolForm
 		$headerPanel = SetUIElement -type 'Panel' -visible $true -width 250 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
 		$ftoolForm.Controls.Add($headerPanel)
 
-		$btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 14 -top 2 -left 118 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip 'Set Master Hotkey'
-		$headerPanel.Controls.Add($btnInstanceHotkeyToggle)
-
 		$labelWinTitle = SetUIElement -type 'Label' -visible $true -width 120 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
 		$headerPanel.Controls.Add($labelWinTitle)
-        
-		$btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 14 -top 3 -left 135 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip 'Enable/Disable Hotkeys for this Instance'
-		$headerPanel.Controls.Add($btnHotkeyToggle)
 
-		$btnAdd = SetUIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 170 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Add new Ftool Extension'
+		$btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 15 -top 2 -left 135 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
+		$headerPanel.Controls.Add($btnInstanceHotkeyToggle)
+
+		$btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 15 -top 3 -left 150 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific Ftool instance."
+		$headerPanel.Controls.Add($btnHotkeyToggle)
+			
+		$btnAdd = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 180 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Extension`nAdd another Ftool extension slot for this client."
 		$headerPanel.Controls.Add($btnAdd)
-        
-		$btnShowHide = SetUIElement -type 'Button' -visible $true -width 14 -height 14 -top 3 -left 185 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Minimize/Expand Tool'
+			
+		$btnShowHide = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 195 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Minimize/Expand`nCollapse or expand the Ftool window."
 		$headerPanel.Controls.Add($btnShowHide)
-        
-		$btnClose = SetUIElement -type 'Button' -visible $true -width 16 -height 14 -top 3 -left 210 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip 'Terminate Ftool'
+			
+		$btnClose = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 215 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Close`nStops all actions and closes this Ftool window."
 		$headerPanel.Controls.Add($btnClose)
         
 		$panelSettings = SetUIElement -type 'Panel' -visible $true -width 190 -height 60 -top 60 -left 40 -bg @(50, 50, 50)
 		$ftoolForm.Controls.Add($panelSettings)
         
-		$btnKeySelect = SetUIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip 'Click to bind Key'
+		$btnKeySelect = SetUIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Bind Key`nClick here, then press a key to assign it to this spammer."
 		$panelSettings.Controls.Add($btnKeySelect)
         
-		$interval = SetUIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Delay in milliseconds'
+		$interval = SetUIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Interval (ms)`nTime in milliseconds between key presses."
 		$panelSettings.Controls.Add($interval)
         
-		$name = SetUIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip 'Identification Name'
+		$name = SetUIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Name`nGive this spammer a name."
 		$panelSettings.Controls.Add($name)
         
-		$btnStart = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Start Ftool'
+		$btnStart = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Start`nBegin spamming the assigned key."
 		$panelSettings.Controls.Add($btnStart)
         
-		$btnStop = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Stop Ftool'
+		$btnStop = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Stop`nStop spamming the key."
 		$btnStop.Enabled = $false
 		$btnStop.Visible = $false
 		$panelSettings.Controls.Add($btnStop)
 
-		$btnHotKey = SetUIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip 'Assign Hotkey'
+		$btnHotKey = SetUIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip "Global Hotkey`nAssign a global hotkey to toggle this specific spammer on/off."
 		$panelSettings.Controls.Add($btnHotKey)
         
 		$positionSliderY = New-Object System.Windows.Forms.TrackBar
 		$positionSliderY.Orientation = 'Vertical'
-		$positionSliderY.Minimum = 0
-		$positionSliderY.Maximum = 100
+		$positionSliderY.Minimum = -18
+		$positionSliderY.Maximum = 118
 		$positionSliderY.TickFrequency = 300
 		$positionSliderY.Value = 0
 		$positionSliderY.Size = New-Object System.Drawing.Size(1, 110)
@@ -1360,8 +1450,8 @@ function CreateFtoolForm
 		$ftoolForm.Controls.Add($positionSliderY)
             
 		$positionSliderX = New-Object System.Windows.Forms.TrackBar
-		$positionSliderX.Minimum = 0
-		$positionSliderX.Maximum = 100
+		$positionSliderX.Minimum = -25
+		$positionSliderX.Maximum = 125
 		$positionSliderX.TickFrequency = 300
 		$positionSliderX.Value = 0
 		$positionSliderX.Size = New-Object System.Drawing.Size(190, 1)
@@ -1369,10 +1459,9 @@ function CreateFtoolForm
 		$ftoolForm.Controls.Add($positionSliderX)
 
 	}
- finally
+ 	finally
 	{
-        
-		$global:DashboardConfig.UI.ToolTip = $previousToolTip
+		$global:DashboardConfig.UI.ToolTipFtool = $previousToolTip
 	}
 
 	$formData = [PSCustomObject]@{
@@ -1392,7 +1481,7 @@ function CreateFtoolForm
 		PositionSliderX         = $positionSliderX
 		PositionSliderY         = $positionSliderY
 		Form                    = $ftoolForm
-		ToolTip                 = $ftoolToolTip 
+		ToolTipFtool            = $ftoolToolTip 
 		RunningSpammer          = $null
 		WindowTitle             = $windowTitle
 		Process                 = $row.Tag
@@ -1566,7 +1655,7 @@ function AddFtoolEventHandlers
 			$keyValue = $data.BtnKeySelect.Text
 			if (-not $keyValue -or $keyValue.Trim() -eq '')
 			{
-				Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'Please select a key' 'Missing Ftool Key' 'Ok' 'Information'
+				Show-DarkMessageBox 'Please select a key' 'Missing Ftool Key' 'Ok' 'Information'
 				return
 			}
         
@@ -1686,7 +1775,7 @@ function AddFtoolEventHandlers
 			{
 				if (TestHotkeyConflict -KeyCombinationString $newHotkey -NewHotkeyType ([Custom.HotkeyManager+HotkeyActionType]::GlobalToggle) -OwnerKeyToExclude $ownerKey)
 				{
-					Show-DarkMessageBox $global:DashboardConfig.UI.MainForm "This hotkey combination ('$newHotkey') is already assigned to another function or instance. Please choose a different key." 'Hotkey Conflict', 'Ok' 'Information'
+					Show-DarkMessageBox "This hotkey combination ('$newHotkey') is already assigned to another function or instance. Please choose a different key." 'Hotkey Conflict' 'Ok' 'Information'
 					$data.GlobalHotkey = $currentHotkeyText
 					return 
 				}
@@ -1756,7 +1845,7 @@ function AddFtoolEventHandlers
 			}
 			$data = $form.Tag
         
-			if (-not (CheckRateLimit $this.GetHashCode() 200))
+			if (-not (CheckRateLimit $this.GetHashCode() 10))
 			{
 				return 
 			}
@@ -1784,14 +1873,14 @@ function AddFtoolEventHandlers
 			}
 			$data = $form.Tag
         
-			if (-not (CheckRateLimit $this.GetHashCode() 200))
+			if (-not (CheckRateLimit $this.GetHashCode() 10))
 			{
 				return 
 			}
         
 			if ($data.ExtensionCount -ge 8)
 			{
-				Show-DarkMessageBox $global:DashboardConfig.UI.MainForm "Maximum number of extensions reached.`nOnly 10 per client allowed!" 'Spam Protection' 'Ok' 'Information'
+				Show-DarkMessageBox "Maximum number of extensions reached.`nOnly 10 per client allowed!" 'Spam Protection' 'Ok' 'Information'
 				return
 			}
         
@@ -1870,12 +1959,12 @@ function CreateExtensionPanel
     
     
     
-	$previousToolTip = $global:DashboardConfig.UI.ToolTip
+	$previousToolTip = $global:DashboardConfig.UI.ToolTipFtool
     
     
-	if ($form.Tag -and $form.Tag.ToolTip)
+	if ($form.Tag -and $form.Tag.ToolTipFtool)
 	{
-		$global:DashboardConfig.UI.ToolTip = $form.Tag.ToolTip
+		$global:DashboardConfig.UI.ToolTipFtool = $form.Tag.ToolTipFtool
 	}
     
 
@@ -1886,34 +1975,34 @@ function CreateExtensionPanel
 		$form.Controls.Add($panelExt)
 		$panelExt.BringToFront()
     
-		$btnKeySelectExt = SetUIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip 'Click to bind Key'
+		$btnKeySelectExt = SetUIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Bind Key`nClick here, then press a key to assign it to this spammer."
 		$panelExt.Controls.Add($btnKeySelectExt)
     
-		$intervalExt = SetUIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Delay in milliseconds'
+		$intervalExt = SetUIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Interval (ms)`nTime in milliseconds between key presses."
 		$panelExt.Controls.Add($intervalExt)
     
-		$btnStartExt = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Start Ftool'
+		$btnStartExt = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Start`nBegin spamming the assigned key."
 		$panelExt.Controls.Add($btnStartExt)
     
-		$btnStopExt = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip 'Stop Ftool'
+		$btnStopExt = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Stop`nStop spamming the key."
 		$btnStopExt.Enabled = $false
 		$btnStopExt.Visible = $false
 		$panelExt.Controls.Add($btnStopExt)
 
-		$btnHotKeyExt = SetUIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip 'Assign Hotkey'
+		$btnHotKeyExt = SetUIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip "Global Hotkey`nAssign a global hotkey to toggle this specific spammer on/off."
 		$panelExt.Controls.Add($btnHotKeyExt)
     
-		$nameExt = SetUIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Name' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip 'Identification Name'
+		$nameExt = SetUIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Name' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Name`nGive this spammer a name."
 		$panelExt.Controls.Add($nameExt)
     
-		$btnRemoveExt = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 35 -left 120 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'Close' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 7)) -tooltip 'Remove this Extension'
+		$btnRemoveExt = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 35 -left 120 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'Close' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 7)) -tooltip "Remove Extension`nDelete this Ftool extension slot."
 		$panelExt.Controls.Add($btnRemoveExt)
 
 	}
  finally
 	{
         
-		$global:DashboardConfig.UI.ToolTip = $previousToolTip
+		$global:DashboardConfig.UI.ToolTipFtool = $previousToolTip
 	}
 
 	$extKey = "ext_${instanceId}_$extNum"
@@ -1959,7 +2048,7 @@ function AddExtensionEventHandlers
 			}
 			$data = $form.Tag
         
-			if (-not (CheckRateLimit $this.GetHashCode()))
+			if (-not (CheckRateLimit $this.GetHashCode() 100))
 			{
 				return 
 			}
@@ -1999,7 +2088,7 @@ function AddExtensionEventHandlers
 			}
 			$data = $form.Tag
     
-			if (-not (CheckRateLimit $this.GetHashCode()))
+			if (-not (CheckRateLimit $this.GetHashCode() 100))
 			{
 				return 
 			}
@@ -2076,7 +2165,7 @@ function AddExtensionEventHandlers
 			}
 			$data = $form.Tag
         
-			if (-not (CheckRateLimit $this.GetHashCode() 500))
+			if (-not (CheckRateLimit $this.GetHashCode() 1))
 			{
 				return 
 			}
@@ -2103,7 +2192,7 @@ function AddExtensionEventHandlers
 			$keyValue = $extData.BtnKeySelect.Text
 			if (-not $keyValue -or $keyValue.Trim() -eq '')
 			{
-				Show-DarkMessageBox $global:DashboardConfig.UI.MainForm 'Please select a key' 'Missing Ftool Key' 'Ok' 'Information'
+				Show-DarkMessageBox 'Please select a key' 'Missing Ftool Key' 'Ok' 'Information'
 				return
 			}
         
@@ -2153,7 +2242,7 @@ function AddExtensionEventHandlers
 			}
 			$data = $form.Tag
         
-			if (-not (CheckRateLimit $this.GetHashCode() 500))
+			if (-not (CheckRateLimit $this.GetHashCode() 1))
 			{
 				return 
 			}
@@ -2275,7 +2364,7 @@ function AddExtensionEventHandlers
 					return 
 				}
             
-				if (-not (CheckRateLimit $this.GetHashCode() 1000))
+				if (-not (CheckRateLimit $this.GetHashCode() 100))
 				{
 					return 
 				}
@@ -2303,4 +2392,5 @@ function AddExtensionEventHandlers
 
 #region Module Exports
 Export-ModuleMember -Function *
+#endregion
 #endregion

@@ -12,7 +12,6 @@ $script:CompilationOptions = @{
 	ReferencedAssemblies = $script:ReferencedAssemblies
 	WarningAction        = 'SilentlyContinue' 
 }
-# Ensure a safe default for the Ftool native DLL path so generated DllImport does not end up empty
 if (-not ($global:DashboardConfig -and $global:DashboardConfig.Paths -and $global:DashboardConfig.Paths.FtoolDLL -and $global:DashboardConfig.Paths.FtoolDLL.Trim()))
 {
 	$script:FToolDll = (Join-Path $env:APPDATA 'Entropia_Dashboard\modules\ftool.dll')
@@ -23,7 +22,7 @@ else
 }
 #endregion 
 
-#region C# Class Definitions
+#region C#Class Definitions
 $classes = @"
 using System;
 using System.Windows.Forms;
@@ -43,6 +42,85 @@ using System.Reflection;
 
 namespace Custom
 {
+    // --- FIXED DARK TREEVIEW ---
+	public class DarkTreeView : TreeView
+	{
+		// API to force Dark Scrollbars (Windows 10 1809+)
+		[DllImport("dwmapi.dll")]
+		private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+		// API to set Explorer style (cleaner look)
+		[DllImport("uxtheme.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
+		private static extern int SetWindowTheme(IntPtr hwnd, string pszSubAppName, string pszSubIdList);
+
+		private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
+
+		public DarkTreeView()
+		{
+			this.DrawMode = TreeViewDrawMode.OwnerDrawText; // Essential for background color control
+			this.DoubleBuffered = true;                     // Prevents flickering
+			this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+			
+			// Default Dark Styles
+			this.BackColor = Color.FromArgb(22, 26, 38); 
+			this.ForeColor = Color.White;
+			this.BorderStyle = BorderStyle.None;
+			this.HideSelection = false; // Keep highlight when clicking buttons
+            this.FullRowSelect = true;
+            this.ShowLines = false;
+            this.ShowPlusMinus = true;
+		}
+
+		protected override void OnHandleCreated(EventArgs e)
+		{
+			base.OnHandleCreated(e);
+			
+			// 1. Apply Explorer Style (Adds fade animations and cleaner chevrons)
+			SetWindowTheme(this.Handle, "Explorer", null);
+
+			// 2. Apply Native Dark Mode to Scrollbars
+			int darkMode = 1;
+			if (DwmSetWindowAttribute(this.Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, 4) != 0)
+            {
+                 DwmSetWindowAttribute(this.Handle, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref darkMode, 4);
+            }
+		}
+
+        // Fix for black text glitch on selection loss
+        protected override void OnDrawNode(DrawTreeNodeEventArgs e)
+        {
+            // If the script defines a DrawNode event, this allows it to run.
+            // If not, we provide a safe default draw to prevent "invisible text".
+            if (e.Node == null) return;
+
+            Font font = e.Node.NodeFont ?? e.Node.TreeView.Font;
+            Color fore = e.Node.TreeView.ForeColor;
+
+            // Handle Selection Highlight
+            if ((e.State & TreeNodeStates.Selected) != 0)
+            {
+                // Dark Blue/Gray Highlight
+                using (SolidBrush brush = new SolidBrush(Color.FromArgb(45, 50, 65)))
+                {
+                    e.Graphics.FillRectangle(brush, e.Bounds);
+                }
+                fore = Color.White;
+            }
+            else
+            {
+                 using (SolidBrush brush = new SolidBrush(this.BackColor))
+                {
+                    e.Graphics.FillRectangle(brush, e.Bounds);
+                }
+            }
+
+            // Draw Text
+            TextRenderer.DrawText(e.Graphics, e.Node.Text, font, e.Bounds, fore, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
+        }
+	}
+    // ---------------------------
+
 	public class DarkMessageBox : Form
 	{
 		#region DWM API for Dark Title Bar
@@ -64,7 +142,7 @@ namespace Custom
 
 		private readonly Color _backColor = Color.FromArgb(28, 28, 28);
 		private readonly Color _secondaryColor = Color.FromArgb(45, 45, 48);
-		private readonly Color _accentColor = Color.FromArgb(0, 120, 215); // Windows Blue
+		private readonly Color _accentColor = Color.FromArgb(0, 120, 215); 
 		private readonly Color _textColor = Color.FromArgb(230, 230, 230);
 		private bool _isSuccess = false;
 
@@ -160,7 +238,6 @@ namespace Custom
 					AddButton(panel, "No", DialogResult.No); 
 					AddButton(panel, "Yes", DialogResult.Yes, true); 
 					break;
-				// Add other cases as needed
 			}
 		}
 
@@ -172,22 +249,19 @@ namespace Custom
 				g.SmoothingMode = SmoothingMode.AntiAlias;
 				g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-				// 1. Pick the Color
-				Color iconColor = Color.FromArgb(0, 140, 255); // Info/Question Blue
+				Color iconColor = Color.FromArgb(0, 140, 255); 
 				if (isSuccess) 
-					iconColor = Color.FromArgb(40, 200, 100); // Modern Success Green
+					iconColor = Color.FromArgb(40, 200, 100); 
 				else if (icon == MessageBoxIcon.Error || icon == MessageBoxIcon.Hand || icon == MessageBoxIcon.Stop)
-					iconColor = Color.FromArgb(255, 60, 60); // Red
+					iconColor = Color.FromArgb(255, 60, 60); 
 				else if (icon == MessageBoxIcon.Exclamation || icon == MessageBoxIcon.Warning)
-					iconColor = Color.FromArgb(255, 180, 0); // Gold
+					iconColor = Color.FromArgb(255, 180, 0); 
 
-				// 2. Draw the Outer Ring (mathematically centered)
 				using (Pen ringPen = new Pen(iconColor, 2))
 				{
 					g.DrawEllipse(ringPen, 2, 2, 28, 28);
 				}
 
-				// 3. Draw the Vector Symbol (no fonts used for perfect centering)
 				using (Pen p = new Pen(iconColor, 2.5f))
 				{
 					p.StartCap = LineCap.Round;
@@ -198,7 +272,6 @@ namespace Custom
 
 					if (isSuccess)
 					{
-						// Vector Checkmark (mathematically balanced)
 						g.DrawLine(p, 10, 16, 14, 21);
 						g.DrawLine(p, 14, 21, 22, 11);
 					}
@@ -218,13 +291,11 @@ namespace Custom
 					}
 					else if (icon == MessageBoxIcon.Error || icon == MessageBoxIcon.Hand || icon == MessageBoxIcon.Stop)
 					{
-						// "X" - Cross lines
 						g.DrawLine(p, 11, 11, 21, 21);
 						g.DrawLine(p, 21, 11, 11, 21);
 					}
-					else // Information (i)
+					else 
 					{
-						// "i" - Dot and line
 						g.FillEllipse(new SolidBrush(iconColor), centerX - 1.5f, 8, 3, 3);
 						g.DrawLine(p, centerX, 13, centerX, 23);
 					}
@@ -235,7 +306,6 @@ namespace Custom
 
 		private void AddButton(FlowLayoutPanel panel, string text, DialogResult result, bool isPrimary = false)
 		{
-			// Professional Button Colors
 			Color btnBack = isPrimary ? Color.FromArgb(0, 90, 158) : Color.FromArgb(55, 55, 58);
 			Color btnHover = isPrimary ? Color.FromArgb(0, 120, 215) : Color.FromArgb(70, 70, 75);
 
@@ -451,6 +521,21 @@ namespace Custom
 
 	public static class Native
 	{
+
+		[DllImport("dwmapi.dll")]
+		private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+		private const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
+		private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+
+		public static void UseImmersiveDarkMode(IntPtr handle)
+		{
+			int darkMode = 1;
+			if (DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, 4) != 0)
+			{
+				DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref darkMode, 4);
+			}
+		}
 
 		[DllImport("iphlpapi.dll", SetLastError = true)]
 		private static extern uint GetExtendedTcpTable(IntPtr pTcpTable, ref int dwOutBufLen, bool sort, int ipVersion, int tblClass, int reserved);
@@ -1487,10 +1572,6 @@ namespace Custom
 
 					if (vkCode != 0)
 					{
-						if ((DateTime.Now - _lastHotkeyTime).TotalMilliseconds < 300)
-						{
-							return CallNextHookEx(_mouseHookID, nCode, wParam, lParam);
-						}
 						
 						uint modifiers = 0;
 						if ((GetAsyncKeyState(0x12) & 0x8000) != 0) modifiers |= MOD_ALT;
@@ -1669,10 +1750,6 @@ namespace Custom
 			{
 				if (m.Msg == WM_HOTKEY)
 				{
-					if ((DateTime.Now - HotkeyManager._lastHotkeyTime).TotalMilliseconds < 300) 
-					{
-						return;
-					}
 
 					if (_isProcessingHotkey) {
 						return;
@@ -1977,7 +2054,7 @@ function InitializeClassesModule
 	param()
 	try
 	{
-		# If compiled types are already present, avoid recompiling (idempotent)
+		
 		if ('Custom.Native' -as [Type])
 		{
 			Write-Verbose 'System integration classes already initialized.'
@@ -2001,11 +2078,10 @@ function InitializeClassesModule
 		return $false
 	}
 }
-
-#endregion 
-
 InitializeClassesModule
+Import-Module NetTCPIP 4>$null
+#endregion 
 
 #region Module Exports
 Export-ModuleMember -Function *
-#endregion 
+#endregion
