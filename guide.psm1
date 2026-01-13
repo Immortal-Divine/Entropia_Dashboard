@@ -241,13 +241,13 @@ function Show-GuideBubble {
     }
 
     if (-not $script:GuideState.BubbleForm -or $script:GuideState.BubbleForm.IsDisposed) {
-        $script:GuideState.BubbleForm = Create-BubbleForm
+        $script:GuideState.BubbleForm = CreateBubbleForm
     }
     
     $form = $script:GuideState.BubbleForm
     Update-BubbleContent -Form $form -Step $step -StepIndex $stepIndex -TotalSteps $steps.Count
     
-    Position-BubbleForm -Form $form -Target $targetControl
+    PositionBubbleForm -Form $form -Target $targetControl
 
     if (-not $form.Visible) {
         $form.Show()
@@ -347,7 +347,7 @@ function Resolve-TargetControl {
     return $null
 }
 
-function Create-BubbleForm {
+function CreateBubbleForm {
     $form = New-Object System.Windows.Forms.Form
     $form.FormBorderStyle = 'None'
     $form.StartPosition = 'Manual'
@@ -522,7 +522,7 @@ function Update-BubbleContent {
     }
 }
 
-function Position-BubbleForm {
+function PositionBubbleForm {
     param($Form, $Target)
 
     if (-not $Target) { return }

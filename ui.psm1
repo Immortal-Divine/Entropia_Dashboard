@@ -1285,72 +1285,72 @@ function InitializeUI
 	$global:DashboardConfig.Resources.BossData = @{
 		"Entropia King" = @{
 			name = "Entropia King"
-			url  = "https://i.ibb.co/F4MPy9sm/Entropia-King.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Entropia-King.png"
 			role = "1030608207460171837"
 		}
 		"Clockworks" = @{
 			name = "Clockworks"
-			url  = "https://i.ibb.co/Y4d9dZMC/Clockworks.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Clockworks.png"
 			role = "1030608298266869791"
 		}
 		"Royal Knight" = @{
 			name = "Royal Knight"
-			url  = "https://i.ibb.co/Zp2kw9KR/Royal-Knight.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Royal-Knight.png"
 			role = "1030608553741930536"
 		}
 		"Solarion" = @{
 			name = "Solarion"
-			url  = "https://i.ibb.co/CKFN9jRv/Solarion.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Solarion.png"
 			role = "1418869138016960512"
 		}
 		"C-A01" = @{
 			name = "C-A01"
-			url  = "https://i.ibb.co/ych0fN0m/C-A01.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/C-A01.png"
 			role = "1210685566010658926"
 		}
 		"Great Venux Tree" = @{
 			name = "Great Venux Tree"
-			url  = "https://i.ibb.co/V0ND13ND/Great-Venux-Tree.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Great-Venux-Tree.png"
 			role = "1210685569164640296"
 		}
 		"Grinch" = @{
 			name = "Grinch"
-			url  = "https://i.imgur.com/RHwuc0R.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Grinch.png"
 			role = "1444911271978729616"
 		}
 		"Genesis Entropia King" = @{
 			name = "Genesis Entropia King"
-			url  = "https://i.ibb.co/F4MPy9sm/Entropia-King.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Entropia-King.png"
 			role = "1454470952506364005"
 		}
 		"Genesis Clockworks" = @{
 			name = "Genesis Clockworks"
-			url  = "https://i.ibb.co/Y4d9dZMC/Clockworks.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Clockworks.png"
 			role = "1454470955903488143"
 		}
 		"Genesis Royal Knight" = @{
 			name = "Genesis Royal Knight"
-			url  = "https://i.ibb.co/Zp2kw9KR/Royal-Knight.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Royal-Knight.png"
 			role = "1454470958818660412"
 		}
 		"Genesis Solarion" = @{
 			name = "Genesis Solarion"
-			url  = "https://i.ibb.co/CKFN9jRv/Solarion.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Solarion.png"
 			role = "1454470962324963571"
 		}
 		"Genesis C-A01" = @{
 			name = "Genesis C-A01"
-			url  = "https://i.ibb.co/ych0fN0m/C-A01.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/C-A01.png"
 			role = "1454470965231620108"
 		}
 		"Genesis Great Venux Tree" = @{
 			name = "Genesis Great Venux Tree"
-			url  = "https://i.ibb.co/V0ND13ND/Great-Venux-Tree.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Great-Venux-Tree.png"
 			role = "1454470968616681523"
 		}
 		"Genesis Grinch" = @{
 			name = "Genesis Grinch"
-			url  = "https://i.imgur.com/RHwuc0R.png"
+			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Grinch.png"
 			role = "1454470972173451408"
 		}
 	}
