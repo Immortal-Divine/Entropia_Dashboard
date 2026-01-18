@@ -70,11 +70,6 @@ And many more!
 
 ## Getting Started <a name = "getting_started"></a>
 
-<<<<<<< HEAD
-## Getting Started <a name = "getting_started"></a>
-
-=======
->>>>>>> 8016ac75b3965a6d829b20c559c99d30d623b50b
 
 + Process list
 
