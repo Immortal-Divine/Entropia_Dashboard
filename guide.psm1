@@ -42,11 +42,11 @@ $script:GuideContent = @{
         @{ Title = "Hotkey List"; Text = "All hotkeys you assigned via the Dashboard Context Menu appear here.`n`nDouble-click a row to edit the key combination."; Target = "HotkeysGrid"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
         @{ Title = "Unregister"; Text = "To remove a hotkey, select the row and click here."; Target = "UnregisterHotkey"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
         @{ Title = "Back to Dashboard"; Text = "Let's close settings and look at the Tools."; Target = "Cancel"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
-        @{ Title = "Ftool"; Text = "Select clients in the list, then click 'Ftool'.`n`nThis opens a small window to spam keys at intervals. You can add multiple keys per client."; Target = "Ftool"; Form = "MainForm"; Context = "Main" },
-        @{ Title = "Macro Helper"; Text = "Select clients, then click 'Macro'.`n`nAllows complex sequences (Key Press, Wait, Loop). Useful for buffing or switching gear."; Target = "Macro"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Ftool"; Text = "Select clients in the list, then click 'Ftool'.`n`nLeft-Click: Opens the tool.`nRight-Click: Resets all Ftool settings globally."; Target = "Ftool"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Macro Helper"; Text = "Select clients, then click 'Macro'.`n`nLeft-Click: Opens the tool.`nRight-Click: Resets all Macro settings globally."; Target = "Macro"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Auto Login"; Text = "Click 'Login' to automatically log in the selected clients using the settings we configured earlier."; Target = "LoginButton"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Terminate / Stop"; Text = "Controls selected clients:`n`nLeft-Click: Kills the process (Force Close).`nRight-Click: Disconnects the TCP connection (Instant Logout)."; Target = "Terminate"; Form = "MainForm"; Context = "Main" },
-        @{ Title = "Extras"; Text = "Finally, the 'Extra' menu contains the World Boss System, Notes, and Notification history."; Target = "Extra"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Extras"; Text = "The 'Extra' menu contains the World Boss System, Notes, and Notification history.`n`nRight-Click: Opens ChatCommander (Quick chat macros)."; Target = "Extra"; Form = "MainForm"; Context = "Main" },
         @{ Title = "World Boss Setup"; Text = "Enter your Access Code (from Discord) and Username here.`n`nUse code 'TEST' to try it out locally without connecting to the server."; Target = "InputUser"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
         @{ Title = "Listener & Images"; Text = "- Listener: Receive toast notifications when bosses spawn.`n- Show Images: Toggle graphical buttons."; Target = "WorldBossListener"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
         @{ Title = "Boss List"; Text = "Click a boss to report it as spawned (Alerts everyone!).`n`nUse the toggle switch next to a button to mute notifications for that specific boss."; Target = "ButtonPanel"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
@@ -55,6 +55,7 @@ $script:GuideContent = @{
         @{ Title = "Wiki System"; Text = "Need info? Open the built-in Wiki.`n`nIt contains guides, drop lists, and more."; Target = "Wiki"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Online / Offline"; Text = "Toggle between Online (Live Web) and Offline (Local Cache).`n`nOffline is faster but requires you to download the content first."; Target = "chkViewMode"; Form = "WikiForm"; Context = "Wiki" },
         @{ Title = "Edit Mode"; Text = "Turn on 'Edit Mode' to modify offline pages.`n`nYou can fix errors or add your own guides locally."; Target = "chkEdit"; Form = "WikiForm"; Context = "Wiki" },
+        @{ Title = "Sync Features"; Text = "When viewing offline, use Sync buttons to update content.`n`n- Sync Node: Updates selected page.`n- Smart Sync: Adds missing pages without overwriting changes."; Target = "chkViewMode"; Form = "WikiForm"; Context = "Wiki" },
         @{ Title = "Finished"; Text = "That's it! You're ready to go.`n`nPress 'Finish' to close this guide."; Target = "InfoForm"; Form = "MainForm"; Context = "Main" }
     )
 
@@ -82,11 +83,11 @@ $script:GuideContent = @{
         @{ Title = "Hotkey Liste"; Text = "Alle zugewiesenen Hotkeys erscheinen hier.`n`nDoppelklick zum Bearbeiten."; Target = "HotkeysGrid"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
         @{ Title = "Entfernen"; Text = "W$([char]0x00E4)hle eine Zeile und klicke hier, um den Hotkey zu l$([char]0x00F6)schen."; Target = "UnregisterHotkey"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
         @{ Title = "Zur$([char]0x00FC)ck"; Text = "Schlie$([char]0x00DF)en wir die Einstellungen und schauen uns die Tools an."; Target = "Cancel"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
-        @{ Title = "Ftool"; Text = "Clients ausw$([char]0x00E4)hlen, dann 'Ftool' klicken.`n`n$([char]0x00D6)ffnet ein Fenster zum Spammen von Tasten. Mehrere Tasten pro Client m$([char]0x00F6)glich."; Target = "Ftool"; Form = "MainForm"; Context = "Main" },
-        @{ Title = "Makro Helper"; Text = "Clients ausw$([char]0x00E4)hlen, dann 'Macro'.`n`nErlaubt komplexe Sequenzen (Dr$([char]0x00FC)cken, Warten, Loop). Gut zum Buffen."; Target = "Macro"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Ftool"; Text = "Clients ausw$([char]0x00E4)hlen, dann 'Ftool' klicken.`n`nLinksklick: $([char]0x00D6)ffnet das Tool.`nRechtsklick: Setzt alle Ftool-Einstellungen zur$([char]0x00FC)ck."; Target = "Ftool"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Makro Helper"; Text = "Clients ausw$([char]0x00E4)hlen, dann 'Macro'.`n`nLinksklick: $([char]0x00D6)ffnet das Tool.`nRechtsklick: Setzt alle Makro-Einstellungen zur$([char]0x00FC)ck."; Target = "Macro"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Auto Login"; Text = "Klicke 'Login', um die ausgew$([char]0x00E4)hlten Clients automatisch einzuloggen."; Target = "LoginButton"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Beenden / Stop"; Text = "Steuert ausgew$([char]0x00E4)hlte Clients:`n`nLinksklick: Prozess beenden (Force Close).`nRechtsklick: TCP trennen (Instant Logout)."; Target = "Terminate"; Form = "MainForm"; Context = "Main" },
-        @{ Title = "Extras"; Text = "Im 'Extra' Men$([char]0x00FC) findest du das World Boss System, Notizen und die Historie."; Target = "Extra"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Extras"; Text = "Das 'Extra' Men$([char]0x00FC) enth$([char]0x00E4)lt World Boss, Notizen und Historie.`n`nRechtsklick: $([char]0x00D6)ffnet ChatCommander (Chat-Makros)."; Target = "Extra"; Form = "MainForm"; Context = "Main" },
         @{ Title = "World Boss Setup"; Text = "Gib hier deinen Zugangscode (Discord) und Namen ein.`n`nNutze 'TEST', um es lokal zu probieren."; Target = "InputUser"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
         @{ Title = "Listener & Bilder"; Text = "- Listener: Toast-Benachrichtigung bei Boss-Spawn.`n- Show Images: Grafische Buttons anzeigen."; Target = "WorldBossListener"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
         @{ Title = "Boss Liste"; Text = "Klicke einen Boss, um ihn als gespawnt zu melden.`n`nNutze den Schalter daneben, um Benachrichtigungen f$([char]0x00FC)r diesen Boss stummzuschalten."; Target = "ButtonPanel"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
@@ -95,6 +96,7 @@ $script:GuideContent = @{
         @{ Title = "Wiki System"; Text = "Brauchst du Infos? $([char]0x00D6)ffne das integrierte Wiki.`n`nEs enth$([char]0x00E4)lt Guides, Droplisten und mehr."; Target = "Wiki"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Online / Offline"; Text = "Wechsle zwischen Online (Live Web) und Offline (Lokaler Cache).`n`nOffline ist schneller, erfordert aber vorherigen Download."; Target = "chkViewMode"; Form = "WikiForm"; Context = "Wiki" },
         @{ Title = "Bearbeitungsmodus"; Text = "Aktiviere 'Edit Mode', um Offline-Seiten zu $([char]0x00E4)ndern.`n`nDu kannst Fehler beheben oder eigene Guides schreiben."; Target = "chkEdit"; Form = "WikiForm"; Context = "Wiki" },
+        @{ Title = "Sync Funktionen"; Text = "Offline-Modus Sync-Optionen:`n`n- Sync Node: Aktualisiert die Seite.`n- Smart Sync: F$([char]0x00FC)gt fehlende Seiten hinzu, ohne $Auml;nderungen zu $u00FCberschreiben."; Target = "chkViewMode"; Form = "WikiForm"; Context = "Wiki" },
         @{ Title = "Fertig"; Text = "Das war's! Du bist bereit.`n`nDr$([char]0x00FC)cke 'Fertig', um den Guide zu schlie$([char]0x00DF)en."; Target = "InfoForm"; Form = "MainForm"; Context = "Main" }
     )
 
@@ -122,11 +124,11 @@ $script:GuideContent = @{
         @{ Title = "Lista de Atalhos"; Text = "Todos os atalhos atribu$([char]0x00ED)dos aparecem aqui.`n`nClique duplo para editar."; Target = "HotkeysGrid"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
         @{ Title = "Remover atalhos"; Text = "Para remover atalhos, selecione a linha e clique aqui."; Target = "UnregisterHotkey"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
         @{ Title = "De volta ao Dashboard"; Text = "Vamos fechar as configura$([char]0x00E7)$([char]0x00F5)es e ver as Ferramentas."; Target = "Cancel"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
-        @{ Title = "Ftool"; Text = "Selecione clientes na lista, clique em 'Ftool'.`n`nIsso abre uma pequena janela para spammar teclas. Voc$([char]0x00EA) pode adicionar m$([char]0x00FA)ltiplas teclas por cliente."; Target = "Ftool"; Form = "MainForm"; Context = "Main" },
-        @{ Title = "Macro Helper"; Text = "Selecione clientes, clique em 'Macro'.`n`nSequ$([char]0x00EA)ncias complexas (Apertar, Esperar, Loop). $([char]0x00DA)til para buffar ou trocar de equip."; Target = "Macro"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Ftool"; Text = "Selecione clientes na lista, clique em 'Ftool'.`n`nClique esquerdo: Abre a ferramenta.`nClique direito: Reseta todas as configura$([char]0x00E7)$([char]0x00F5)es do Ftool."; Target = "Ftool"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Macro Helper"; Text = "Selecione clientes, clique em 'Macro'.`n`nClique esquerdo: Abre a ferramenta.`nClique direito: Reseta todas as configura$([char]0x00E7)$([char]0x00F5)es do Macro."; Target = "Macro"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Auto Login"; Text = "Clique 'Login' para logar automaticamente os clientes selecionados utilizando as configura$([char]0x00E7)$([char]0x00F5)es que fizemos mais cedo."; Target = "LoginButton"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Terminar / Parar"; Text = "Controla clientes selecionados:`n`nClique esquerdo: Fecha processo (Force Close).`nClique direito: Desconecta TCP (Instant Logout)."; Target = "Terminate"; Form = "MainForm"; Context = "Main" },
-        @{ Title = "Extras"; Text = "No menu 'Extra' tem o World Boss System, Notas e Hist$([char]0x00F3)rico de Notifica$([char]0x00E7)$([char]0x00F5)es."; Target = "Extra"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Extras"; Text = "O menu 'Extra' cont$([char]0x00E9)m World Boss, Notas e Hist$([char]0x00F3)rico.`n`nClique direito: Abre ChatCommander (Macros de chat)."; Target = "Extra"; Form = "MainForm"; Context = "Main" },
         @{ Title = "World Boss Setup"; Text = "Insira seu C$([char]0x00F3)digo de Acesso (Discord) e Nome.`n`nUse 'TEST' para testar localmente."; Target = "InputUser"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
         @{ Title = "Listener e Imagens"; Text = "- Listener: Notifica$([char]0x00E7)$([char]0x00E3)o quando boss nascer.`n- Show Images: Bot$([char]0x00F5)es gr$([char]0x00E1)ficos."; Target = "WorldBossListener"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
         @{ Title = "Lista de Boss"; Text = "Clique num boss para reportar nascimento.`n`nUse a chave ao lado para silenciar notifica$([char]0x00E7)$([char]0x00F5)es daquele boss."; Target = "ButtonPanel"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
@@ -135,6 +137,7 @@ $script:GuideContent = @{
         @{ Title = "Sistema Wiki"; Text = "Precisa de ajuda? Abra a Wiki integrada.`n`nCont$([char]0x00E9)m guias, listas de drops e mais."; Target = "Wiki"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Online / Offline"; Text = "Alterne entre Online (Web) e Offline (Cache Local).`n`nOffline $([char]0x00E9) mais r$([char]0x00E1)pido, mas requer download do conte$([char]0x00FA)do."; Target = "chkViewMode"; Form = "WikiForm"; Context = "Wiki" },
         @{ Title = "Modo de Edi$([char]0x00E7)$([char]0x00E3)o"; Text = "Ative o 'Edit Mode' para modificar p$([char]0x00E1)ginas offline.`n`nVoc$([char]0x00EA) pode corrigir erros ou adicionar seus pr$([char]0x00F3)prios guias."; Target = "chkEdit"; Form = "WikiForm"; Context = "Wiki" },
+        @{ Title = "Sincroniza$([char]0x00E7)$([char]0x00E3)o"; Text = "No modo offline, use bot$([char]0x00F5)es de Sync:`n`n- Sync Node: Atualiza p$([char]0x00E1)gina selecionada.`n- Smart Sync: Adiciona p$([char]0x00E1)ginas faltantes sem sobrescrever."; Target = "chkViewMode"; Form = "WikiForm"; Context = "Wiki" },
         @{ Title = "Fim"; Text = "$([char]0x00C9) isso! Voc$([char]0x00EA) est$([char]0x00E1) pronto.`n`nPressione 'Fim' para fechar o guia."; Target = "InfoForm"; Form = "MainForm"; Context = "Main" }
     )
 
@@ -162,11 +165,11 @@ $script:GuideContent = @{
         @{ Title = "Hotkey List"; Text = "Lalabas dito ang lahat ng hotkey na itinalaga mo sa pamamagitan ng Menu ng Dashboard. I-double-click ang isang row para i-edit ang combination ng key."; Target = "HotkeysGrid"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
         @{ Title = "Unregister"; Text = "Upang alisin ang isang hotkey, piliin ang row at mag-click dito."; Target = "UnregisterHotkey"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
         @{ Title = "Back to Dashboard"; Text = "Isara natin ang mga setting at tingnan ang Tools."; Target = "Cancel"; Form = "SettingsForm"; Context = "Settings_Hotkeys" },
-        @{ Title = "Ftool"; Text = "Pumili ng mga Client sa listahan, pagkatapos ay i-click ang 'Ftool'. Magbubukas ito ng maliit na window para sa mga spam key sa pagitan. Maaari kang magdagdag ng maramihang keys sa bawat client."; Target = "Ftool"; Form = "MainForm"; Context = "Main" },
-        @{ Title = "Macro Helper"; Text = "Pumili ng mga kliyente, pagkatapos ay i-click ang 'Macro'. Pinapayagan ang mga kumplikadong sequence (Key Press, Wait, Loop). Kapaki-pakinabang para sa buffing o switching gear."; Target = "Macro"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Ftool"; Text = "Pumili ng mga Client sa listahan, pagkatapos ay i-click ang 'Ftool'.`n`nLeft-Click: Bubuksan ang tool.`nRight-Click: I-reset ang lahat ng setting ng Ftool."; Target = "Ftool"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Macro Helper"; Text = "Pumili ng mga kliyente, pagkatapos ay i-click ang 'Macro'.`n`nLeft-Click: Bubuksan ang tool.`nRight-Click: I-reset ang lahat ng setting ng Macro."; Target = "Macro"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Auto Login"; Text = "I-click ang 'Login' para automatically mag-log in sa mga napiling client gamit ang mga setting na na-configure kanina."; Target = "LoginButton"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Terminate / Stop"; Text = "Kinokontrol ang mga napiling kliyente: Left-Click: Pinapatay ang proseso (Force Close). Right-Click: Disconnect ang TCP connection (Instant Logout)."; Target = "Terminate"; Form = "MainForm"; Context = "Main" },
-        @{ Title = "Extras"; Text = "Panghuli, ang 'Extra' na menu ay naglalaman ng World Boss System, Mga Notes, at History ng Notification."; Target = "Extra"; Form = "MainForm"; Context = "Main" },
+        @{ Title = "Extras"; Text = "Ang 'Extra' menu ay naglalaman ng World Boss, Notes, at History.`n`nRight-Click: Bubuksan ang ChatCommander (Chat Macros)."; Target = "Extra"; Form = "MainForm"; Context = "Main" },
         @{ Title = "World Boss Setup"; Text = "Ilagay ang iyong Access Code (mula sa Discord) at Username dito. Gamitin ang code na 'TEST' upang subukan ito nang lokal nang hindi kumokonekta sa server."; Target = "InputUser"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
         @{ Title = "Listener & Images"; Text = "- Listener: Makatanggap ng mga notification kapag nag-spawn ang mga boss. Ipakita ang Mga Larawan: I-toggle ang mga graphical na button."; Target = "WorldBossListener"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
         @{ Title = "Boss List"; Text = "I-click ang isang boss para ma-report ito bilang spawned (Alerts everyone!). Gamitin ang toggle switch sa tabi ng isang button para i-mute ang mga notification para sa partikular na boss na iyon."; Target = "ButtonPanel"; Form = "ExtraForm"; Context = "Extra_WorldBoss" },
@@ -175,6 +178,7 @@ $script:GuideContent = @{
         @{ Title = "Wiki System"; Text = "Kailangan ng info? Buksan ang built-in Wiki.`n`nNaglalaman ito ng guides, drop lists, at iba pa."; Target = "Wiki"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Online / Offline"; Text = "Mag-switch sa pagitan ng Online (Live Web) at Offline (Local Cache).`n`nMas mabilis ang Offline pero kailangan mong i-download muna ang content."; Target = "chkViewMode"; Form = "WikiForm"; Context = "Wiki" },
         @{ Title = "Edit Mode"; Text = "I-on ang 'Edit Mode' para baguhin ang offline pages.`n`nPwede kang mag-fix ng errors o magdagdag ng sariling guides."; Target = "chkEdit"; Form = "WikiForm"; Context = "Wiki" },
+        @{ Title = "Sync Features"; Text = "Kapag offline, gamitin ang Sync buttons:`n`n- Sync Node: I-update ang napiling page.`n- Smart Sync: Magdagdag ng missing pages nang hindi binubura ang changes."; Target = "chkViewMode"; Form = "WikiForm"; Context = "Wiki" },
         @{ Title = "Finished"; Text = "Yun lang! Lahat ay nakasetup na. Pindutin ang 'Tapos' upang isara ang guide na ito."; Target = "InfoForm"; Form = "MainForm"; Context = "Main" }
     )
 }
@@ -264,6 +268,8 @@ function Switch-GuideContext {
         "Main" {
             if ($UI.SettingsForm.Visible) { HideSettingsForm }
             if ($UI.ExtraForm.Visible) { HideExtraForm }
+            $wForm = if ($UI.WikiForm) { $UI.WikiForm } else { $global:DashboardConfig.Resources.WikiForm }
+            if ($wForm -and -not $wForm.IsDisposed -and $wForm.Visible) { $wForm.Close() }
             $UI.MainForm.Activate()
         }
         "Settings_General" {

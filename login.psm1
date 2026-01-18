@@ -99,13 +99,16 @@ function GetClientLogPath
 
 	if ([string]::IsNullOrEmpty($determinedLogBaseFolder))
 	{
-		$launcherPathConfig = $global:DashboardConfig.Config['LauncherPath']
-		if ($launcherPathConfig -and $launcherPathConfig.Contains('LauncherPath'))
+		if ($global:DashboardConfig.Config)
 		{
-			$launcherPath = $launcherPathConfig['LauncherPath']
-			if (-not [string]::IsNullOrEmpty($launcherPath))
+			$launcherPathConfig = $global:DashboardConfig.Config['LauncherPath']
+			if ($launcherPathConfig -and $launcherPathConfig.Contains('LauncherPath'))
 			{
-				$determinedLogBaseFolder = Split-Path -Path $launcherPath -Parent
+				$launcherPath = $launcherPathConfig['LauncherPath']
+				if (-not [string]::IsNullOrEmpty($launcherPath))
+				{
+					$determinedLogBaseFolder = Split-Path -Path $launcherPath -Parent
+				}
 			}
 		}
 	}
@@ -231,7 +234,7 @@ function LoginSelectedRow
 				ProcessId      = if ($process) { $process.Id } else { 0 }
 				ExplicitHandle = if (($WindowHandle -ne [IntPtr]::Zero) -and ($RowInput -eq $row -or ($RowInput.Row -eq $row))) { $WindowHandle } else { [IntPtr]::Zero }
 				LogPath        = $actualLogPath
-				Config         = if ($global:DashboardConfig.Config['LoginConfig'] -and $global:DashboardConfig.Config['LoginConfig'][$profileName]) { $global:DashboardConfig.Config['LoginConfig'][$profileName] } else { @{} }
+				Config         = if ($global:DashboardConfig.Config -and $global:DashboardConfig.Config['LoginConfig'] -and $global:DashboardConfig.Config['LoginConfig'][$profileName]) { $global:DashboardConfig.Config['LoginConfig'][$profileName] } else { @{} }
 				ProfileName    = $profileName
 				ClientTitle    = $processTitle
 			}
@@ -889,8 +892,48 @@ function LoginSelectedRow
 								{
 									$existingPids = @(Get-Process -Name $pName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
 									$lDir = [System.IO.Path]::GetDirectoryName($lPath)
-									$null = Start-Process -FilePath $lPath -WorkingDirectory $lDir -PassThru -WindowStyle Normal
-									
+									$lProc = Start-Process -FilePath $lPath -WorkingDirectory $lDir -PassThru -WindowStyle Normal
+								
+									if ($lProc) {
+										$playCoords = $null
+										if ($job.Config -and $job.Config['LauncherPlayCoords']) { $playCoords = $job.Config['LauncherPlayCoords'] }
+										
+										if ($playCoords -and $playCoords -ne '0,0') {
+											$logDir = Join-Path $lDir "Log"
+											$initialCount = 0
+											if (Test-Path $logDir) {
+												$logFile = Get-ChildItem -Path $logDir -Filter "launcher*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+												if ($logFile) { try { $s=[System.IO.File]::Open($logFile.FullName,'Open','Read','ReadWrite'); $r=New-Object System.IO.StreamReader($s); $c=$r.ReadToEnd(); $r.Close(); $s.Close(); $initialCount=([regex]::Matches($c, "Status: Update completed successfully!")).Count } catch {} }
+											}
+											
+											$patchTimeout = [DateTime]::Now.AddSeconds(45)
+											while ([DateTime]::Now -lt $patchTimeout) {
+												if ($lProc.HasExited) { break }
+												$success = $false
+												if (Test-Path $logDir) {
+													$logFile = Get-ChildItem -Path $logDir -Filter "launcher*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+													if ($logFile) { try { $s=[System.IO.File]::Open($logFile.FullName,'Open','Read','ReadWrite'); $r=New-Object System.IO.StreamReader($s); $c=$r.ReadToEnd(); $r.Close(); $s.Close(); if (([regex]::Matches($c, "Status: Update completed successfully!")).Count -gt $initialCount) { $success = $true } } catch {} }
+												}
+												
+												if ($success) {
+													try {
+														$hWnd = $lProc.MainWindowHandle
+														if ($hWnd -ne [IntPtr]::Zero -and ('Custom.Native' -as [Type])) {
+															[Custom.Native]::ShowWindow($hWnd, 1); [Custom.Native]::SetForegroundWindow($hWnd); Start-Sleep -Milliseconds 500
+															$rect = New-Object Custom.Native+RECT; [Custom.Native]::GetWindowRect($hWnd, [ref]$rect)
+															$xy = $playCoords -split ','; 
+															if ($xy.Count -eq 2) {
+																$x = [int]$xy[0] + $rect.Left; $y = [int]$xy[1] + $rect.Top
+																[Custom.Native]::SetCursorPos($x, $y); [Custom.Native]::mouse_event(0x02, 0, 0, 0, 0); [Custom.Native]::mouse_event(0x04, 0, 0, 0, 0)
+															}
+														}
+													} catch {}
+													break
+												}
+												Start-Sleep -Milliseconds 1000
+											}
+										}
+									}
 									$timeout = [DateTime]::Now.AddSeconds(60)
 									while ([DateTime]::Now -lt $timeout)
 									{
@@ -991,7 +1034,10 @@ function LoginSelectedRow
 		})
 
 		$stepsVal = if ($TOTAL_STEPS_PER_CLIENT) { $TOTAL_STEPS_PER_CLIENT } else { 15 }
-		$result = InvokeInManagedRunspace -RunspacePool $localRunspace -ScriptBlock $loginScript -AsJob -ArgumentList $loginTasks, $stepsVal, $global:DashboardConfig.Config['Options'], $global:DashboardConfig.Config['LoginConfig'], $global:LoginCancellation, $global:DashboardConfig.State
+		$options = if ($global:DashboardConfig.Config) { $global:DashboardConfig.Config['Options'] } else { @{} }
+		$loginCfg = if ($global:DashboardConfig.Config) { $global:DashboardConfig.Config['LoginConfig'] } else { @{} }
+
+		$result = InvokeInManagedRunspace -RunspacePool $localRunspace -ScriptBlock $loginScript -AsJob -ArgumentList $loginTasks, $stepsVal, $options, $loginCfg, $global:LoginCancellation, $global:DashboardConfig.State
 
 		if ($result -and $result.PowerShell)
 		{

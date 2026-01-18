@@ -48,6 +48,20 @@ $global:WorkerBusy = $false
 if (-not $global:DashboardConfig.State.NotificationMap) { $global:DashboardConfig.State.NotificationMap = @{} }
 if (-not $global:NotificationStack) { $global:NotificationStack = [System.Collections.ArrayList]::new() }
 
+if (-not ([System.Management.Automation.PSTypeName]'DashboardPower').Type) {
+    Add-Type -TypeDefinition @"
+    using System;
+    using System.Runtime.InteropServices;
+    public class DashboardPower {
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern uint SetThreadExecutionState(uint esFlags);
+        public const uint ES_CONTINUOUS = 0x80000000;
+        public const uint ES_SYSTEM_REQUIRED = 0x00000001;
+        public const uint ES_DISPLAY_REQUIRED = 0x00000002;
+    }
+"@
+}
+
 #endregion
 
 #region Internal Helper Functions
@@ -316,11 +330,14 @@ function StartDisconnectWatcher
 	$global:DashboardConfig.State.QueuePaused = $false
 
 	Write-Verbose 'Starting Disconnect Supervisor (Separated Logic Mode)...'
+    
+    # Prevent system sleep while watcher is active
+    [DashboardPower]::SetThreadExecutionState([DashboardPower]::ES_CONTINUOUS -bor [DashboardPower]::ES_SYSTEM_REQUIRED -bor [DashboardPower]::ES_DISPLAY_REQUIRED) | Out-Null
 
 	$TimerWatcher = New-Object System.Windows.Forms.Timer
 	$TimerWatcher.Interval = 2000
 
-	$null = $JobWatcher; $JobWatcher = Register-ObjectEvent -InputObject $TimerWatcher -EventName Tick -SourceIdentifier 'DisconnectWatcherTick' -Action {
+	$TimerWatcher.Add_Tick({
 		if ($global:WatcherBusy) { return }
 		$global:WatcherBusy = $true
 
@@ -345,6 +362,14 @@ function StartDisconnectWatcher
 
 					if ($now -ge $triggerTime)
 					{
+						# Check for stale reconnects (e.g. after sleep/hibernate)
+						if (($now - $triggerTime).TotalMinutes -gt 5)
+						{
+							Write-Verbose "RECONNECT: Discarding stale reconnect for PID $sPid (Scheduled: $triggerTime)"
+							$global:DashboardConfig.State.ScheduledReconnects.Remove($sPid)
+							continue
+						}
+
 						$details = ''
 						if ($global:DashboardConfig.UI.DataGridMain)
 						{
@@ -563,12 +588,12 @@ function StartDisconnectWatcher
 			}
 		}
 		catch {} finally { $global:WatcherBusy = $false }
-	}
+	})
 
 	$TimerWorker = New-Object System.Windows.Forms.Timer
 	$TimerWorker.Interval = 500
 
-	$null = $JobWorker; $JobWorker = Register-ObjectEvent -InputObject $TimerWorker -EventName Tick -SourceIdentifier 'DisconnectWorkerTick' -Action {
+	$TimerWorker.Add_Tick({
 		if ($global:WorkerBusy) { return }
 		$global:WorkerBusy = $true
 
@@ -696,7 +721,7 @@ function StartDisconnectWatcher
 			}
 		}
 		catch { } finally { $global:WorkerBusy = $false }
-	}
+	})
 
 	$global:DashboardConfig.State.Timers['Watcher'] = $TimerWatcher
 	$global:DashboardConfig.State.Timers['Worker'] = $TimerWorker
@@ -709,6 +734,9 @@ function StopDisconnectWatcher
 	[CmdletBinding()]
 	param()
 	Write-Verbose 'Stopping Disconnect Supervisor...'
+
+    # Allow system sleep again
+    [DashboardPower]::SetThreadExecutionState([DashboardPower]::ES_CONTINUOUS) | Out-Null
 
 	if ($global:DashboardConfig.State.Timers)
 	{
@@ -725,9 +753,6 @@ function StopDisconnectWatcher
 			$global:DashboardConfig.State.Timers.Remove('Worker')
 		}
 	}
-
-	Get-EventSubscriber -SourceIdentifier 'DisconnectWatcherTick' -ErrorAction SilentlyContinue | Unregister-Event -Force
-	Get-EventSubscriber -SourceIdentifier 'DisconnectWorkerTick' -ErrorAction SilentlyContinue | Unregister-Event -Force
 
 	if ($global:DashboardConfig.State.NotificationMap)
 	{
@@ -1001,6 +1026,11 @@ try
 				$mainForm.Invoke([Action]({
 							try
 							{
+								# Safety checks to prevent "Index into null array" errors
+								if (-not $rowRef -or -not $rowRef.Cells) { Write-Verbose 'RECONNECT: Row or Cells invalid in UI thread. Aborting.'; return }
+								if (-not $global:DashboardConfig -or -not $global:DashboardConfig.Config) { Write-Verbose 'RECONNECT: Global Config invalid in UI thread. Aborting.'; return }
+								if (-not $global:DashboardConfig.Config['LoginConfig']) { Write-Verbose 'RECONNECT: LoginConfig missing in UI thread. Aborting.'; return }
+
 								
 								if (-not $rowRef)
 								{

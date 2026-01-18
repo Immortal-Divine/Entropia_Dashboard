@@ -186,7 +186,8 @@ function ShowToast
             
             if ($existingForm.Tag.Timer) {
                 $tTag = $existingForm.Tag.Timer.Tag
-                $tTag.RemainingMs = $tTag.TotalMs
+                # Reset timer to full duration starting now
+                $tTag.EndTime = [DateTime]::Now.Add($tTag.TotalDuration)
 
                 $tTag.WaitForHover = $false
 
@@ -284,8 +285,9 @@ function ShowToast
 		$timer.Interval = 100
 		$timer.Tag = @{
 			Form          = $form
-			TotalMs       = ($TimeoutSeconds * 1000)
-			RemainingMs   = ($TimeoutSeconds * 1000)
+			EndTime       = [DateTime]::Now.AddSeconds($TimeoutSeconds)
+			TotalDuration = [TimeSpan]::FromSeconds($TimeoutSeconds)
+			Paused        = $false
 			Strip         = $strip 
 			IgnoreCancellation = $IgnoreCancellation
 			WaitForHover  = $WaitForHover
@@ -318,23 +320,34 @@ function ShowToast
 				if ($tag.WaitForHover) {
 					if ($tag.Form.Bounds.Contains($mousePos)) {
 						$tag.WaitForHover = $false
+						# Reset end time starting from now
+						$tag.EndTime = [DateTime]::Now.Add($tag.TotalDuration)
+					}
+					else {
+						# Keep pushing end time forward while waiting
+						$tag.EndTime = [DateTime]::Now.Add($tag.TotalDuration)
 					}
 					return
 				}
 
-				if ($anyHover) { return }
+				if ($anyHover) {
+					# Extend EndTime while hovering to pause countdown
+					$tag.EndTime = $tag.EndTime.AddMilliseconds($s.Interval)
+					return 
+				}
 
-				$tag.RemainingMs -= $s.Interval
+				$now = [DateTime]::Now
+				$remaining = $tag.EndTime - $now
                 
                 if ($tag.Strip -and -not $tag.Strip.IsDisposed) {
                     $currentContainerHeight = if ($tag.Strip.Parent) { $tag.Strip.Parent.Height } else { $tag.Form.Height }
-                    $pct = $tag.RemainingMs / $tag.TotalMs
+                    $pct = $remaining.TotalMilliseconds / $tag.TotalDuration.TotalMilliseconds
                     if ($pct -lt 0) { $pct = 0 } if ($pct -gt 1) { $pct = 1 }
                     $newHeight = [int]($currentContainerHeight * $pct)
                     $tag.Strip.Height = $newHeight
                 }
 
-				if ($tag.RemainingMs -le 0) { 
+				if ($now -ge $tag.EndTime) { 
 					$s.Stop(); if ($tag.Form -and -not $tag.Form.IsDisposed) { $tag.Form.Close() }; $s.Dispose(); return 
 				} 
 			})
@@ -503,7 +516,8 @@ function ShowInteractiveNotification
 		if ($form.Tag.Timer)
 		{
 			$tTag = $form.Tag.Timer.Tag
-			if ($tTag.RemainingMs -eq $tTag.TotalMs)
+			# Check if timer essentially hasn't started (full duration left)
+			if (($tTag.EndTime - [DateTime]::Now).TotalSeconds -ge ($tTag.TotalDuration.TotalSeconds - 1))
 			{
 				if ($tTag.Strip.Parent) { $tTag.Strip.Height = $tTag.Strip.Parent.Height }
 			}

@@ -351,6 +351,74 @@ function StartClientLaunch
 			Write-Verbose 'LAUNCH: Checking clients...'
 			$currentClients = @(Get-Process -Name $NeuzName -ErrorAction SilentlyContinue)
 			$pCount = $currentClients.Count
+			
+			$isFreshLaunch = ($pCount -eq 0)
+
+			if ($isFreshLaunch) {
+				Write-Verbose "LAUNCH: No clients detected. Starting Main Launcher for patching..."
+				ReportLaunchProgress -Action "Patching Main Client..." -Step 0 -TotalSteps $totalSteps
+				
+				$mainLogDir = Join-Path $launcherDir "Log"
+				$initialSuccessCount = 0
+				
+				if (Test-Path $mainLogDir) {
+					$logFile = Get-ChildItem -Path $mainLogDir -Filter "launcher*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+					if ($logFile) {
+						try {
+							$stream = [System.IO.File]::Open($logFile.FullName, 'Open', 'Read', 'ReadWrite')
+							$reader = New-Object System.IO.StreamReader($stream)
+							$content = $reader.ReadToEnd()
+							$reader.Close(); $stream.Close()
+							$initialSuccessCount = ([regex]::Matches($content, "Status: Update completed successfully!")).Count
+						} catch {}
+					}
+				}
+
+				try {
+					$mainLauncherProc = Start-Process -FilePath $LauncherPath -WorkingDirectory $launcherDir -PassThru -WindowStyle Normal
+					if ($mainLauncherProc) {
+						$patchSuccess = $false
+						$patchTimeout = [DateTime]::Now.AddSeconds($LauncherTimeoutSeconds)
+						
+						while ([DateTime]::Now -lt $patchTimeout) {
+							CheckCancel
+							if ($mainLauncherProc.HasExited) { break }
+							
+							if (Test-Path $mainLogDir) {
+								$logFile = Get-ChildItem -Path $mainLogDir -Filter "launcher*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+								if ($logFile) {
+									try {
+										$stream = [System.IO.File]::Open($logFile.FullName, 'Open', 'Read', 'ReadWrite')
+										$reader = New-Object System.IO.StreamReader($stream)
+										$content = $reader.ReadToEnd()
+										$reader.Close(); $stream.Close()
+										
+										$currentCount = ([regex]::Matches($content, "Status: Update completed successfully!")).Count
+										if ($currentCount -gt $initialSuccessCount) {
+											$patchSuccess = $true
+											break
+										}
+									} catch {}
+								}
+							}
+							Start-Sleep -Milliseconds 1000
+						}
+						
+						if ($patchSuccess) {
+							Write-Verbose "LAUNCH: Main Patch Successful. Closing Main Launcher."
+							Stop-Process -Id $mainLauncherProc.Id -Force -ErrorAction SilentlyContinue
+							$mainLauncherProc.WaitForExit(5000)
+						} else {
+							Write-Verbose "LAUNCH: Main Patch timeout or launcher closed. Proceeding..."
+							if (-not $mainLauncherProc.HasExited) {
+								Stop-Process -Id $mainLauncherProc.Id -Force -ErrorAction SilentlyContinue
+							}
+						}
+					}
+				} catch {
+					Write-Verbose "LAUNCH: Error during main patching: $_"
+				}
+			}
 
 			if ($pCount -gt 0) { Write-Verbose "LAUNCH: Found $pCount client(s)" }
 			else { Write-Verbose 'LAUNCH: No clients found' }
@@ -452,7 +520,111 @@ function StartClientLaunch
 				{
 					$launcherPID = $launcherProcess.Id
 					Write-Verbose "LAUNCH: PID: $launcherPID"
-					
+					if ($launcherPID) {
+						$playCoords = $null
+						if ($Settings['LoginConfig'] -and $Settings['LoginConfig'][$ProfileName] -and $Settings['LoginConfig'][$ProfileName]['LauncherPlayCoords']) {
+							$playCoords = $Settings['LoginConfig'][$ProfileName]['LauncherPlayCoords']
+						}
+						
+						if ($playCoords -and $playCoords -ne '0,0') {
+							Write-Verbose "LAUNCH: Waiting for Profile Patch..."
+							$profLogDir = Join-Path $launcherDir "Log"
+							$profInitialCount = 0
+							
+							if (Test-Path $profLogDir) {
+								$logFile = Get-ChildItem -Path $profLogDir -Filter "launcher*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+								if ($logFile) {
+									try {
+										$stream = [System.IO.File]::Open($logFile.FullName, 'Open', 'Read', 'ReadWrite')
+										$reader = New-Object System.IO.StreamReader($stream)
+										$content = $reader.ReadToEnd()
+										$reader.Close(); $stream.Close()
+										$profInitialCount = ([regex]::Matches($content, "Status: Update completed successfully!")).Count
+									} catch {}
+								}
+							}
+
+							$profPatchSuccess = $false
+							$profPatchTimeout = [DateTime]::Now.AddSeconds($LauncherTimeoutSeconds)
+							
+							while ([DateTime]::Now -lt $profPatchTimeout) {
+								CheckCancel
+								if ($launcherProcess.HasExited) { break }
+								
+								if (Test-Path $profLogDir) {
+									$logFile = Get-ChildItem -Path $profLogDir -Filter "launcher*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+									if ($logFile) {
+										try {
+											$stream = [System.IO.File]::Open($logFile.FullName, 'Open', 'Read', 'ReadWrite')
+											$reader = New-Object System.IO.StreamReader($stream)
+											$content = $reader.ReadToEnd()
+											$reader.Close(); $stream.Close()
+											
+											$currentCount = ([regex]::Matches($content, "Status: Update completed successfully!")).Count
+											if ($currentCount -gt $profInitialCount) {
+												$profPatchSuccess = $true
+												break
+											}
+										} catch {}
+									}
+								}
+								Start-Sleep -Milliseconds 500
+							}
+							
+							if ($profPatchSuccess) {
+								Write-Verbose "LAUNCH: Profile Patch Complete. Clicking Play..."
+								try {
+									$hWnd = $launcherProcess.MainWindowHandle
+									if ($hWnd -ne [IntPtr]::Zero) {
+										if ('Custom.Native' -as [Type]) {
+											[Custom.Native]::ShowWindow($hWnd, 1)
+											[Custom.Native]::SetForegroundWindow($hWnd)
+											Start-Sleep -Milliseconds 500
+											
+											$rect = New-Object Custom.Native+RECT
+											[Custom.Native]::GetWindowRect($hWnd, [ref]$rect)
+											
+											$coords = $playCoords -split ','
+											if ($coords.Count -eq 2) {
+												$x = [int]$coords[0] + $rect.Left
+												$y = [int]$coords[1] + $rect.Top
+												
+												[Custom.Native]::SetCursorPos($x, $y)
+												Start-Sleep -Milliseconds 100
+												[Custom.Native]::mouse_event(0x02, 0, 0, 0, 0)
+												[Custom.Native]::mouse_event(0x04, 0, 0, 0, 0)
+												Write-Verbose "LAUNCH: Clicked Play at $x, $y"
+											}
+										}
+									}
+								} catch {
+									Write-Verbose "LAUNCH: Failed to click Play: $_"
+								}
+							}
+						}
+					}
+					$playClicked = $false
+					$playCoords = $null
+					$initialSuccessCount = 0
+					$logDir = Join-Path $launcherDir "Log"
+
+					if ($Settings['LoginConfig'] -and $Settings['LoginConfig'][$ProfileName] -and $Settings['LoginConfig'][$ProfileName]['LauncherPlayCoords']) {
+						$playCoords = $Settings['LoginConfig'][$ProfileName]['LauncherPlayCoords']
+					}
+
+					if ($playCoords -and (Test-Path $logDir)) {
+						$logFile = Get-ChildItem -Path $logDir -Filter "launcher_*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+						if ($logFile) {
+							try {
+								$stream = [System.IO.File]::Open($logFile.FullName, 'Open', 'Read', 'ReadWrite')
+								$reader = New-Object System.IO.StreamReader($stream)
+								$content = $reader.ReadToEnd()
+								$reader.Close(); $stream.Close()
+								$initialSuccessCount = ([regex]::Matches($content, "Status: Update completed successfully!")).Count
+							} catch {}
+						}
+					}
+
 					Start-Sleep -Milliseconds 500
 					try {
 						$lProc = Get-Process -Id $launcherPID -ErrorAction SilentlyContinue
@@ -529,6 +701,52 @@ function StartClientLaunch
 							try { Stop-Process -Id $launcherPID -Force -ErrorAction SilentlyContinue } catch {}
 							$launcherClosed = $true
 							$launcherClosedNormally = $false
+						}
+					}
+
+					if (-not $launcherClosed -and -not $playClicked -and $playCoords) {
+						if (Test-Path $logDir) {
+							$logFile = Get-ChildItem -Path $logDir -Filter "launcher_*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+							if ($logFile) {
+								try {
+									$stream = [System.IO.File]::Open($logFile.FullName, 'Open', 'Read', 'ReadWrite')
+									$reader = New-Object System.IO.StreamReader($stream)
+									$content = $reader.ReadToEnd()
+									$reader.Close(); $stream.Close()
+									
+									$currentSuccessCount = ([regex]::Matches($content, "Status: Update completed successfully!")).Count
+									
+									if ($currentSuccessCount -gt $initialSuccessCount) {
+										Write-Verbose "LAUNCH: Patch complete detected. Clicking Play..."
+										
+										$lProc = Get-Process -Id $launcherPID -ErrorAction SilentlyContinue
+										if ($lProc -and $lProc.MainWindowHandle -ne [IntPtr]::Zero) {
+											$hWnd = $lProc.MainWindowHandle
+											$coords = $playCoords -split ','
+											if ($coords.Count -eq 2) {
+												$x = [int]$coords[0]; $y = [int]$coords[1]
+												
+												[Custom.Native]::ShowWindow($hWnd, 1)
+												[Custom.Native]::SetForegroundWindow($hWnd)
+												Start-Sleep -Milliseconds 200
+												
+												$rect = New-Object Custom.Native+RECT
+												[Custom.Native]::GetWindowRect($hWnd, [ref]$rect)
+												
+												$absX = $rect.Left + $x
+												$absY = $rect.Top + $y
+												
+												[Custom.Native]::SetCursorPos($absX, $absY)
+												Start-Sleep -Milliseconds 50
+												[Custom.Native]::mouse_event(0x02, 0, 0, 0, 0)
+												[Custom.Native]::mouse_event(0x04, 0, 0, 0, 0)
+												
+												$playClicked = $true
+											}
+										}
+									}
+								} catch {}
+							}
 						}
 					}
 
@@ -1017,7 +1235,9 @@ function InvokeSavedLaunchSequence
 								}
 							}
 						}
-						$savedSlots.Sort({ $args[0].GridPos - $args[1].GridPos })
+						$sortedSlots = @($savedSlots | Sort-Object GridPos)
+						$savedSlots = [System.Collections.Generic.List[PSObject]]::new()
+						$savedSlots.AddRange([PSObject[]]$sortedSlots)
 
 						
 						$existingRows = [System.Collections.Generic.List[Object]]::new()

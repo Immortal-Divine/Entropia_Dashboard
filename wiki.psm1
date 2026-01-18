@@ -1,20 +1,24 @@
-<# wiki.psm1 #>
-
 function Show-Wiki
 {
 	[CmdletBinding()]
 	param()
 
-
 	$LocalWikiPath = Join-Path $PSScriptRoot 'wiki.json'
 	
 	$LocalWikiData = $null
-	$OnlineWikiData = $null
+	$null = $OnlineWikiData; $OnlineWikiData = $null
+	$WikiState = @{
+		LocalData = $null
+		OnlineData = $null
+		# Stores unsaved edits: Key = NodeFullPath, Value = @{ Text = "..."; Scroll = 0 }
+		UnsavedBuffer = @{} 
+		# Flat list of node names for autocomplete
+		NodeList = @()
+	}
 	$SourceUsed = 'Connecting...'
 	$IsOffline = $false
 	$Disposables = New-Object System.Collections.Generic.List[object]
 	$WikiJsonURL = 'https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/wiki.json'
-
 
 	if (Test-Path $LocalWikiPath)
 	{
@@ -41,10 +45,33 @@ function Show-Wiki
 
 	Add-Type -AssemblyName System.Windows.Forms
 	Add-Type -AssemblyName System.Drawing
-	if (-not ([System.Threading.SynchronizationContext]::Current)) {
-		[System.Windows.Forms.WindowsFormsSynchronizationContext]::SetSynchronizationContext((New-Object System.Windows.Forms.WindowsFormsSynchronizationContext))
-	}
-	$syncContext = [System.Threading.SynchronizationContext]::Current
+	if (-not ([System.Management.Automation.PSTypeName]'WikiScrollNative').Type) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class WikiScrollNative {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT {
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(IntPtr hWnd, int wMsg, int wParam, ref POINT lParam);
+    
+    [DllImport("user32.dll")]
+    public static extern int SendMessage(IntPtr hWnd, int wMsg, int wParam, int lParam);
+
+    public const int EM_SETSCROLLPOS = 0x04DE;
+    public const int EM_GETSCROLLPOS = 0x04DD;
+    public const int EM_GETFIRSTVISIBLELINE = 0x00CE;
+    public const int EM_GETLINECOUNT = 0x00BA;
+    public const int EM_LINEFROMCHAR = 0x00C9;
+    public const int EM_LINESCROLL = 0x00B6;
+    public const int SB_VERT = 1;
+}
+"@
+    }
 
 	$Theme = @{
 		Background   = [System.Drawing.ColorTranslator]::FromHtml('#0f1219')
@@ -54,8 +81,8 @@ function Show-Wiki
 		TextColor    = [System.Drawing.ColorTranslator]::FromHtml('#ffffff')
 		SubTextColor = [System.Drawing.ColorTranslator]::FromHtml('#a0a5b0')
 		SuccessColor = [System.Drawing.ColorTranslator]::FromHtml('#28a745')
+        ListSelect   = [System.Drawing.ColorTranslator]::FromHtml('#3a3f4b')
 	}
-
 
 	$form = New-Object System.Windows.Forms.Form
 	$form.Text = "Entropia Wiki - $SourceUsed"
@@ -69,18 +96,13 @@ function Show-Wiki
 		$form.Icon = $global:DashboardConfig.UI.MainForm.Icon
 	}
 
-    # Register for global cleanup
     if (-not $global:DashboardConfig.Resources.ContainsKey('WikiForm')) {
         $global:DashboardConfig.Resources['WikiForm'] = $null
     }
     $global:DashboardConfig.Resources.WikiForm = $form
 
 	$form.Tag = $WikiData
-    
-
 	$NavHistory = New-Object System.Collections.Stack
-
-
 
 	$headerPanel = New-Object System.Windows.Forms.Panel
 	$headerPanel.Dock = 'Top'
@@ -88,7 +110,6 @@ function Show-Wiki
 	$headerPanel.BackColor = $Theme.PanelColor
 	$headerPanel.Padding = New-Object System.Windows.Forms.Padding(10, 5, 10, 5)
 	$form.Controls.Add($headerPanel) | Out-Null
-
 
 	$statusPanel = New-Object System.Windows.Forms.Panel
 	$statusPanel.Dock = 'Bottom'
@@ -104,7 +125,6 @@ function Show-Wiki
 	$lblStatus.Location = New-Object System.Drawing.Point(10, 5)
 	$statusPanel.Controls.Add($lblStatus) | Out-Null
 
-
     $splitContainer = New-Object System.Windows.Forms.SplitContainer
     $splitContainer.Dock = "Fill"
     $splitContainer.Orientation = "Vertical"
@@ -113,9 +133,7 @@ function Show-Wiki
     $splitContainer.BackColor = $Theme.Background
     $form.Controls.Add($splitContainer) | Out-Null
     $splitContainer.SplitterDistance = 300
-
 	$splitContainer.BringToFront()
-
 
 	$titleLabel = New-Object System.Windows.Forms.Label
 	$titleLabel.Text = 'ENTROPIA KNOWLEDGE BASE'
@@ -134,7 +152,6 @@ function Show-Wiki
 	$closeBtn.Anchor = 'Top, Right'
 	$closeBtn.Location = New-Object System.Drawing.Point(($form.Width - 35), 8) 
 	$headerPanel.Controls.Add($closeBtn) | Out-Null
-
 
 	$navPanel = New-Object System.Windows.Forms.Panel
 	$navPanel.Dock = 'Fill'
@@ -171,12 +188,10 @@ function Show-Wiki
 	if ([Custom.Native] -as [Type]) { [Custom.Native]::UseImmersiveDarkMode($treeView.Handle) }
 	$treeView.BringToFront()
 
-
     $contentPanel = New-Object System.Windows.Forms.Panel
     $contentPanel.Dock = "Fill"
     $contentPanel.Padding = New-Object System.Windows.Forms.Padding(25, 20, 25, 20)
     $splitContainer.Panel2.Controls.Add($contentPanel) | Out-Null
-
 
     $navToolbar = New-Object System.Windows.Forms.Panel
     $navToolbar.Dock = "Top"
@@ -196,7 +211,6 @@ function Show-Wiki
     $btnBack.Cursor = "Hand"
     $btnBack.Enabled = $false
     $navToolbar.Controls.Add($btnBack) | Out-Null
-
 
     $pnlEditFields = New-Object System.Windows.Forms.Panel
     $pnlEditFields.Location = New-Object System.Drawing.Point(25, 130)
@@ -255,27 +269,58 @@ function Show-Wiki
     $pnlEditFields.Controls.Add($txtEditNote)
     if ([Custom.Native] -as [Type]) { [Custom.Native]::UseImmersiveDarkMode($txtEditNote.Handle) }
 
+    # Autocomplete ListBox
+    $lstAutocomplete = New-Object System.Windows.Forms.ListBox
+    $lstAutocomplete.Visible = $false
+    $lstAutocomplete.Size = New-Object System.Drawing.Size(200, 150)
+    $lstAutocomplete.BackColor = $Theme.PanelColor
+    $lstAutocomplete.ForeColor = $Theme.TextColor
+    $lstAutocomplete.BorderStyle = 'FixedSingle'
+    $lstAutocomplete.Font = New-Object System.Drawing.Font("Consolas", 10)
+    $contentPanel.Controls.Add($lstAutocomplete)
+    $lstAutocomplete.BringToFront()
+
+    $editPreviewSplitter = New-Object System.Windows.Forms.SplitContainer
+    $editPreviewSplitter.Orientation = 'Horizontal'
+    $editPreviewSplitter.Location = New-Object System.Drawing.Point(25, 180)
+    $editPreviewSplitter.Size = New-Object System.Drawing.Size(1000, 480)
+    $editPreviewSplitter.Anchor = 'Top, Bottom, Left, Right'
+    $editPreviewSplitter.BackColor = $Theme.PanelColor
+    $editPreviewSplitter.SplitterWidth = 8
+    $editPreviewSplitter.Panel1Collapsed = $true
+    $contentPanel.Controls.Add($editPreviewSplitter) | Out-Null
+
     $txtDescription = New-Object System.Windows.Forms.RichTextBox
-    $txtDescription.Location = New-Object System.Drawing.Point(25, 180)
-    $txtDescription.Size = New-Object System.Drawing.Size(1000, 480)
-    $txtDescription.Anchor = "Top, Bottom, Left, Right"
+    $txtDescription.Dock = 'Fill'
     $txtDescription.BackColor = $Theme.Background
     $txtDescription.ForeColor = $Theme.TextColor
     $txtDescription.BorderStyle = "None"
     $txtDescription.ReadOnly = $true
     $txtDescription.Font = New-Object System.Drawing.Font("Segoe UI", 11)
     $txtDescription.Text = "Select an item from the menu on the left to view details.`n`nUse the Search box to quickly find guides, items, or systems."
-    $contentPanel.Controls.Add($txtDescription) | Out-Null
+    $txtDescription.HideSelection = $false
+    $editPreviewSplitter.Panel1.Controls.Add($txtDescription) | Out-Null
     if ([Custom.Native] -as [Type]) { [Custom.Native]::UseImmersiveDarkMode($txtDescription.Handle) }
 
     $webDescription = New-Object System.Windows.Forms.WebBrowser
-    $webDescription.Location = New-Object System.Drawing.Point(25, 180)
-    $webDescription.Size = New-Object System.Drawing.Size(1000, 480)
-    $webDescription.Anchor = "Top, Bottom, Left, Right"
+    $webDescription.Dock = 'Fill'
     $webDescription.ScriptErrorsSuppressed = $true
-    $webDescription.Visible = $false
-    $contentPanel.Controls.Add($webDescription) | Out-Null
+    $webDescription.Visible = $true
+    $webDescription.DocumentText = @"
+<html><head><style>body{background-color:#0f1219;color:#ffffff;font-family:'Segoe UI',sans-serif;font-size:11pt;margin:0;padding:0;}</style></head><body>
+<div style='padding:20px;'>Select an item from the menu on the left to view details.<br><br>Use the Search box to quickly find guides, items, or systems.</div>
+</body></html>
+"@
+    $editPreviewSplitter.Panel2.Controls.Add($webDescription) | Out-Null
 
+	$scrollSyncTimer = New-Object System.Windows.Forms.Timer
+    $scrollSyncTimer.Interval = 300
+    $Disposables.Add($scrollSyncTimer)
+    
+    $SyncState = @{
+        IsScrolling = $false
+        LastTxtScroll = -1
+    }
 
 	$pnlFormatting = New-Object System.Windows.Forms.FlowLayoutPanel
 	$pnlFormatting.Location = New-Object System.Drawing.Point(25, 245)
@@ -340,7 +385,6 @@ function Show-Wiki
 	& $AddFormatBtn "Wiki" "Wiki" "Node" $txtDescription
 	& $AddFormatBtn "Table" "Table" "Insert Table" $txtDescription
 
-
     $btnSave = New-Object System.Windows.Forms.Button
     $btnSave.Text = "SAVE"
     $btnSave.Size = New-Object System.Drawing.Size(80, 30)
@@ -355,25 +399,57 @@ function Show-Wiki
     $btnSave.Visible = $false
     $navToolbar.Controls.Add($btnSave) | Out-Null
 
-    $btnAdd = New-Object System.Windows.Forms.Button
-    $btnAdd.Text = "ADD"
-    $btnAdd.Size = New-Object System.Drawing.Size(80, 30)
-    $btnAdd.Anchor = 'Top, Right'
-    $btnAdd.Location = New-Object System.Drawing.Point(($navToolbar.Width - 270), 5)
-    $btnAdd.FlatStyle = "Flat"
-    $btnAdd.FlatAppearance.BorderSize = 0
-    $btnAdd.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#0078d7")
-    $btnAdd.ForeColor = "White"
-    $btnAdd.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-    $btnAdd.Cursor = "Hand"
-    $btnAdd.Visible = $false
-    $navToolbar.Controls.Add($btnAdd) | Out-Null
+    $btnSyncNode = New-Object System.Windows.Forms.Button
+    $btnSyncNode.Text = "SYNC NODE"
+    $btnSyncNode.Size = New-Object System.Drawing.Size(80, 30)
+    $btnSyncNode.Anchor = 'Top, Right'
+    $btnSyncNode.Location = New-Object System.Drawing.Point(($navToolbar.Width - 180), 5)
+    $btnSyncNode.FlatStyle = "Flat"
+    $btnSyncNode.FlatAppearance.BorderSize = 0
+    $btnSyncNode.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#5bc0de")
+    $btnSyncNode.ForeColor = "White"
+    $btnSyncNode.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnSyncNode.Cursor = "Hand"
+    $btnSyncNode.Visible = $false
+    $ttSync = New-Object System.Windows.Forms.ToolTip
+    $ttSync.SetToolTip($btnSyncNode, "Update only the selected item from online source")
+    $navToolbar.Controls.Add($btnSyncNode) | Out-Null
+
+    $btnSyncAll = New-Object System.Windows.Forms.Button
+    $btnSyncAll.Text = "SYNC ALL"
+    $btnSyncAll.Size = New-Object System.Drawing.Size(80, 30)
+    $btnSyncAll.Anchor = 'Top, Right'
+    $btnSyncAll.Location = New-Object System.Drawing.Point(($navToolbar.Width - 270), 5)
+    $btnSyncAll.FlatStyle = "Flat"
+    $btnSyncAll.FlatAppearance.BorderSize = 0
+    $btnSyncAll.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#17a2b8") 
+    $btnSyncAll.ForeColor = "White"
+    $btnSyncAll.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnSyncAll.Cursor = "Hand"
+    $btnSyncAll.Visible = $false
+    $ttSync.SetToolTip($btnSyncAll, "Overwrite ALL local data with online data")
+    $navToolbar.Controls.Add($btnSyncAll) | Out-Null
+
+    $btnSmartSync = New-Object System.Windows.Forms.Button
+    $btnSmartSync.Text = "SMART SYNC"
+    $btnSmartSync.Size = New-Object System.Drawing.Size(90, 30)
+    $btnSmartSync.Anchor = 'Top, Right'
+    $btnSmartSync.Location = New-Object System.Drawing.Point(($navToolbar.Width - 370), 5)
+    $btnSmartSync.FlatStyle = "Flat"
+    $btnSmartSync.FlatAppearance.BorderSize = 0
+    $btnSmartSync.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#20c997")
+    $btnSmartSync.ForeColor = "White"
+    $btnSmartSync.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnSmartSync.Cursor = "Hand"
+    $btnSmartSync.Visible = $false
+    $ttSync.SetToolTip($btnSmartSync, "Merge online data into local wiki (Adds missing nodes, keeps your changes)")
+    $navToolbar.Controls.Add($btnSmartSync) | Out-Null
 
     $btnDelete = New-Object System.Windows.Forms.Button
     $btnDelete.Text = "DELETE"
     $btnDelete.Size = New-Object System.Drawing.Size(80, 30)
     $btnDelete.Anchor = 'Top, Right'
-    $btnDelete.Location = New-Object System.Drawing.Point(($navToolbar.Width - 180), 5)
+    $btnDelete.Location = New-Object System.Drawing.Point(($navToolbar.Width - 460), 5)
     $btnDelete.FlatStyle = "Flat"
     $btnDelete.FlatAppearance.BorderSize = 0
     $btnDelete.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#d9534f")
@@ -383,13 +459,27 @@ function Show-Wiki
     $btnDelete.Visible = $false
     $navToolbar.Controls.Add($btnDelete) | Out-Null
 
+    $btnAdd = New-Object System.Windows.Forms.Button
+    $btnAdd.Text = "ADD"
+    $btnAdd.Size = New-Object System.Drawing.Size(80, 30)
+    $btnAdd.Anchor = 'Top, Right'
+    $btnAdd.Location = New-Object System.Drawing.Point(($navToolbar.Width - 550), 5)
+    $btnAdd.FlatStyle = "Flat"
+    $btnAdd.FlatAppearance.BorderSize = 0
+    $btnAdd.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#0078d7")
+    $btnAdd.ForeColor = "White"
+    $btnAdd.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnAdd.Cursor = "Hand"
+    $btnAdd.Visible = $false
+    $navToolbar.Controls.Add($btnAdd) | Out-Null
+
     $chkEdit = New-Object System.Windows.Forms.CheckBox
     $chkEdit.Name = "chkEdit"
     $chkEdit.Text = "EDIT"
     $chkEdit.Appearance = 'Button'
     $chkEdit.Size = New-Object System.Drawing.Size(80, 30)
     $chkEdit.Anchor = 'Top, Right'
-    $chkEdit.Location = New-Object System.Drawing.Point(($navToolbar.Width - 360), 5)
+    $chkEdit.Location = New-Object System.Drawing.Point(($navToolbar.Width - 640), 5)
     $chkEdit.FlatStyle = "Flat"
     $chkEdit.FlatAppearance.BorderSize = 1
     $chkEdit.FlatAppearance.BorderColor = $Theme.SubTextColor
@@ -406,7 +496,7 @@ function Show-Wiki
     $chkViewMode.Appearance = 'Button'
     $chkViewMode.Size = New-Object System.Drawing.Size(110, 30)
     $chkViewMode.Anchor = 'Top, Right'
-    $chkViewMode.Location = New-Object System.Drawing.Point(($navToolbar.Width - 480), 5)
+    $chkViewMode.Location = New-Object System.Drawing.Point(($navToolbar.Width - 760), 5)
     $chkViewMode.FlatStyle = "Flat"
     $chkViewMode.FlatAppearance.BorderSize = 1
     $chkViewMode.FlatAppearance.BorderColor = $Theme.SubTextColor
@@ -458,8 +548,6 @@ function Show-Wiki
     $btnCopyLink.Margin = New-Object System.Windows.Forms.Padding(10, 0, 0, 0)
     $btnPanel.Controls.Add($btnCopyLink) | Out-Null
 
-
-
 	$closeBtn.Add_Click({ try { $form.Close() } catch {} }.GetNewClosure())
 
 	$dragAction = {
@@ -482,7 +570,6 @@ function Show-Wiki
 	$headerPanel.Add_MouseDown($dragAction)
 	$titleLabel.Add_MouseDown($dragAction)
 
-
 	$getKeys = { 
 		param($obj) 
 		if ($obj -is [System.Collections.IDictionary]) { return $obj.Keys }
@@ -490,39 +577,49 @@ function Show-Wiki
 		return @()
 	}
 
+    # Helper to flatten node list for autocomplete
+    $PopulateNodeList = {
+        param($Data)
+        $list = New-Object System.Collections.Generic.List[string]
+        
+        $recurse = {
+            param($obj)
+            $keys = & $getKeys $obj
+            foreach ($k in $keys) {
+                if ($k -in 'meta','description','url','URL') { continue }
+                $list.Add($k)
+                $val = if ($obj -is [System.Collections.IDictionary]) { $obj[$k] } else { $obj.$k }
+                if ($val -is [System.Collections.IDictionary] -or $val -is [System.Management.Automation.PSCustomObject]) {
+                    & $recurse $val
+                }
+            }
+        }
+        & $recurse $Data
+        return $list
+    }.GetNewClosure()
 
 	$AddWikiNode = {
 		param($Self, $parentNode, $nodeName, $nodeData, $Filter, $isFiltering, $ParentData, $Key)
         
-
 		$currentNode = New-Object System.Windows.Forms.TreeNode($nodeName)
 		$currentNode.Tag = $nodeData
 		$currentNode.Name = $nodeName
         
-
         $currentNode | Add-Member -MemberType NoteProperty -Name "WikiMeta" -Value @{ Parent = $ParentData; Key = $Key } -Force
         
 		$hasMatches = $false
 		$childFound = $false
-
 
 		$isComplex = ($nodeData -is [System.Management.Automation.PSCustomObject] -or $nodeData -is [System.Collections.IDictionary])
 		$isArray   = ($nodeData -is [System.Array] -or $nodeData -is [System.Collections.ArrayList]) -and $nodeData -isnot [string]
 
 		if ($isComplex)
 		{
-
 			$childKeys = & $getKeys $nodeData
-
 			foreach ($childName in $childKeys)
 			{
-
-
 				if ($childName -in 'meta','description','url','URL') { continue }
-
 				$childContent = if ($nodeData -is [System.Collections.IDictionary]) { $nodeData[$childName] } else { $nodeData.$childName }
-                
-
 				$subNodeHasMatches = & $Self $Self $currentNode $childName $childContent $Filter $isFiltering $nodeData $childName
 				if ($subNodeHasMatches) { 
 					$childFound = $true
@@ -532,7 +629,6 @@ function Show-Wiki
 		}
 		elseif ($isArray)
 		{
-
             if ($nodeData -is [System.Array]) {
                 $newList = [System.Collections.ArrayList]::new($nodeData)
                 if ($ParentData -is [System.Collections.IDictionary]) { $ParentData[$Key] = $newList }
@@ -541,7 +637,6 @@ function Show-Wiki
                 $nodeData = $newList
                 $currentNode.Tag = $newList
             }
-
 
             $idx = 0
 			foreach ($item in $nodeData)
@@ -570,23 +665,18 @@ function Show-Wiki
 		}
 		else
 		{
-
-
 			$isLeafMatch = if ($isFiltering) { $nodeName -match $Filter -or ($nodeData -match $Filter) } else { $true }
-			
 			if ($isLeafMatch) {
 				$currentNode.Text = "$nodeName"
 				$hasMatches = $true
 			}
 		}
 
-
 		$selfMatches = $false
 		if ($isFiltering) {
 			if ($nodeName -match $Filter) {
 				$selfMatches = $true
 			} elseif ($isComplex) {
-
 				$props = & $getKeys $nodeData
 				foreach ($p in $props) {
 					$v = if ($nodeData -is [System.Collections.IDictionary]) { $nodeData[$p] } else { $nodeData.$p }
@@ -599,24 +689,20 @@ function Show-Wiki
 			$selfMatches = $true
 		}
 
-
 		if ($childFound -and ($hasMatches -or $selfMatches)) {
 			$parentNode.Nodes.Add($currentNode) | Out-Null
 			if ($isFiltering -or ($nodeName -in 'Home','Equipment Progression')) { $currentNode.Expand() }
 			return $true
 		}
 		elseif (-not $childFound -and ($hasMatches -or $selfMatches)) { 
-
 			$parentNode.Nodes.Add($currentNode) | Out-Null
 			return $true
 		}
 		return $hasMatches -or $selfMatches 
 	}.GetNewClosure()
 
-
 	$PopulateTree = {
 		param($Filter, $Data, $Tree)
-        
 		try
 		{
 			$Tree.BeginUpdate()
@@ -628,10 +714,7 @@ function Show-Wiki
 			foreach ($catName in $parentKeys)
 			{
 				if ($catName -eq 'meta') { continue }
-				
 				$catData = if ($Data -is [System.Collections.IDictionary]) { $Data[$catName] } else { $Data.$catName }
-                
-
 				& $AddWikiNode $AddWikiNode $Tree $catName $catData $Filter $isFiltering $Data $catName
 			}
 		}
@@ -674,9 +757,7 @@ function Show-Wiki
         param($text)
         if ([string]::IsNullOrWhiteSpace($text)) { return "" }
 
-
         $text = $text -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;' -replace '"', '&quot;'
-
 
         $lines = $text -split "`n"
         $htmlLines = New-Object System.Collections.Generic.List[string]
@@ -685,10 +766,11 @@ function Show-Wiki
         $inList = $false
         $inOrderedList = $false
 
-        foreach ($line in $lines) {
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
             $trimLine = $line.Trim()
+            $lineId = "line_$i"
             
-
             if ($trimLine -match '^\|(.+)\|$') {
                 if (-not $inTable) {
                     $htmlLines.Add("<table>")
@@ -700,7 +782,7 @@ function Show-Wiki
                 }
                 
                 $cells = $trimLine.Trim('|').Split('|')
-                $rowHtml = "<tr>"
+                $rowHtml = "<tr id=""$lineId"">"
                 foreach ($cell in $cells) {
                     $tag = if ($isHeader) { "th" } else { "td" }
                     $rowHtml += "<$tag>$($cell.Trim())</$tag>"
@@ -713,51 +795,46 @@ function Show-Wiki
                 $inTable = $false
             }
 
-
             if ($trimLine -match '^[\-\*]\s+(.+)$') {
                 if ($inOrderedList) { $htmlLines.Add("</ol>"); $inOrderedList = $false }
                 if (-not $inList) { $htmlLines.Add("<ul>"); $inList = $true }
-                $htmlLines.Add("<li>$($matches[1])</li>")
+                $htmlLines.Add("<li id=""$lineId"">$($matches[1])</li>")
                 continue
             } elseif ($inList) {
                 $htmlLines.Add("</ul>")
                 $inList = $false
             }
             
-
             if ($trimLine -match '^\d+\.\s+(.+)$') {
                 if ($inList) { $htmlLines.Add("</ul>"); $inList = $false }
                 if (-not $inOrderedList) { $htmlLines.Add("<ol>"); $inOrderedList = $true }
-                $htmlLines.Add("<li>$($matches[1])</li>")
+                $htmlLines.Add("<li id=""$lineId"">$($matches[1])</li>")
                 continue
             } elseif ($inOrderedList) {
                 $htmlLines.Add("</ol>")
                 $inOrderedList = $false
             }
 
-
             if ($trimLine -match '^(#{1,6})\s+(.+)$') {
                 $level = $matches[1].Length
-                $htmlLines.Add("<h$level>$($matches[2])</h$level>")
+                $htmlLines.Add("<h$level id=""$lineId"">$($matches[2])</h$level>")
                 continue
             }
-
 
             if ($trimLine -match '^(&gt;|>)[\s]+(.+)$') {
-                $htmlLines.Add("<blockquote>$($matches[2])</blockquote>")
+                $htmlLines.Add("<blockquote id=""$lineId"">$($matches[2])</blockquote>")
                 continue
             }
 
-
             if ($trimLine -match '^(\*{3,}|-{3,}|_{3,})$') {
-                $htmlLines.Add("<hr />")
+                $htmlLines.Add("<hr id=""$lineId"" />")
                 continue
             }
 
             if ($trimLine.Length -gt 0) {
-                $htmlLines.Add("$line<br>")
+                $htmlLines.Add("<a id=""$lineId""></a>$line<br>")
             } else {
-                $htmlLines.Add("<br>")
+                $htmlLines.Add("<a id=""$lineId""></a><br>")
             }
         }
         
@@ -767,25 +844,17 @@ function Show-Wiki
 
         $finalHtml = $htmlLines -join "`n"
 
-
-        
-
-
-
         $codePlaceholderPrefix = "##WIKICODEBLOCK" 
         $codeMap = @{}
         $codeId = 0
         
-
         $match = [regex]::Matches($finalHtml, '`([^`]+)`')
         
-
         for ($i = $match.Count - 1; $i -ge 0; $i--) {
             $m = $match[$i]
             $key = "${codePlaceholderPrefix}${codeId}##"
             $codeMap[$key] = $m.Groups[1].Value
             
-
             $pre = $finalHtml.Substring(0, $m.Index)
             $post = $finalHtml.Substring($m.Index + $m.Length)
             $finalHtml = $pre + $key + $post
@@ -793,27 +862,23 @@ function Show-Wiki
             $codeId++
         }
 
-
-
         $finalHtml = $finalHtml -replace '\*\*(.+?)\*\*', '<b>$1</b>'
-        
-
         $finalHtml = $finalHtml -replace '\*(.+?)\*', '<i>$1</i>'
-        
-
         $finalHtml = $finalHtml -replace '~~(.+?)~~', '<strike>$1</strike>'
-
 
         $finalHtml = $finalHtml -replace '\[\[(.+?)\]\]', '<a href="http://wiki/$1">$1</a>'
         $finalHtml = $finalHtml -replace '\[([^\]]+)\]\(wiki:([^)]+)\)', '<a href="http://wiki/$2">$1</a>'
         $finalHtml = $finalHtml -replace '\[([^\]]+)\]\(([^)]+)\)', '<a href="$2">$1</a>'
 
+        # Handle Video formats (MP4, WEBM) inside [img] tags
+        $finalHtml = $finalHtml -replace '\[img\]\s*(\S+\.(?:mp4|webm))', '<video src="$1" autoplay loop muted playsinline style="max-width: 100%; border-radius: 4px;"></video>'
+
+        # Handle standard Images
+        $finalHtml = $finalHtml -replace '\[img\]\s*([^\s<]+)', '<img src="$1" />'
 
         $finalHtml = $finalHtml -replace '\[imgs\]([^<\s]+)', '<img src="$1" style="width: 25%;" />'
         $finalHtml = $finalHtml -replace '\[imgm\]([^<\s]+)', '<img src="$1" style="width: 50%;" />'
         $finalHtml = $finalHtml -replace '\[imgi\]([^<\s]+)', '<img src="$1" style="width: 32px;" />'
-        $finalHtml = $finalHtml -replace '\[img\]([^<\s]+)', '<img src="$1" />'
-
 
         foreach ($key in $codeMap.Keys) {
             $content = $codeMap[$key]
@@ -823,12 +888,24 @@ function Show-Wiki
         return $finalHtml
     }.GetNewClosure()
 
+    $UpdateLineOffsets = {
+        if ($txtDescription.IsDisposed) { return }
+        $txt = $txtDescription.Text
+        $lines = $txt -split "`n"
+        $offsets = New-Object int[] ($lines.Count + 1)
+        $runningTotal = 0
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            $offsets[$i] = $runningTotal
+            $runningTotal += $lines[$i].Length + 1
+        }
+        $offsets[$lines.Count] = $runningTotal
+        $SyncState.LineCharOffsets = $offsets
+    }.GetNewClosure()
 
     $RefreshContent = {
         $node = $treeView.SelectedNode
         if (-not $node) { return }
         
-
         if ($node.Text.Contains(':')) {
              $lblContentTitle.Text = $node.Text.Split(':')[0]
         } else {
@@ -837,29 +914,75 @@ function Show-Wiki
 
         $data = $node.Tag
         
-
         $descVal = ""
         $urlVal = ""
         $noteVal = ""
         
-        if ($data -is [System.Collections.IDictionary] -or $data -is [System.Management.Automation.PSCustomObject]) {
-            if ($data.description) { $descVal = $data.description }
-            if ($data.note) { $noteVal = $data.note }
-            if ($data.url) { $urlVal = $data.url } elseif ($data.URL) { $urlVal = $data.URL }
-        } elseif ($data -is [string]) {
-            $descVal = $data
+        # Check for unsaved changes first
+        if ($chkEdit.Checked -and $WikiState.UnsavedBuffer.ContainsKey($node.FullPath)) {
+            $buffer = $WikiState.UnsavedBuffer[$node.FullPath]
+            $descVal = $buffer.Text
+            # We can retrieve other props from original data if needed, but text is priority
+            if ($data -is [System.Collections.IDictionary] -or $data -is [System.Management.Automation.PSCustomObject]) {
+                if ($data.url) { $urlVal = $data.url } elseif ($data.URL) { $urlVal = $data.URL }
+                if ($data.note) { $noteVal = $data.note }
+            }
+        }
+        else {
+            if ($data -is [System.Collections.IDictionary] -or $data -is [System.Management.Automation.PSCustomObject]) {
+                if ($data.description) { $descVal = $data.description }
+                if ($data.note) { $noteVal = $data.note }
+                if ($data.url) { $urlVal = $data.url } elseif ($data.URL) { $urlVal = $data.URL }
+            } elseif ($data -is [string]) {
+                $descVal = $data
+            }
         }
 
         if ($chkEdit.Checked) {
-
             $txtDescription.Text = $descVal
             $txtDescription.Visible = $true
-            $webDescription.Visible = $false
+            $webDescription.Visible = $true # Visible in edit mode for live preview
             $txtEditTitle.Text = $node.Name
             $txtEditUrl.Text = $urlVal
             $txtEditNote.Text = $noteVal
-        } else {
+            
+            # Restore scroll position if available
+            if ($WikiState.UnsavedBuffer.ContainsKey($node.FullPath)) {
+                $scrollPos = $WikiState.UnsavedBuffer[$node.FullPath].Scroll
+                if ($scrollPos -gt 0) {
+                    $txtDescription.SelectionStart = $scrollPos
+                    $txtDescription.ScrollToCaret()
+                }
+            }
+            
+            # Trigger initial preview render
+            $htmlContent = & $ConvertMarkdownToHtml $descVal
+            & $UpdateLineOffsets
+            $fullHtml = @"
+<html>
+<head>
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<style>
+body { background-color: #0f1219; color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 11pt; margin: 0; padding: 0; border: none; scrollbar-base-color: #3a3f4b; scrollbar-track-color: #161a26; scrollbar-arrow-color: #ffffff; }
+img { max-width: 100%; height: auto; display: block; margin: 10px 0; border-radius: 4px; }
+a { color: #ff2e4c; text-decoration: none; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+th, td { border: 1px solid #444; padding: 6px; text-align: left; }
+th { background-color: #232838; color: #ff2e4c; }
+tr:nth-child(even) { background-color: #161a26; }
+code { background-color: #161a26; padding: 2px 4px; border-radius: 3px; font-family: Consolas, monospace; color: #e6db74; }
+blockquote { border-left: 3px solid #ff2e4c; margin: 10px 0; padding-left: 10px; color: #a0a5b0; }
+hr { border: 0; border-top: 1px solid #444; margin: 15px 0; }
+</style>
+</head>
+<body>
+$htmlContent
+</body>
+</html>
+"@
+            $webDescription.DocumentText = $fullHtml
 
+        } else {
             $displayText = $descVal
             
             if ($noteVal) { $displayText += "`n`nNote: $noteVal" }
@@ -869,13 +992,18 @@ function Show-Wiki
             $txtDescription.Visible = $false
             $webDescription.Visible = $true
 
+            # Force sync reset when switching to view mode
+            $SyncState.LastTxtScroll = -1
+
             $htmlContent = & $ConvertMarkdownToHtml $displayText
             
+            # Added meta tag for IE Edge mode to support GIFs
             $fullHtml = @"
 <html>
 <head>
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
 <style>
-body { background-color: #0f1219; color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 11pt; margin: 0; padding: 0; border: none; overflow: auto; scrollbar-base-color: #3a3f4b; scrollbar-track-color: #161a26; scrollbar-arrow-color: #ffffff; }
+body { background-color: #0f1219; color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 11pt; margin: 0; padding: 0; border: none; scrollbar-base-color: #3a3f4b; scrollbar-track-color: #161a26; scrollbar-arrow-color: #ffffff; }
 img { max-width: 100%; height: auto; display: block; margin: 10px 0; border-radius: 4px; }
 a { color: #ff2e4c; text-decoration: none; }
 table { border-collapse: collapse; width: 100%; margin: 10px 0; }
@@ -894,7 +1022,6 @@ $htmlContent
 "@
             $webDescription.DocumentText = $fullHtml
             
-
             $hasLink = -not [string]::IsNullOrEmpty($urlVal)
             if (-not $hasLink -and $descVal -match '^https?://') { $hasLink = $true; $urlVal = $descVal }
             
@@ -908,15 +1035,687 @@ $htmlContent
         }
     }.GetNewClosure()
 
+    $UpdateSyncButtonState = {
+        $isLocalView = -not $chkViewMode.Checked
+        $online = $WikiState['OnlineData']
+        $hasOnlineData = $null -ne $online
+        $hasNode = $null -ne $treeView.SelectedNode
+
+        $btnSyncNode.Visible = $isLocalView -and $hasOnlineData
+        $btnSyncNode.Enabled = $btnSyncNode.Visible -and $hasNode
+        $btnSyncAll.Visible = $isLocalView -and $hasOnlineData
+        $btnSmartSync.Visible = $isLocalView -and $hasOnlineData
+    }.GetNewClosure()
+
+    # --- Autocomplete Logic ---
+    $txtDescription.Add_KeyUp({
+        param($s, $e)
+        
+        # Hide if not relevant keys
+        if ($e.KeyCode -in 'Up','Down','Enter','Tab','Escape') { return }
+
+        $caret = $txtDescription.SelectionStart
+        if ($caret -eq 0) { $lstAutocomplete.Visible = $false; return }
+
+        # Get text up to caret
+        $text = $txtDescription.Text.Substring(0, $caret)
+        
+        # Regex to find [[... or wiki:... at the end
+        if ($text -match '(?<trigger>\[\[|wiki:)(?<query>[^\]\)]*)$') {
+            $trigger = $matches['trigger']
+            $query = $matches['query']
+            
+            # Filter nodes
+            $matchesList = $WikiState.NodeList | Where-Object { $_ -like "*$query*" } | Select-Object -First 10
+            
+            if ($matchesList) {
+                $lstAutocomplete.Items.Clear()
+                foreach ($m in $matchesList) { $lstAutocomplete.Items.Add($m) | Out-Null }
+                
+                # Position ListBox
+                $pt = $txtDescription.GetPositionFromCharIndex($caret)
+                $pt.Y += 20 # Move below line
+                
+                # Adjust if out of bounds (basic)
+                if ($pt.X + $lstAutocomplete.Width -gt $txtDescription.Width) { $pt.X = $txtDescription.Width - $lstAutocomplete.Width }
+                
+                $lstAutocomplete.Location = $pt
+                $lstAutocomplete.Visible = $true
+                $lstAutocomplete.Tag = @{ Trigger = $trigger; StartIndex = ($caret - $query.Length) }
+                if ($lstAutocomplete.Items.Count -gt 0) { $lstAutocomplete.SelectedIndex = 0 }
+            } else {
+                $lstAutocomplete.Visible = $false
+            }
+        } else {
+            $lstAutocomplete.Visible = $false
+        }
+    }.GetNewClosure())
+
+    $txtDescription.Add_KeyDown({
+        param($s, $e)
+        if ($lstAutocomplete.Visible) {
+            if ($e.KeyCode -eq 'Down') {
+                $e.Handled = $true
+                if ($lstAutocomplete.SelectedIndex -lt $lstAutocomplete.Items.Count - 1) {
+                    $lstAutocomplete.SelectedIndex++
+                }
+            }
+            elseif ($e.KeyCode -eq 'Up') {
+                $e.Handled = $true
+                if ($lstAutocomplete.SelectedIndex -gt 0) {
+                    $lstAutocomplete.SelectedIndex--
+                }
+            }
+            elseif ($e.KeyCode -in 'Tab','Enter') {
+                $e.Handled = $true
+                $e.SuppressKeyPress = $true # Prevent newline/tab in text
+                
+                $selected = $lstAutocomplete.SelectedItem
+                if ($selected) {
+                    $info = $lstAutocomplete.Tag
+                    $start = $info.StartIndex
+                    $len = $txtDescription.SelectionStart - $start
+                    
+                    $txtDescription.Select($start, $len)
+                    $txtDescription.SelectedText = $selected
+                    
+                    # Close brackets if [[
+                    if ($info.Trigger -eq '[[') {
+                        $txtDescription.SelectedText = "]]"
+                    } else {
+                        $txtDescription.SelectedText = ")" # Close paren for wiki: link
+                    }
+                    
+                    $lstAutocomplete.Visible = $false
+                }
+            }
+            elseif ($e.KeyCode -eq 'Escape') {
+                $lstAutocomplete.Visible = $false
+                $e.Handled = $true
+            }
+        }
+    }.GetNewClosure())
+    
+    $lstAutocomplete.Add_MouseClick({
+        $selected = $lstAutocomplete.SelectedItem
+        if ($selected) {
+             $info = $lstAutocomplete.Tag
+             $start = $info.StartIndex
+             $len = $txtDescription.SelectionStart - $start
+             
+             $txtDescription.Select($start, $len)
+             $txtDescription.SelectedText = $selected
+             
+             if ($info.Trigger -eq '[[') {
+                 $txtDescription.SelectedText = "]]"
+             } else {
+                 $txtDescription.SelectedText = ")"
+             }
+             $lstAutocomplete.Visible = $false
+             $txtDescription.Focus()
+        }
+    }.GetNewClosure())
+
+    # --- Live Preview Logic ---
+    
+    $generalScrollTimer = New-Object System.Windows.Forms.Timer
+    $generalScrollTimer.Interval = 50 # Faster tick for smoother sync
+    $Disposables.Add($generalScrollTimer)
+
+    # Helper: robustly find the element that controls scrolling
+    $GetWebScrollable = {
+        if (-not $webDescription.Document) { return $null }
+        
+        $html = $webDescription.Document.GetElementsByTagName("HTML")[0]
+        $body = $webDescription.Document.Body
+        
+        # If one is scrolled, use it
+        if ($html -and $html.ScrollTop -gt 0) { return $html }
+        if ($body -and $body.ScrollTop -gt 0) { return $body }
+        
+        # Default to HTML in standards mode (which we use), fallback to Body
+        if ($html) { return $html }
+        return $body
+    }.GetNewClosure()
+    
+    # 1. Editor -> Web Sync (Timer based)
+    $generalScrollTimer.Add_Tick({
+        if ($SyncState.IsScrolling) { return }
+        if (-not $chkEdit.Checked) { return }
+        if (-not $webDescription.Visible) { return }
+        
+        try {
+            $firstLine = [WikiScrollNative]::SendMessage($txtDescription.Handle, [WikiScrollNative]::EM_GETFIRSTVISIBLELINE, 0, 0)
+            
+            if ($firstLine -ne $SyncState.LastTxtScroll) {
+                $SyncState.LastTxtScroll = $firstLine
+                
+                # Lock to prevent the Web->Editor event from firing back
+                $SyncState.IsScrolling = $true 
+                
+                if ($webDescription.Document) {
+                    $targetEl = $null
+                    # Search backwards from current line to find an anchor
+                    for ($i = $firstLine; $i -ge 0; $i--) {
+                        $el = $webDescription.Document.GetElementById("line_$i")
+                        if ($el) {
+                            $targetEl = $el
+                            break
+                        }
+                    }
+                    
+                    if ($targetEl) {
+                        $targetEl.ScrollIntoView($true)
+                    }
+                }
+            }
+        }
+        catch {}
+        finally {
+             $SyncState.IsScrolling = $false
+        }
+    }.GetNewClosure())
+    $generalScrollTimer.Start()
+
+    # 2. Web -> Editor Sync (Event based)
+    $AttachWebScroll = {
+        if ($webDescription.Document -and $webDescription.Document.Window) {
+            $webDescription.Document.Window.AttachEventHandler("onscroll", {
+                if ($SyncState.IsScrolling) { return }
+                if (-not $chkEdit.Checked) { return }
+                
+                try {
+                    $SyncState.IsScrolling = $true
+                    
+                    # Use GetElementFromPoint to find which line is at the top
+                    $pt = New-Object System.Drawing.Point(30, 20) # Offset slightly to hit content
+                    $el = $webDescription.Document.GetElementFromPoint($pt)
+                    
+                    $foundLine = -1
+                    while ($el) {
+                        if ($el.Id -and $el.Id.StartsWith("line_")) {
+                            $foundLine = [int]($el.Id.Substring(5))
+                            break
+                        }
+                        $el = $el.Parent
+                    }
+                    
+                    if ($foundLine -ge 0) {
+                        $targetPhysicalLine = $foundLine
+                        if ($SyncState.LineCharOffsets -and $foundLine -lt $SyncState.LineCharOffsets.Count) {
+                            $charIdx = $SyncState.LineCharOffsets[$foundLine]
+                            $targetPhysicalLine = [WikiScrollNative]::SendMessage($txtDescription.Handle, [WikiScrollNative]::EM_LINEFROMCHAR, $charIdx, 0)
+                        }
+
+                        $currentLine = [WikiScrollNative]::SendMessage($txtDescription.Handle, [WikiScrollNative]::EM_GETFIRSTVISIBLELINE, 0, 0)
+                        $linesToScroll = $targetPhysicalLine - $currentLine
+
+                        if ($linesToScroll -ne 0) {
+                            [WikiScrollNative]::SendMessage($txtDescription.Handle, [WikiScrollNative]::EM_LINESCROLL, 0, $linesToScroll) | Out-Null
+                        }
+                        
+                        # Update tracker so timer doesn't reverse it
+                        $SyncState.LastTxtScroll = [WikiScrollNative]::SendMessage($txtDescription.Handle, [WikiScrollNative]::EM_GETFIRSTVISIBLELINE, 0, 0)
+                    }
+                }
+                catch {}
+                finally {
+                    $SyncState.IsScrolling = $false
+                }
+            })
+        }
+    }.GetNewClosure()
+
+    $webDescription.Add_DocumentCompleted({
+        param($s, $e)
+        & $AttachWebScroll
+    }.GetNewClosure())
+
+    # 3. Content Update (Debounced typing)
+    $scrollSyncTimer.Add_Tick({
+        $scrollSyncTimer.Stop()
+        if ($chkEdit.Checked) {
+            
+            $htmlContent = & $ConvertMarkdownToHtml $txtDescription.Text
+            & $UpdateLineOffsets
+            
+            # Pause sync while we mess with the DOM
+            $SyncState.IsScrolling = $true 
+
+            try {
+                if ($webDescription.Document -and $webDescription.Document.Body) {
+                    
+                    # A. Capture Current Ratio (not pixels, in case height changes)
+                    $scrollEl = & $GetWebScrollable
+                    $prevRatio = 0.0
+                    $hasScroll = $false
+
+                    if ($scrollEl) {
+                        $oldMax = $scrollEl.ScrollRectangle.Height - $scrollEl.ClientRectangle.Height
+                        if ($oldMax -gt 0) {
+                             $prevRatio = $scrollEl.ScrollTop / $oldMax
+                             $hasScroll = $true
+                        }
+                    }
+
+                    # B. Update InnerHtml (No Page Reload)
+                    $webDescription.Document.Body.InnerHtml = $htmlContent
+                    
+                    # C. Restore Position by Ratio
+                    if ($hasScroll) {
+                        # Re-fetch element as DOM might have shifted
+                        $scrollEl = & $GetWebScrollable
+                        if ($scrollEl) {
+                            $newMax = $scrollEl.ScrollRectangle.Height - $scrollEl.ClientRectangle.Height
+                            if ($newMax -gt 0) {
+                                $scrollEl.ScrollTop = [int]($prevRatio * $newMax)
+                            }
+                        }
+                    }
+                } 
+                else {
+                    # Initial Load - Add DOCTYPE for Standards Mode
+                    $fullHtml = @"
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<style>
+body { background-color: #0f1219; color: #ffffff; font-family: 'Segoe UI', sans-serif; font-size: 11pt; margin: 0; padding: 0; border: none; scrollbar-base-color: #3a3f4b; scrollbar-track-color: #161a26; scrollbar-arrow-color: #ffffff; }
+img { max-width: 100%; height: auto; display: block; margin: 10px 0; border-radius: 4px; }
+a { color: #ff2e4c; text-decoration: none; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+th, td { border: 1px solid #444; padding: 6px; text-align: left; }
+th { background-color: #232838; color: #ff2e4c; }
+tr:nth-child(even) { background-color: #161a26; }
+code { background-color: #161a26; padding: 2px 4px; border-radius: 3px; font-family: Consolas, monospace; color: #e6db74; }
+blockquote { border-left: 3px solid #ff2e4c; margin: 10px 0; padding-left: 10px; color: #a0a5b0; }
+hr { border: 0; border-top: 1px solid #444; margin: 15px 0; }
+</style>
+</head>
+<body>
+$htmlContent
+</body>
+</html>
+"@
+                    $webDescription.DocumentText = $fullHtml
+                }
+            } 
+            catch {}
+            finally {
+                # Allow sync to resume after a short delay to let rendering finish
+                $SyncState.IsScrolling = $false
+            }
+        }
+    }.GetNewClosure())
+
+    $txtDescription.Add_TextChanged({
+        if ($chkEdit.Checked) {
+            $scrollSyncTimer.Stop()
+            $scrollSyncTimer.Start()
+        }
+    }.GetNewClosure())
+
+    # --- End Autocomplete ---
+
+    $btnSyncNode.Add_Click({
+        try {
+            $node = $treeView.SelectedNode
+            if (-not $node) { return }
+
+            $path = New-Object System.Collections.Generic.List[object]
+            $curr = $node
+            while ($curr) {
+                if ($curr.WikiMeta) {
+                    $path.Insert(0, $curr.WikiMeta.Key)
+                } else {
+                    if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Error" "Node is missing metadata." "Error" }
+                    return
+                }
+                $curr = $curr.Parent
+            }
+
+            $onlineNodeData = $WikiState.OnlineData
+            $found = $true
+            foreach ($key in $path) {
+                if ($null -eq $onlineNodeData) { $found = $false; break }
+
+                $keyExists = $false
+                if ($onlineNodeData -is [System.Collections.IDictionary]) {
+                    $keyExists = $onlineNodeData.Contains($key)
+                } elseif ($onlineNodeData -is [System.Collections.IList]) {
+                    $idx = -1
+                    if ([int]::TryParse($key, [ref]$idx)) {
+                        $keyExists = $idx -ge 0 -and $idx -lt $onlineNodeData.Count
+                    }
+                } elseif ($onlineNodeData.PSObject) {
+                    $keyExists = $null -ne $onlineNodeData.PSObject.Properties[$key]
+                }
+
+                if ($keyExists) {
+                    if ($onlineNodeData -is [System.Collections.IList]) {
+                        $onlineNodeData = $onlineNodeData[[int]$key]
+                    } else {
+                        $onlineNodeData = $onlineNodeData.$key
+                    }
+                } else {
+                    $found = $false
+                    break
+                }
+            }
+
+            if (-not $found -or $null -eq $onlineNodeData) {
+                if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Sync Error" "Could not find corresponding node in online data." "Warning" }
+                return
+            }
+
+            $meta = $node.WikiMeta
+            $parent = $meta.Parent
+            $key = $meta.Key
+
+            $onlineNodeDataClone = $onlineNodeData | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+
+            if ($parent -is [System.Collections.IDictionary]) {
+                $parent[$key] = $onlineNodeDataClone
+            } elseif ($parent -is [System.Collections.IList]) {
+                $parent[[int]$key] = $onlineNodeDataClone
+            } else {
+                $parent | Add-Member -MemberType NoteProperty -Name $key -Value $onlineNodeDataClone -Force
+            }
+            
+            $node.Tag = $onlineNodeDataClone
+            $node.Nodes.Clear()
+
+            $isComplex = ($onlineNodeDataClone -is [System.Management.Automation.PSCustomObject] -or $onlineNodeDataClone -is [System.Collections.IDictionary])
+            $isArray   = ($onlineNodeDataClone -is [System.Array] -or $onlineNodeDataClone -is [System.Collections.ArrayList]) -and $onlineNodeDataClone -isnot [string]
+            
+            if ($isComplex) {
+                $childKeys = & $getKeys $onlineNodeDataClone
+                foreach ($childName in $childKeys) {
+                    if ($childName -in 'meta','description','url','URL') { continue }
+                    $childContent = if ($onlineNodeDataClone -is [System.Collections.IDictionary]) { $onlineNodeDataClone[$childName] } else { $onlineNodeDataClone.$childName }
+                    & $AddWikiNode $AddWikiNode $node $childName $childContent $null $false $onlineNodeDataClone $childName
+                }
+            } elseif ($isArray) {
+                $idx = 0
+                foreach ($item in $onlineNodeDataClone) {
+                    $name = if ($item -is [string]) { $item } else { "Item" }
+                    & $AddWikiNode $AddWikiNode $node $name $item $null $false $onlineNodeDataClone $idx
+                    $idx++
+                }
+            }
+
+            $btnSave.PerformClick()
+            & $RefreshContent
+            
+            if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Synced" "Node synced with online version." "Info" }
+        } catch {
+            if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Sync Error" "An error occurred during sync: $_" "Error" }
+        }
+    }.GetNewClosure())
+
+	$btnSyncAll.Add_Click({
+        try {
+            $online = $WikiState['OnlineData']
+            if ($null -eq $online) { return }
+
+            $confirmKey = "WikiSyncAll".GetHashCode()
+            
+            $targetPath = $LocalWikiPath
+            $targetForm = $form
+            $targetState = $WikiState
+            $targetTree = $treeView
+            $targetPopulate = $PopulateTree
+            $targetViewMode = $chkViewMode
+
+            $performSyncAll = {
+                try {
+                    if (Get-Command CloseToast -ErrorAction SilentlyContinue) { CloseToast -Key $confirmKey }
+
+                    $onlineJson = $targetState['OnlineData'] | ConvertTo-Json -Depth 20
+                    $newData = $onlineJson | ConvertFrom-Json
+
+                    $targetState['LocalData'] = $newData
+                    $onlineJson | Set-Content -Path $targetPath -Encoding UTF8 -Force
+
+                    if (-not $targetViewMode.Checked) {
+                        $targetForm.Tag = $newData
+                        & $targetPopulate $null $newData $targetTree
+                    }
+                    
+                    if (Get-Command ShowToast -Ea SilentlyContinue) { 
+                        ShowToast -Title "Sync Complete" -Message "Local wiki completely overwritten with online data." -Type "Success" 
+                    } else { 
+                        [System.Windows.Forms.MessageBox]::Show("Local wiki synced with online version!") | Out-Null 
+                    }
+                } catch {
+                     if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Sync Error" "Error: $_" "Error" }
+                     else { [System.Windows.Forms.MessageBox]::Show("Error: $_") | Out-Null }
+                }
+            }.GetNewClosure()
+
+            $msg = "Are you sure you want to overwrite your ENTIRE local wiki with the online version?`n`nAll local custom edits will be lost."
+            
+            if (Get-Command ShowInteractiveNotification -ErrorAction SilentlyContinue) {
+                $btns = @( @{ Text = "Yes, Overwrite"; Action = $performSyncAll }, @{ Text = "Cancel"; Action = { CloseToast -Key $confirmKey }.GetNewClosure() } )
+                ShowInteractiveNotification -Title "Confirm Full Sync" -Message $msg -Buttons $btns -Type "Warning" -Key $confirmKey -TimeoutSeconds 15
+            } else {
+                if ([System.Windows.Forms.MessageBox]::Show($msg, "Confirm Full Sync", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning) -eq 'Yes') { 
+                    & $performSyncAll 
+                }
+            }
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show("Error initiating sync: $_") | Out-Null
+        }
+    }.GetNewClosure())
+
+    $btnSmartSync.Add_Click({
+        try {
+            $online = $WikiState['OnlineData']
+            if ($null -eq $online) { return }
+            
+            $local = $WikiState['LocalData']
+            if ($null -eq $local) { return }
+
+            $confirmKey = "WikiSmartSync".GetHashCode()
+            
+            $targetPath = $LocalWikiPath
+            $targetForm = $form
+            $targetState = $WikiState
+            $targetTree = $treeView
+            $targetPopulate = $PopulateTree
+            $targetViewMode = $chkViewMode
+            $targetGetKeys = $getKeys
+
+            $performSmartSync = {
+                try {
+                    if (Get-Command CloseToast -ErrorAction SilentlyContinue) { CloseToast -Key $confirmKey }
+
+                    $MergeLogic = {
+                        param($L, $O)
+                        if ($null -eq $O) { return }
+                        
+                        $oKeys = & $targetGetKeys $O
+                        foreach ($k in $oKeys) {
+                            if ($k -in 'meta','description','url','URL','note') { continue }
+                            
+                            $lHas = $false
+                            $lVal = $null
+                            
+                            if ($L -is [System.Collections.IDictionary]) {
+                                if ($L.Contains($k)) { $lHas = $true; $lVal = $L[$k] }
+                            } elseif ($L.PSObject) {
+                                if ($L.PSObject.Properties[$k]) { $lHas = $true; $lVal = $L.$k }
+                            }
+                            
+                            $oVal = if ($O -is [System.Collections.IDictionary]) { $O[$k] } else { $O.$k }
+                            
+                            if (-not $lHas) {
+                                $clone = $oVal | ConvertTo-Json -Depth 20 -Compress | ConvertFrom-Json
+                                if ($L -is [System.Collections.IDictionary]) { $L[$k] = $clone }
+                                else { $L | Add-Member -MemberType NoteProperty -Name $k -Value $clone -Force }
+                            } else {
+                                $lIsCont = ($lVal -is [System.Collections.IDictionary] -or $lVal -is [System.Management.Automation.PSCustomObject])
+                                $oIsCont = ($oVal -is [System.Collections.IDictionary] -or $oVal -is [System.Management.Automation.PSCustomObject])
+                                if ($lIsCont -and $oIsCont) {
+                                    & $MergeLogic $lVal $oVal
+                                }
+                            }
+                        }
+                    }
+
+                    & $MergeLogic $local $online
+                    
+                    $json = $local | ConvertTo-Json -Depth 20
+                    $json | Set-Content -Path $targetPath -Encoding UTF8 -Force
+                    
+                    if (-not $targetViewMode.Checked) {
+                        $targetForm.Tag = $local
+                        & $targetPopulate $null $local $targetTree
+                    }
+
+                    if (Get-Command ShowToast -Ea SilentlyContinue) { 
+                        ShowToast -Title "Smart Sync Complete" -Message "Missing nodes added from online wiki." -Type "Success" 
+                    } else { 
+                        [System.Windows.Forms.MessageBox]::Show("Smart Sync Complete!") | Out-Null 
+                    }
+
+                } catch {
+                     if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Sync Error" "Error: $_" "Error" }
+                     else { [System.Windows.Forms.MessageBox]::Show("Error: $_") | Out-Null }
+                }
+            }.GetNewClosure()
+
+            $msg = "Smart Sync will add any missing pages/categories from the online wiki to your local wiki.`n`nYour existing pages will NOT be overwritten.`n`nProceed?"
+            
+            if (Get-Command ShowInteractiveNotification -ErrorAction SilentlyContinue) {
+                $btns = @( @{ Text = "Start Sync"; Action = $performSmartSync }, @{ Text = "Cancel"; Action = { CloseToast -Key $confirmKey }.GetNewClosure() } )
+                ShowInteractiveNotification -Title "Confirm Smart Sync" -Message $msg -Buttons $btns -Type "Info" -Key $confirmKey -TimeoutSeconds 15
+            } else {
+                if ([System.Windows.Forms.MessageBox]::Show($msg, "Confirm Smart Sync", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Information) -eq 'Yes') { 
+                    & $performSmartSync 
+                }
+            }
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show("Error initiating sync: $_") | Out-Null
+        }
+    }.GetNewClosure())
+
+    $btnSmartSync.Add_Click({
+        try {
+            $online = $WikiState['OnlineData']
+            if ($null -eq $online) { return }
+            
+            $local = $WikiState['LocalData']
+            if ($null -eq $local) { return }
+
+            $confirmKey = "WikiSmartSync".GetHashCode()
+            
+            $targetPath = $LocalWikiPath
+            $targetForm = $form
+            $targetState = $WikiState
+            $targetTree = $treeView
+            $targetPopulate = $PopulateTree
+            $targetViewMode = $chkViewMode
+            $targetGetKeys = $getKeys
+
+            $performSmartSync = {
+                try {
+                    if (Get-Command CloseToast -ErrorAction SilentlyContinue) { CloseToast -Key $confirmKey }
+
+                    $MergeLogic = {
+                        param($L, $O)
+                        if ($null -eq $O) { return }
+                        
+                        $oKeys = & $targetGetKeys $O
+                        foreach ($k in $oKeys) {
+                            if ($k -in 'meta','description','url','URL','note') { continue }
+                            
+                            $lHas = $false
+                            $lVal = $null
+                            
+                            if ($L -is [System.Collections.IDictionary]) {
+                                if ($L.Contains($k)) { $lHas = $true; $lVal = $L[$k] }
+                            } elseif ($L.PSObject) {
+                                if ($L.PSObject.Properties[$k]) { $lHas = $true; $lVal = $L.$k }
+                            }
+                            
+                            $oVal = if ($O -is [System.Collections.IDictionary]) { $O[$k] } else { $O.$k }
+                            
+                            if (-not $lHas) {
+                                $clone = $oVal | ConvertTo-Json -Depth 20 -Compress | ConvertFrom-Json
+                                if ($L -is [System.Collections.IDictionary]) { $L[$k] = $clone }
+                                else { $L | Add-Member -MemberType NoteProperty -Name $k -Value $clone -Force }
+                            } else {
+                                $lIsCont = ($lVal -is [System.Collections.IDictionary] -or $lVal -is [System.Management.Automation.PSCustomObject])
+                                $oIsCont = ($oVal -is [System.Collections.IDictionary] -or $oVal -is [System.Management.Automation.PSCustomObject])
+                                
+                                $contentDiff = $false
+                                if (-not $lIsCont -and -not $oIsCont) {
+                                    if ($lVal -ne $oVal) { $contentDiff = $true }
+                                } elseif ($lIsCont -and $oIsCont) {
+                                    $lDesc = if ($lVal -is [System.Collections.IDictionary]) { $lVal['description'] } else { $lVal.description }
+                                    $oDesc = if ($oVal -is [System.Collections.IDictionary]) { $oVal['description'] } else { $oVal.description }
+                                    if ($lDesc -ne $oDesc) { $contentDiff = $true }
+                                } else {
+                                    $contentDiff = $true
+                                }
+
+                                if ($contentDiff) {
+                                    $newKey = "$k (Online)"
+                                    $clone = $oVal | ConvertTo-Json -Depth 20 -Compress | ConvertFrom-Json
+                                    if ($L -is [System.Collections.IDictionary]) { $L[$newKey] = $clone }
+                                    else { $L | Add-Member -MemberType NoteProperty -Name $newKey -Value $clone -Force }
+                                } elseif ($lIsCont -and $oIsCont) {
+                                    & $MergeLogic $lVal $oVal
+                                }
+                            }
+                        }
+                    }
+
+                    & $MergeLogic $local $online
+                    
+                    $json = $local | ConvertTo-Json -Depth 20
+                    $json | Set-Content -Path $targetPath -Encoding UTF8 -Force
+                    
+                    if (-not $targetViewMode.Checked) {
+                        $targetForm.Tag = $local
+                        & $targetPopulate $null $local $targetTree
+                    }
+
+                    if (Get-Command ShowToast -Ea SilentlyContinue) { 
+                        ShowToast -Title "Smart Sync Complete" -Message "Missing nodes added. Conflicts saved as '(Online)'." -Type "Success" 
+                    } else { 
+                        [System.Windows.Forms.MessageBox]::Show("Smart Sync Complete!") | Out-Null 
+                    }
+
+                } catch {
+                     if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Sync Error" "Error: $_" "Error" }
+                     else { [System.Windows.Forms.MessageBox]::Show("Error: $_") | Out-Null }
+                }
+            }.GetNewClosure()
+
+            $msg = "Smart Sync will merge online data.`n`n1. Missing nodes will be added.`n2. Nodes with different content will be added as 'Node (Online)'.`n`nYour existing data will NOT be overwritten.`n`nProceed?"
+            
+            if (Get-Command ShowInteractiveNotification -ErrorAction SilentlyContinue) {
+                $btns = @( @{ Text = "Start Sync"; Action = $performSmartSync }, @{ Text = "Cancel"; Action = { CloseToast -Key $confirmKey }.GetNewClosure() } )
+                ShowInteractiveNotification -Title "Confirm Smart Sync" -Message $msg -Buttons $btns -Type "Info" -Key $confirmKey -TimeoutSeconds 15
+            } else {
+                if ([System.Windows.Forms.MessageBox]::Show($msg, "Confirm Smart Sync", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Information) -eq 'Yes') { 
+                    & $performSmartSync 
+                }
+            }
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show("Error initiating sync: $_") | Out-Null
+        }
+    }.GetNewClosure())
 
     $chkViewMode.Add_CheckedChanged({
         param($s, $e)
         try {
-
             $restorePath = New-Object System.Collections.Generic.List[string]
             $curr = $treeView.SelectedNode
             while ($curr) {
-
                 $val = if (-not [string]::IsNullOrEmpty($curr.Name)) { $curr.Name } else { $curr.Text }
                 $restorePath.Insert(0, $val)
                 $curr = $curr.Parent
@@ -928,8 +1727,9 @@ $htmlContent
                 $s.BackColor = $Theme.AccentColor
                 $s.ForeColor = "White"
 
-                $form.Tag = $OnlineWikiData
-                & $PopulateTree $null $OnlineWikiData $treeView
+                $data = $WikiState.OnlineData
+                $form.Tag = $data
+                & $PopulateTree $null $data $treeView
                 
                 $lblStatus.Text = "Source: Online (GitHub) [Read-Only]"
                 $chkEdit.Enabled = $false
@@ -939,17 +1739,18 @@ $htmlContent
                 $s.BackColor = $Theme.Background
                 $s.ForeColor = $Theme.SubTextColor
 
-                $form.Tag = $LocalWikiData
-                & $PopulateTree $null $LocalWikiData $treeView
+                $data = $WikiState.LocalData
+                $form.Tag = $data
+                & $PopulateTree $null $data $treeView
 
                 $lblStatus.Text = "Source: Offline (Local File)"
-                $chkEdit.Enabled = ($null -ne $LocalWikiData)
+                $chkEdit.Enabled = ($null -ne $data)
             }
             
-
             $NavHistory.Clear()
             $btnBack.Enabled = $false
 
+            & $UpdateSyncButtonState
 
             $restored = $false
             if ($restorePath.Count -gt 0) {
@@ -958,14 +1759,10 @@ $htmlContent
                 
                 foreach ($part in $restorePath) {
                     $found = $false
-                    
-
                     $match = $nodes.Find($part, $false)
                     if ($match.Count -gt 0) {
                         $target = $match[0]; $nodes = $target.Nodes; $found = $true
                     }
-                    
-
                     if (-not $found) {
                         foreach ($n in $nodes) {
                             if ($n.Text -eq $part) {
@@ -995,30 +1792,40 @@ $htmlContent
         $btnDelete.Visible = $isEdit
         $btnAdd.Visible = $isEdit
         
+        & $UpdateSyncButtonState
+        
         if ($isEdit) {
             $chkEdit.BackColor = $Theme.AccentColor
             $chkEdit.ForeColor = "White"
             
-
             $btnPanel.Visible = $false
             $pnlEditFields.Visible = $true
             $pnlFormatting.Visible = $true
-            $txtDescription.Top = 285
-            $txtDescription.Height = ($contentPanel.Height - 295)
-            $webDescription.Top = 285
-            $webDescription.Height = ($contentPanel.Height - 295)
+            
+            # Split screen logic
+            $editPreviewSplitter.Top = 285
+            $editPreviewSplitter.Height = ($contentPanel.Height - 295)
+            $editPreviewSplitter.Panel1Collapsed = $false
+            $editPreviewSplitter.SplitterDistance = [int]($editPreviewSplitter.Height / 2)
+            
             if ([Custom.Native] -as [Type]) { [Custom.Native]::UseImmersiveDarkMode($txtDescription.Handle) }
+            
+            # Trigger initial render for preview
+            $txtDescription.Text = $txtDescription.Text # Triggers TextChanged
+            
         } else {
             $chkEdit.BackColor = $Theme.Background
             $chkEdit.ForeColor = $Theme.SubTextColor
             
+            # Clear unsaved buffer on cancel/exit edit
+            $WikiState.UnsavedBuffer.Clear()
 
             $pnlEditFields.Visible = $false
             $pnlFormatting.Visible = $false
-            $txtDescription.Top = 180
-            $txtDescription.Height = ($contentPanel.Height - 195)
-            $webDescription.Top = 180
-            $webDescription.Height = ($contentPanel.Height - 195)
+            
+            $editPreviewSplitter.Top = 180
+            $editPreviewSplitter.Height = ($contentPanel.Height - 195)
+            $editPreviewSplitter.Panel1Collapsed = $true
         }
         
         & $RefreshContent
@@ -1049,9 +1856,20 @@ $htmlContent
             $hit = $src.HitTest($e.Location)
             if ($hit.Location -ne [System.Windows.Forms.TreeViewHitTestLocations]::PlusMinus) {
                 if (-not $e.Node.IsExpanded) { $e.Node.Expand() }
-                
-
                 & $RefreshContent
+            }
+        }
+    }.GetNewClosure())
+
+    # --- Persistence Logic: BeforeSelect ---
+    $treeView.Add_BeforeSelect({
+        param($src, $e)
+        if ($chkEdit.Checked -and $treeView.SelectedNode) {
+            # Save current text to buffer before switching
+            $path = $treeView.SelectedNode.FullPath
+            $WikiState.UnsavedBuffer[$path] = @{
+                Text = $txtDescription.Text
+                Scroll = $txtDescription.SelectionStart
             }
         }
     }.GetNewClosure())
@@ -1067,7 +1885,7 @@ $htmlContent
                  $NavHistory.Push($node)
                  if ($NavHistory.Count -gt 1) { $btnBack.Enabled = $true; $btnBack.ForeColor = $Theme.TextColor }
             }
-
+            & $UpdateSyncButtonState
             & $RefreshContent
         } catch {}
     }.GetNewClosure())
@@ -1129,9 +1947,7 @@ $htmlContent
             $parent = $meta.Parent
             $key = $meta.Key
             
-
             if (-not [string]::IsNullOrWhiteSpace($newTitle) -and $newTitle -ne $key) {
-
                 $exists = $false
                 if ($parent -is [System.Collections.IDictionary]) { $exists = $parent.Contains($newTitle) }
                 elseif ($parent.PSObject) { $exists = $null -ne $parent.PSObject.Properties[$newTitle] }
@@ -1141,7 +1957,6 @@ $htmlContent
                     else { [System.Windows.Forms.MessageBox]::Show("A key with the name '$newTitle' already exists.", "Rename Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null }
                     return
                 }
-
 
                 if ($parent -is [System.Collections.IDictionary]) {
                     $keys = [System.Collections.ArrayList]@($parent.Keys)
@@ -1154,7 +1969,6 @@ $htmlContent
                     foreach ($k in $temp.Keys) { $parent[$k] = $temp[$k] }
                 }
                 else {
-
                     $props = $parent.PSObject.Properties | Select-Object Name, Value
                     $temp = [ordered]@{}
                     foreach ($p in $props) {
@@ -1176,9 +1990,7 @@ $htmlContent
             $isSimple = ($node.Tag -is [string])
             $needsComplex = (-not [string]::IsNullOrWhiteSpace($newUrl) -or -not [string]::IsNullOrWhiteSpace($newNote))
             
-
             if ($isSimple -and -not $needsComplex) {
-
                 $val = $newText
                 if ($parent -is [System.Collections.IList]) { $parent[$key] = $val }
                 elseif ($parent -is [System.Collections.IDictionary]) { $parent[$key] = $val }
@@ -1187,7 +1999,6 @@ $htmlContent
                 if ($node.Text -match "^$([regex]::Escape($key)):") { $node.Text = "$key`: $val" }
             }
             else {
-
                 $obj = $node.Tag
                 if ($isSimple) {
                     $obj = [ordered]@{ description = $newText }
@@ -1197,7 +2008,6 @@ $htmlContent
                     $node.Tag = $obj
                 }
                 
-
                 if ($obj -is [System.Collections.IDictionary]) {
                     $obj['description'] = $newText
                     if (-not [string]::IsNullOrWhiteSpace($newUrl)) { $obj['url'] = $newUrl } elseif ($obj.Contains('url')) { $obj.Remove('url') }
@@ -1214,6 +2024,10 @@ $htmlContent
                 }
             }
             
+            # Clear unsaved buffer for this node
+            if ($WikiState.UnsavedBuffer.ContainsKey($node.FullPath)) {
+                $WikiState.UnsavedBuffer.Remove($node.FullPath)
+            }
 
             $currentForm = $this.FindForm()
             $json = $currentForm.Tag | ConvertTo-Json -Depth 20
@@ -1243,7 +2057,6 @@ $htmlContent
             }
 
             $nKey = "WikiDelete".GetHashCode()
-
 
             $targetPath = $LocalWikiPath
             $targetForm = $form
@@ -1290,11 +2103,9 @@ $htmlContent
             $node = $tv.SelectedNode
             $mainForm = $tv.FindForm()
             
-
             $askName = {
                 return "New"
             }
-
 
             $itemSibling = $cms.Items.Add("Add Sibling")
             $itemSibling.Add_Click({
@@ -1341,7 +2152,6 @@ $htmlContent
                 } catch {}
             }.GetNewClosure())
 
-
             $itemChild = $cms.Items.Add("Add Child")
             if (-not $node) { $itemChild.Enabled = $false }
             $itemChild.Add_Click({
@@ -1356,7 +2166,6 @@ $htmlContent
                     
                     $container = $currentData
                     
-
                     if ($currentData -is [string]) {
                         $container = [ordered]@{ description = $currentData }
                         if ($parentOfNode -is [System.Collections.IDictionary]) { $parentOfNode[$keyOfNode] = $container }
@@ -1394,7 +2203,6 @@ $htmlContent
                 } catch { }
             }.GetNewClosure())
             
-
             $itemRoot = $cms.Items.Add("Add Root Node")
             $itemRoot.Add_Click({
                 try {
@@ -1435,7 +2243,6 @@ $htmlContent
 
             $cms.Items.Add("-") | Out-Null
 
-
             $itemMoveUp = $cms.Items.Add("Move Up")
             if (-not $node -or -not $node.PrevNode) { $itemMoveUp.Enabled = $false }
             $itemMoveUp.Add_Click({
@@ -1446,7 +2253,6 @@ $htmlContent
                     if ($null -eq $parent) { return }
                     $key = $meta.Key
                     
-
                     if ($parent -is [System.Collections.IList]) {
                         $idx = [int]$key
                         $prevIdx = $idx - 1
@@ -1465,13 +2271,11 @@ $htmlContent
                         }
                     }
                     
-
                     $pNode = $node.Parent; $nodesColl = if ($pNode) { $pNode.Nodes } else { $tv.Nodes }
                     $index = $node.Index; $nodesColl.RemoveAt($index); $nodesColl.Insert($index - 1, $node); $tv.SelectedNode = $node
                     $btnSave.PerformClick()
                 } catch { if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "Move Error" -Message "Error moving up: $_" -Type "Error" } }
             }.GetNewClosure())
-
 
             $itemMoveDown = $cms.Items.Add("Move Down")
             if (-not $node -or -not $node.NextNode) { $itemMoveDown.Enabled = $false }
@@ -1483,7 +2287,6 @@ $htmlContent
                     if ($null -eq $parent) { return }
                     $key = $meta.Key
                     
-
                     if ($parent -is [System.Collections.IList]) {
                         $idx = [int]$key
                         $nextIdx = $idx + 1
@@ -1502,7 +2305,6 @@ $htmlContent
                         }
                     }
                     
-
                     $pNode = $node.Parent; $nodesColl = if ($pNode) { $pNode.Nodes } else { $tv.Nodes }
                     $index = $node.Index; $nodesColl.RemoveAt($index); $nodesColl.Insert($index + 1, $node); $tv.SelectedNode = $node
                     $btnSave.PerformClick()
@@ -1518,16 +2320,17 @@ $htmlContent
         }
     }.GetNewClosure())
 
+	$WikiState.LocalData = $LocalWikiData
+	& $PopulateTree $null $WikiState.LocalData $treeView
+    
+    # Pre-populate autocomplete list
+    $WikiState.NodeList = & $PopulateNodeList $WikiState.LocalData
 
-	& $PopulateTree $null $WikiData $treeView
-
-
-	$chkEdit.Enabled = ($null -ne $LocalWikiData)
-	$chkViewMode.Enabled = ($null -ne $OnlineWikiData -and $null -ne $LocalWikiData)
+	$chkEdit.Enabled = ($null -ne $WikiState.LocalData)
+	$chkViewMode.Enabled = ($null -ne $WikiState.OnlineData -and $null -ne $WikiState.LocalData)
 	if (-not $chkViewMode.Enabled) {
 		$chkViewMode.Text = "N/A"
 	}
-
 
 	if ('Custom.DarkMessageBox' -as [Type])
 	{
@@ -1590,7 +2393,6 @@ $htmlContent
 	}
 	& $SetupResize $form
 
-
 	if ($global:DashboardConfig.Config['WindowPosition'])
 	{
 		$wp = $global:DashboardConfig.Config['WindowPosition']
@@ -1611,10 +2413,6 @@ $htmlContent
 		}
 	}
 
-
-	$txtDescription.Height = [Math]::Max(100, ($contentPanel.Height - 190))
-	$webDescription.Height = [Math]::Max(100, ($contentPanel.Height - 190))
-
 	$form.Add_FormClosed({
 			if ($this.WindowState -eq [System.Windows.Forms.FormWindowState]::Normal)
 			{
@@ -1633,8 +2431,6 @@ $htmlContent
 			try {
 				if ($webDescription) {
 					if (-not $webDescription.IsDisposed) {
-						# Explicitly clear the document content and disable navigation
-						# This is a common and effective workaround for WebBrowser opening external windows on dispose
 						$webDescription.DocumentText = "" 
 						$webDescription.AllowNavigation = $false
 						$webDescription.Stop()
@@ -1661,10 +2457,12 @@ $htmlContent
 		$capturedStatus = $lblStatus
 		$capturedViewMode = $chkViewMode
 		$capturedTheme = $Theme
-		$capturedLocalData = $LocalWikiData
+		$capturedState = $WikiState
 		$capturedLocalPath = $LocalWikiPath
 		$capturedTree = $treeView
 		$capturedPopulate = $PopulateTree
+        $capturedSyncUpdate = $UpdateSyncButtonState
+        $capturedPopulateNodeList = $PopulateNodeList
 
 		$scriptBlock = {
 			param($url)
@@ -1690,13 +2488,16 @@ $htmlContent
 		$asyncResult = $ps.BeginInvoke()
 
 		$pollTimer = New-Object System.Windows.Forms.Timer
-		$pollTimer.Interval = 100
+		$pollTimer.Interval = 1000
 		$pollTimer.Add_Tick({
 			if ($asyncResult.IsCompleted) {
 				$pollTimer.Stop()
 				
 				try {
-					$OnlineWikiData = $ps.EndInvoke($asyncResult)
+					$resultCol = $ps.EndInvoke($asyncResult)
+					if ($resultCol -and $resultCol.Count -gt 0) {
+						$capturedState.OnlineData = $resultCol[0]
+					}
 				} catch { 
                     $pollTimer.Dispose()
                     return 
@@ -1707,24 +2508,30 @@ $htmlContent
                     return 
                 }
 				
-				if ($OnlineWikiData) {
+				if ($capturedState.OnlineData) {
 					$capturedForm.Text = "Entropia Wiki - Online (GitHub)"
 					$capturedStatus.Text = "Source: Online (GitHub)"
 					$capturedStatus.ForeColor = $capturedTheme.SuccessColor
-					$capturedViewMode.Enabled = ($null -ne $capturedLocalData)
+					
+                    if (-not $capturedState.LocalData) {
+                        $capturedState.LocalData = $capturedState.OnlineData
+                        $capturedForm.Tag = $capturedState.OnlineData
+						& $capturedPopulate $null $capturedState.OnlineData $capturedTree
+                        
+                        # Populate autocomplete list
+                        $capturedState.NodeList = & $capturedPopulateNodeList $capturedState.LocalData
+                    }
+
+					$capturedViewMode.Enabled = ($null -ne $capturedState.LocalData -and $null -ne $capturedState.OnlineData)
 					if ($capturedViewMode.Enabled) {
 						$capturedViewMode.Text = "VIEW ONLINE"
 					}
-
-					if (-not $capturedLocalData) {
-						$capturedLocalData = $OnlineWikiData
-						$capturedForm.Tag = $OnlineWikiData
-						& $capturedPopulate $null $OnlineWikiData $capturedTree
-					}
+                    
+                    & $capturedSyncUpdate
 
 					if (-not (Test-Path $capturedLocalPath)) {
 						try {
-							($OnlineWikiData | ConvertTo-Json -Depth 20) | Set-Content -Path $capturedLocalPath -Encoding UTF8 -Force
+							($capturedState.OnlineData | ConvertTo-Json -Depth 20) | Set-Content -Path $capturedLocalPath -Encoding UTF8 -Force
 						} catch { Write-Verbose "Failed to create local wiki.json: $_" }
 					}
 				}

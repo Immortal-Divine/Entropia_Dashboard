@@ -316,7 +316,7 @@ function Send-Message
 		return
 	}
 
-	$footerText = "Sent via Entropia Dashboard`nhttps://immortal-divine.github.io/Entropia_Dashboard/"
+	$footerText = "Sent via Entropia Dashboard by $($userToSend)`nhttps://immortal-divine.github.io/Entropia_Dashboard/"
 
 	$embed = @{
 		title       = "$bossDisplay spawned!"
@@ -490,7 +490,7 @@ function ProcessSpawnEvent {
                 -Message "Marked as False Alarm by $($Spawn.lastUpdateBy)." `
                 -Type 'Error' `
                 -Key $notifKey `
-                -TimeoutSeconds 0 ` # Keep it open until manually dismissed
+                -TimeoutSeconds 10 ` # Keep it open until manually dismissed
                 -Progress 0 `
                 -IgnoreCancellation `
                 -Buttons $activeButtons ` # Show only a "Hide" button
@@ -506,7 +506,8 @@ function ProcessSpawnEvent {
                 -Key $notifKey `
                 -TimeoutSeconds 10 `
                 -Progress 0 `
-				-ImageUrl $bossImg
+				-Buttons $activeButtons ` # Show only a "Hide" button
+				-ImageUrl $bossImg `
                 -IgnoreCancellation
             $State.HiddenNotifications.Remove($trackingKey) | Out-Null # Ensure it's not hidden if it was
         }
@@ -524,7 +525,7 @@ function ProcessSpawnEvent {
                     -Message "Spawned at $popTime$triggeredByText" `
                     -Type 'Warning' `
                     -Key $notifKey `
-                    -TimeoutSeconds 0 `
+                    -TimeoutSeconds 600 `
                     -Progress $hpPercent `
                     -IgnoreCancellation `
                     -Buttons $activeButtons `
@@ -626,14 +627,27 @@ function Start-WorldBossListener
                             $BuildBlock = {
                                 param($ServerName, $Data)
                                 $output = @()
-                                $hasContent = ($Data.upcoming.Count -gt 0) -or ($Data.randomRotation.Count -gt 0) -or ($Data.activeSpawns.Count -gt 0)
+                                
+                                $IsBossEnabled = {
+                                    param($bName)
+                                    if ($global:DashboardConfig.Config['BossFilter'] -and $global:DashboardConfig.Config['BossFilter'].Contains($bName)) {
+                                        try { return [bool]::Parse($global:DashboardConfig.Config['BossFilter'][$bName]) } catch {}
+                                    }
+                                    return $true
+                                }
+
+                                $activeSpawns = @($Data.activeSpawns) | Where-Object { & $IsBossEnabled $_.name }
+                                $upcoming = @($Data.upcoming) | Where-Object { $_.time -notmatch '\(tomorrow\)' -and (& $IsBossEnabled $_.name) }
+                                $randomRotation = @($Data.randomRotation) | Where-Object { & $IsBossEnabled $_.name }
+
+                                $hasContent = ($upcoming.Count -gt 0) -or ($randomRotation.Count -gt 0) -or ($activeSpawns.Count -gt 0)
                                 if ($hasContent) {
                                     $output += "=== $ServerName SERVER ==="
                                     $output += $dashLine
                                     
                                     # Split Active into "Alive" and "Died" for display
                                     $alive = @(); $dead = @()
-                                    foreach ($b in $Data.activeSpawns) {
+                                    foreach ($b in $activeSpawns) {
                                         if ($b.hpStatus -eq 'Died') { $dead += $b } else { $alive += $b }
                                     }
 
@@ -647,7 +661,6 @@ function Start-WorldBossListener
                                         $output += ""
                                     }
 
-                                    $upcoming = @($Data.upcoming) | Where-Object { $_.time -notmatch '\(tomorrow\)' }
                                     if ($upcoming.Count -gt 0) {
                                         $output += " [ UPCOMING ]"
 											foreach ($b in $upcoming) {
@@ -659,9 +672,9 @@ function Start-WorldBossListener
 											}
                                         $output += ""
                                     }
-                                    if ($Data.randomRotation.Count -gt 0) {
+                                    if ($randomRotation.Count -gt 0) {
                                         $output += " [ RANDOM ROTATION ]"
-                                        foreach ($b in $Data.randomRotation) { $output += "  * $($b.name)" }
+                                        foreach ($b in $randomRotation) { $output += "  * $($b.name)" }
                                         $output += "" 
                                     }
                                 }

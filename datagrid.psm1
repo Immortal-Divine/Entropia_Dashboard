@@ -394,7 +394,10 @@ function Restore-WindowPositions
 			$pos = $global:DashboardConfig.Config['SavedWindowPositions'][$identity] -split ','
 			if ($pos.Count -eq 4 -and $row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
 			{
-				[Custom.Native]::PositionWindow($row.Tag.MainWindowHandle, [IntPtr]::Zero, [int]$pos[0], [int]$pos[1], [int]$pos[2], [int]$pos[3], 0x0014) 
+				if (-not [Custom.Native]::IsMinimized($row.Tag.MainWindowHandle))
+				{
+					[Custom.Native]::PositionWindow($row.Tag.MainWindowHandle, [IntPtr]::Zero, [int]$pos[0], [int]$pos[1], [int]$pos[2], [int]$pos[3], 0x0014) 
+				}
 			}
 		}
 	}

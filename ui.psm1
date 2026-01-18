@@ -83,7 +83,7 @@ function Show-FormAsDialog
 		if (-not ('Custom.Native' -as [Type])) {
 			throw "Custom.Native class not found. Cannot use P/Invoke message loop."
 		}
-
+				
 		$msg = New-Object Custom.Native+MSG
 		while ($Form.Visible)
 		{
@@ -259,7 +259,6 @@ function HideSettingsForm
 
 function ShowExtraForm
 {
-
 	[CmdletBinding()]
 	param()
 
@@ -508,6 +507,109 @@ function RegisterConfiguredHotkeys
 			Write-Verbose "  HOTKEYS: Failed to register hotkey '$keyCombo' for '$hotkeyName'. Error: $($_.Exception.Message)"
 		}
 	}
+
+	# Register GROUP hotkeys for hiding windows (HotkeysHide)
+	if ($config.Contains('HotkeysHide'))
+	{
+		$hotkeysHide = $config['HotkeysHide']
+		$groupsHide = if ($config.Contains('HotkeyGroupsHide')) { $config['HotkeyGroupsHide'] } else { @{} }
+		foreach ($hotkeyName in $hotkeysHide.Keys)
+		{
+			try
+			{
+				$keyCombo = $hotkeysHide[$hotkeyName]
+				if ([string]::IsNullOrWhiteSpace($keyCombo) -or $keyCombo -eq 'none') { continue }
+
+				if ($groupsHide.Contains($hotkeyName))
+				{
+					$memberString = $groupsHide[$hotkeyName]
+					if ([string]::IsNullOrWhiteSpace($memberString)) { continue }
+
+					$memberList = $memberString -split ','
+					$ownerKey = "GroupHotkeyHide_$hotkeyName"
+
+					SetHotkey -KeyCombinationString $keyCombo -OwnerKey $ownerKey -Action ({
+						$targetMembers = $memberList
+						$grid = $global:DashboardConfig.UI.DataGridMain
+						if (-not $grid) { return }
+
+						foreach ($row in $grid.Rows)
+						{
+							$identity = Get-RowIdentity -Row $row
+							if ($targetMembers -contains $identity)
+							{
+								if ($row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
+								{
+									$h = $row.Tag.MainWindowHandle
+									# Minimize the window instead of changing its extended window style
+									try { [Custom.Native]::ShowWindow($h, [Custom.Native]::SW_MINIMIZE) } catch {}
+								}
+							}
+						}
+					}.GetNewClosure())
+					Write-Verbose "  HOTKEYS: Registered GROUP hide hotkey '$keyCombo' for group '$hotkeyName'."
+				}
+			}
+			catch
+			{
+				Write-Verbose "  HOTKEYS: Failed to register hide hotkey '$keyCombo' for '$hotkeyName'. Error: $($_.Exception.Message)"
+			}
+		}
+	}
+
+	# Register GROUP hotkeys for loading saved positions (HotkeysLoadPos)
+	if ($config.Contains('HotkeysLoadPos'))
+	{
+		$hotkeysLoad = $config['HotkeysLoadPos']
+		$groupsLoad = if ($config.Contains('HotkeyGroupsLoadPos')) { $config['HotkeyGroupsLoadPos'] } else { @{} }
+		foreach ($hotkeyName in $hotkeysLoad.Keys)
+		{
+			try
+			{
+				$keyCombo = $hotkeysLoad[$hotkeyName]
+				if ([string]::IsNullOrWhiteSpace($keyCombo) -or $keyCombo -eq 'none') { continue }
+
+				if ($groupsLoad.Contains($hotkeyName))
+				{
+					$memberString = $groupsLoad[$hotkeyName]
+					if ([string]::IsNullOrWhiteSpace($memberString)) { continue }
+
+					$memberList = $memberString -split ','
+					$ownerKey = "GroupHotkeyLoadPos_$hotkeyName"
+
+					SetHotkey -KeyCombinationString $keyCombo -OwnerKey $ownerKey -Action ({
+						$targetMembers = $memberList
+						$grid = $global:DashboardConfig.UI.DataGridMain
+						if (-not $grid) { return }
+
+						foreach ($row in $grid.Rows)
+						{
+							$identity = Get-RowIdentity -Row $row
+							if ($targetMembers -contains $identity)
+							{
+								if ($global:DashboardConfig.Config.Contains('SavedWindowPositions') -and $global:DashboardConfig.Config['SavedWindowPositions'].Contains($identity) -and $row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
+								{
+									$pos = $global:DashboardConfig.Config['SavedWindowPositions'][$identity] -split ','
+									if ($pos.Count -eq 4)
+									{
+										if (-not [Custom.Native]::IsMinimized($row.Tag.MainWindowHandle))
+										{
+											[Custom.Native]::PositionWindow($row.Tag.MainWindowHandle, [IntPtr]::Zero, [int]$pos[0], [int]$pos[1], [int]$pos[2], [int]$pos[3], 0x0014)
+										}
+									}
+								}
+							}
+						}
+					}.GetNewClosure())
+					Write-Verbose "  HOTKEYS: Registered GROUP load-pos hotkey '$keyCombo' for group '$hotkeyName'."
+				}
+			}
+			catch
+			{
+				Write-Verbose "  HOTKEYS: Failed to register load-pos hotkey '$keyCombo' for '$hotkeyName'. Error: $($_.Exception.Message)"
+			}
+		}
+	}
 }
 
 function RefreshNotificationGrid
@@ -554,7 +656,13 @@ function RefreshHotkeysList
 	try
 	{
 		$grid = $global:DashboardConfig.UI.HotkeysGrid
-		if (-not $grid) { return }		
+		# If called from a non-UI thread, marshal back to the UI thread
+		if ($grid -and $grid.InvokeRequired)
+		{
+			$grid.Invoke([Action]{ RefreshHotkeysList })
+			return
+		}
+		if (-not $grid) { return }
 		$grid.Rows.Clear()
 
 		
@@ -577,108 +685,236 @@ function RefreshHotkeysList
 
 		if ($allHotkeys.Count -gt 0)
 		{
-			$sortedKeys = $allHotkeys.Keys | Sort-Object { $allHotkeys[$_].KeyString }
-			
+
+
+
 			$GetDecoratedTitle = {
-				param($pidStr)
-				$title = ''
-				$g = $global:DashboardConfig.UI.DataGridMain
-				if ($g)
-				{
-					$r = $g.Rows | Where-Object { $_.Cells[2].Value.ToString() -eq $pidStr } | Select-Object -First 1
-					if ($r)
+					param($pidStr)
+					$title = ''
+					$g = $global:DashboardConfig.UI.DataGridMain
+					if ($g)
 					{
-						$title = $r.Cells[1].Value
+						$r = $g.Rows | Where-Object { $_.Cells[2].Value.ToString() -eq $pidStr } | Select-Object -First 1
+						if ($r) { $title = $r.Cells[1].Value }
 					}
+					return $title
 				}
-				return $title
-			}
+
+				# Only keep the well-defined categories used in the UI
+				$groups = [ordered]@{
+					'Ftool' = @()
+					'Macro' = @()
+					'Windows' = @()
+					'Groups' = @()
+					'QuickCommands' = @()
+				}
+
+			$sortedKeys = $allHotkeys.Keys | Sort-Object { $allHotkeys[$_].KeyString }
+
 
 			foreach ($id in $sortedKeys)
-			{
-				$meta = $allHotkeys[$id]
-				$keyString = $meta.KeyString
-				$isPaused = $id -lt 0
-				
-				if ($meta.Owners)
 				{
-					foreach ($ownerKey in $meta.Owners.Keys)
+					$meta = $allHotkeys[$id]
+					$keyString = $meta.KeyString
+					$isPaused = $id -lt 0
+					if ($meta.Owners)
 					{
-						$displayOwner = $ownerKey
-						$displayAction = ''
-						
-						if ($ownerKey -match '^global_toggle_(.+)')
-      {
-							$instanceId = $Matches[1]
-							$displayOwner = "Ftool Global Toggle: $instanceId"
-							$displayAction = 'Enable/Disable hotkeys'
-							
-							$decoratedTitle = &$GetDecoratedTitle $instanceId
-							if (-not [string]::IsNullOrEmpty($decoratedTitle)) { $displayOwner = "Ftool Global Toggle: $decoratedTitle" }
-						}
-						elseif ($ownerKey -match '^ext_(.+)_\d+')
+						foreach ($ownerKey in $meta.Owners.Keys)
 						{
-							$instanceId = $Matches[1]
-							$extKey = $ownerKey
-							$displayOwner = "Ftool Extension: $instanceId"
-							$displayAction = 'Start/Stop'
-
-							if ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+							$displayOwner = $ownerKey; $displayAction = ''
+							# Determine displayOwner/displayAction (reuse original logic)
+							if ($ownerKey -match '^global_toggle_(.+)')
 							{
-								$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
-								if ($form -and $form.Tag)
+								$instanceId = $Matches[1]
+								$displayOwner = "Ftool Global Toggle: $instanceId"
+								$displayAction = 'Enable/Disable hotkeys'
+								$decoratedTitle = &$GetDecoratedTitle $instanceId
+								if (-not [string]::IsNullOrEmpty($decoratedTitle)) { $displayOwner = "Ftool Global Toggle: $decoratedTitle" }
+								$groupName = 'Ftool'
+							}
+							elseif ($ownerKey -match '^ext_(.+)_\d+')
+							{
+								$instanceId = $Matches[1]
+								$extKey = $ownerKey
+								$displayOwner = "Ftool Extension: $instanceId"
+								$displayAction = 'Start/Stop'
+								if ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
 								{
-									$decoratedTitle = &$GetDecoratedTitle $instanceId
-									
-									if ($global:DashboardConfig.Resources.ExtensionData -and $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
-         {
-										$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
-										$extName = if ($extData.Name -and $extData.Name.Text) { $extData.Name.Text } else { "Ext $($extData.ExtNum)" }
-										$displayOwner = "Ftool $decoratedTitle - $extName"
-										$spammedKey = if ($extData.BtnKeySelect -and $extData.BtnKeySelect.Text) { $extData.BtnKeySelect.Text } else { 'none' }
-										$displayAction = "Ftool Key: $spammedKey"
+									$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+									if ($form -and $form.Tag)
+									{
+										$decoratedTitle = &$GetDecoratedTitle $instanceId
+										if ($global:DashboardConfig.Resources.ExtensionData -and $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+										{
+											$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
+											$extName = if ($extData.Name -and $extData.Name.Text) { $extData.Name.Text } else { "Ext $($extData.ExtNum)" }
+											$displayOwner = "Ftool $decoratedTitle - $extName"
+											$spammedKey = if ($extData.BtnKeySelect -and $extData.BtnKeySelect.Text) { $extData.BtnKeySelect.Text } else { 'none' }
+											$displayAction = "Ftool Key: $spammedKey"
+										}
+									}
+								$groupName = 'Ftool'
+								}
+							}
+							elseif ($ownerKey -match '^GroupHotkey(?:Hide|LoadPos)?_(.+)')
+							{
+								$group = $Matches[1]
+								$displayOwner = "Window Group: $group"
+								# Show whether this group hotkey is for Show, Hide or Position (LoadPos)
+								if ($ownerKey -match '^GroupHotkeyHide_') { $displayAction = 'Hide' }
+								elseif ($ownerKey -match '^GroupHotkeyLoadPos_') { $displayAction = 'Position' }
+								else { $displayAction = 'Show' }
+								$groupName = 'Groups'
+							}
+							elseif ($ownerKey -match '^quickcmd_(.+)_(.+)')
+							{
+								$instanceId = $Matches[1]; $cmdId = $Matches[2]
+								# Prefer profile/display title for the instance (extract pid part)
+								$pidPart = ($instanceId -split '_')[-1]
+								$decoratedTitle = &$GetDecoratedTitle $pidPart
+								if (-not [string]::IsNullOrEmpty($decoratedTitle)) { $displayOwner = "QuickCommand: $decoratedTitle" } else { $displayOwner = "QuickCommand: $instanceId" }
+								$displayAction = "Invoke Command: $cmdId"
+								# If an OwnerLabel was attached when the hotkey was registered, prefer that
+								$ownerEntry = $meta.Owners[$ownerKey]
+								if ($ownerEntry -and $ownerEntry.PSObject.Properties['OwnerLabel'] -and -not [string]::IsNullOrEmpty($ownerEntry.OwnerLabel)) { $displayAction = $ownerEntry.OwnerLabel }
+								# If an OwnerLabel was attached when the hotkey was registered, prefer that
+								$ownerEntry = $meta.Owners[$ownerKey]
+								if ($ownerEntry -and $ownerEntry.PSObject.Properties['OwnerLabel'] -and -not [string]::IsNullOrEmpty($ownerEntry.OwnerLabel)) { $displayAction = $ownerEntry.OwnerLabel }
+								if ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+								{
+									$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+									if ($form -and $form.Tag)
+									{
+										$data = $form.Tag
+										$cmd = $null
+										if ($data.SavedCommands) { $cmd = $data.SavedCommands | Where-Object { $_.Id -eq $cmdId } | Select-Object -First 1 }
+										if (-not $cmd -and $data.GlobalCommandList) { $cmd = $data.GlobalCommandList | Where-Object { $_.Id -eq $cmdId } | Select-Object -First 1 }
+										# Prefer a human-friendly label: Name > CommandText > fallback to id
+										if ($cmd)
+										{
+											if ($cmd.PSObject.Properties['Name'] -and -not [string]::IsNullOrEmpty($cmd.Name)) { $displayAction = $cmd.Name }
+											elseif ($cmd.PSObject.Properties['CommandText'] -and -not [string]::IsNullOrEmpty($cmd.CommandText)) { $displayAction = $cmd.CommandText }
+											else { $displayAction = "Invoke Command: $cmdId" }
+										}
+									}
+								}
+								$groupName = 'QuickCommands'
+							}
+							elseif ($ownerKey -match '^macroinst_(.+)')
+							{
+								$instanceId = $Matches[1]
+								# Use the pid portion to find a decorated title (profile name)
+								$pidPart = ($instanceId -split '_')[-1]
+								$decoratedTitle = &$GetDecoratedTitle $pidPart
+								$displayOwner = if (-not [string]::IsNullOrEmpty($decoratedTitle)) { "Macro Instance: $decoratedTitle" } else { "Macro Instance: $instanceId" }
+								$displayAction = 'Toggle Macros'
+								$groupName = 'Macro'
+							}
+							else
+							{
+								# Fallback: treat as a window title or generic owner
+								if ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($ownerKey))
+								{
+									$instanceId = $ownerKey
+									$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+									# If the form is a Macro, put it into the Macro group (Macro forms are stored in FtoolForms)
+									if ($form -and $form.Tag -and $form.Tag.Type -eq 'Macro')
+									{
+										$pidPart = ($instanceId -split '_')[-1]
+										$decoratedTitle = &$GetDecoratedTitle $pidPart
+										$displayOwner = if (-not [string]::IsNullOrEmpty($decoratedTitle)) { "Macro Instance: $decoratedTitle" } else { "Macro Instance: $instanceId" }
+										$displayAction = 'Toggle Macros'
+										$groupName = 'Macro'
+									}
+									else
+									{
+										$displayOwner = "Ftool Instance: $instanceId"
+										$displayAction = 'Start/Stop'
+										if ($form -and $form.Tag)
+										{
+											$decoratedTitle = &$GetDecoratedTitle $instanceId
+											$ftoolName = if ($form.Tag.Name -and $form.Tag.Name.Text) { $form.Tag.Name.Text } else { 'Main' }
+											$displayOwner = "Ftool $decoratedTitle - $ftoolName"
+											$spammedKey = if ($form.Tag.BtnKeySelect -and $form.Tag.BtnKeySelect.Text) { $form.Tag.BtnKeySelect.Text } else { 'none' }
+											$displayAction = "Ftool Key: $spammedKey"
+										}
+										$groupName = 'Ftool'
+									}
+								}
+								else
+								{
+									# Try to infer type from the owner key even if the form isn't loaded.
+									# Macro instance ids use the 'Macro_' prefix in this app.
+									if ($ownerKey -match '^Macro_.+')
+									{
+										$instanceId = $ownerKey
+										$displayOwner = "Macro Instance: $instanceId"
+										$decoratedTitle = &$GetDecoratedTitle $instanceId
+										if (-not [string]::IsNullOrEmpty($decoratedTitle)) { $displayOwner = "Macro Instance: $decoratedTitle" }
+										$displayAction = 'Toggle Macros'
+										$groupName = 'Macro'
+									}
+									# Numeric-only owner keys (e.g., PIDs) are Ftool instances
+									elseif ($ownerKey -match '^[0-9]+$')
+									{
+										$instanceId = $ownerKey
+										$displayOwner = "Ftool Instance: $instanceId"
+										$decoratedTitle = &$GetDecoratedTitle $instanceId
+										if (-not [string]::IsNullOrEmpty($decoratedTitle)) { $displayOwner = "Ftool $decoratedTitle - Main" }
+										$displayAction = 'Start/Stop'
+										$groupName = 'Ftool'
+									}
+									# Generic instance ids often look like '<Prefix>_<Pid>' (e.g., ChatCommander_123). Treat those as Ftool instances.
+									elseif ($ownerKey -match '^[A-Za-z]+_\d+')
+									{
+										$instanceId = $ownerKey
+										$displayOwner = "Ftool Instance: $instanceId"
+										$displayAction = 'Start/Stop'
+										# Try to decorate if possible
+										try { $decoratedTitle = &$GetDecoratedTitle $instanceId } catch { $decoratedTitle = '' }
+										if (-not [string]::IsNullOrEmpty($decoratedTitle)) { $displayOwner = "Ftool $decoratedTitle - Main" }
+										$groupName = 'Ftool'
+									}
+									else
+									{
+										# Fallback to Unknown only when nothing else matches
+										$groupName = 'Unknown'
 									}
 								}
 							}
-						}
-						elseif ($ownerKey -match '^GroupHotkey_(.+)')
-						{
-							$groupName = $Matches[1]
-							$displayOwner = "Window Group: $groupName"
-							$null = $memberString; $memberString = 'N/A'
-							if ($global:DashboardConfig.Config.Contains('HotkeyGroups') -and $global:DashboardConfig.Config['HotkeyGroups'].Contains($groupName))
-							{
-								$memberString = $global:DashboardConfig.Config['HotkeyGroups'][$groupName]
-							}
-							$displayAction = 'Show Windows'
-						}
-						elseif ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($ownerKey))
-						{
-							$instanceId = $ownerKey
-							$displayOwner = "Ftool Instance: $instanceId"
-							$displayAction = 'Start/Stop'
-
-							$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
-							if ($form -and $form.Tag)
-							{
-								$decoratedTitle = &$GetDecoratedTitle $instanceId
-								$ftoolName = if ($form.Tag.Name -and $form.Tag.Name.Text) { $form.Tag.Name.Text } else { 'Main' }
-								$displayOwner = "Ftool $decoratedTitle - $ftoolName"
-								$spammedKey = if ($form.Tag.BtnKeySelect -and $form.Tag.BtnKeySelect.Text) { $form.Tag.BtnKeySelect.Text } else { 'none' }
-								$displayAction = "Ftool Key: $spammedKey"
-							}
-						}
-						
-						$finalKeyString = if ($isPaused) { "$keyString (Paused)" } else { $keyString }
-						$rowIndex = $grid.Rows.Add($finalKeyString, $displayOwner, $displayAction)
-						$grid.Rows[$rowIndex].Tag = @{ Id = $id; OwnerKey = $ownerKey }
-						if ($isPaused)
-						{
-							$grid.Rows[$rowIndex].DefaultCellStyle.ForeColor = [System.Drawing.Color]::Gray
+							# Add entry to the matching group
+							$finalKeyString = if ($isPaused) { "$keyString (Paused)" } else { $keyString }
+							$entry = [ordered]@{ Key = $finalKeyString; Owner = $displayOwner; Action = $displayAction; Id = $id; OwnerKey = $ownerKey }
+							$groups[$groupName] += $entry
 						}
 					}
 				}
-			}
+
+				# Define render order: Groups first, then Ftool, Macro, QuickCommands. Unknown last.
+				$renderOrder = @('Groups','Ftool','Macro','QuickCommands','Unknown')
+				foreach ($gName in $renderOrder)
+				{
+					$items = $groups[$gName]
+					if ($items -and $items.Count -gt 0)
+					{
+						# Header row
+						$headerText = "--- $gName Hotkeys ---"
+						$rowIndex = $grid.Rows.Add('', $headerText, '')
+						$grid.Rows[$rowIndex].DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(60,60,60)
+						$grid.Rows[$rowIndex].DefaultCellStyle.ForeColor = [System.Drawing.Color]::FromArgb(200,200,200)
+						$grid.Rows[$rowIndex].DefaultCellStyle.Font = (New-Object System.Drawing.Font($grid.Font, [System.Drawing.FontStyle]::Bold))
+						$grid.Rows[$rowIndex].Tag = @{ Header = $true }
+						$grid.Rows[$rowIndex].ReadOnly = $true
+						$grid.Rows[$rowIndex].DefaultCellStyle.SelectionBackColor = $grid.Rows[$rowIndex].DefaultCellStyle.BackColor
+						# Add items sorted by Key
+						$sortedItems = $items | Sort-Object Key
+						foreach ($entry in $sortedItems)
+						{
+							$rowIndex = $grid.Rows.Add($entry.Key, $entry.Owner, $entry.Action)
+							$grid.Rows[$rowIndex].Tag = @{ Id = $entry.Id; OwnerKey = $entry.OwnerKey }
+						}
+					}
+				}
 			$grid.ClearSelection()
 		}
 	}
@@ -1383,7 +1619,7 @@ function InitializeUI
 
 	$p = @{ type = 'Form'; visible = $false; width = 470; height = 440; bg = @(30, 30, 30); id = 'MainForm'; text = 'Entropia Dashboard'; startPosition = 'Manual'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None }
 	$mainForm = SetUIElement @p
-	$p = @{ type = 'Form'; width = 600; height = 655; bg = @(30, 30, 30); id = 'SettingsForm'; text = 'Settings'; startPosition = 'CenterScreen'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None; topMost = $false; opacity = 0.0 }
+	$p = @{ type = 'Form'; width = 600; height = 665; bg = @(30, 30, 30); id = 'SettingsForm'; text = 'Settings'; startPosition = 'CenterScreen'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None; topMost = $false; opacity = 0.0 }
 	$settingsForm = SetUIElement @p
 	$settingsForm.Owner = $mainForm
 	$p = @{ type = 'Form'; width = 400; height = 600; bg = @(30, 30, 30); id = 'ExtraForm'; text = 'Extra'; startPosition = 'CenterScreen'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None; topMost = $false; opacity = 0.0 }
@@ -1466,7 +1702,7 @@ function InitializeUI
 	$topBar = SetUIElement @p
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; fg = @(240, 240, 240); id = 'TitleLabel'; text = 'Entropia Dashboard'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
 	$titleLabelForm = SetUIElement @p
-	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.4'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
+	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.5'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
 	$copyrightLabelForm = SetUIElement @p
 	$p = @{ type = 'Button'; width = 40; height = 30; left = 370; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'InfoForm'; text = 'Guide'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); tooltip = "Help / Info`nOpens the project website for documentation and support." }
 	$btnInfoForm = SetUIElement @p
@@ -1485,17 +1721,17 @@ function InitializeUI
 	$LaunchContextMenu.Items.Add('Loading...') | Out-Null
 	$btnLaunch.ContextMenuStrip = $LaunchContextMenu
 
-	$p = @{ type = 'Button'; width = 125; height = 30; top = 40; left = 150; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Login'; text = 'Login'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Login`nLogs in selected clients using profile settings.`nRequires 1024x768 resolution and a full nickname list (10 entries)." }
+	$p = @{ type = 'Button'; width = 125; height = 30; top = 40; left = 150; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Login'; text = 'Login'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Login`nLogs in selected clients using profile settings." }
 	$btnLogin = SetUIElement @p
 	$p = @{ type = 'Button'; width = 80; height = 30; top = 40; left = 285; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Settings'; text = 'Settings'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Settings`nOpen the configuration menu to adjust paths, profiles, and options." }
 	$btnSettings = SetUIElement @p
-	$p = @{ type = 'Button'; width = 80; height = 30; top = 40; left = 375; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'Terminate'; text = 'Terminate'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Terminate`nLeft Click: Instantly close selected clients.`nRight Click: Disconnect selected clients (TCP close)." }
+	$p = @{ type = 'Button'; width = 80; height = 30; top = 40; left = 375; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'Terminate'; text = 'Terminate ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Terminate`nLeft Click: Instantly close selected clients.`nRight Click: Disconnect selected clients (TCP close)." }
 	$btnStop = SetUIElement @p
-	$p = @{ type = 'Button'; width = 125; height = 30; top = 75; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Ftool'; text = 'Ftool'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Ftool`nOpen the Ftool (Key Spammer) window for the selected clients." }
+	$p = @{ type = 'Button'; width = 125; height = 30; top = 75; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Ftool'; text = 'Ftool'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Ftool`nLeft Click: Open Ftool.`nRight Click: Reset all Ftool settings." }
 	$btnFtool = SetUIElement @p
-	$p = @{ type = 'Button'; width = 125; height = 30; top = 75; left = 150; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Macro'; text = 'Macro'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Macro`nOpen the Macro window for the selected clients to create complex sequences." }
+	$p = @{ type = 'Button'; width = 125; height = 30; top = 75; left = 150; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Macro'; text = 'Macro'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Macro`nLeft Click: Open Macro.`nRight Click: Reset all Macro settings." }
 	$btnMacro = SetUIElement @p
-	$p = @{ type = 'Button'; width = 80; height = 30; top = 75; left = 285; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Extra'; text = 'Extra'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Extra`nOpen the Extra panel for World Boss timers, Notes, and Notifications." }
+	$p = @{ type = 'Button'; width = 80; height = 30; top = 75; left = 285; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Extra'; text = 'Extra ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Extra`nLeft Click: Open the Extra panel for World Boss timers, Notes, and Notifications.`nRight Click: Open QuickCommands." }
 	$btnExtra = SetUIElement @p
 	$p = @{ type = 'Button'; width = 80; height = 30; top = 75; left = 375; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Wiki'; text = 'Wiki'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Wiki`nOpen the Wiki panel for Entropia." }
 	$btnWiki = SetUIElement @p
@@ -1524,8 +1760,10 @@ function InitializeUI
 	$itmSavePos = New-Object System.Windows.Forms.ToolStripMenuItem('Save Position')
 	$itmLoadPos = New-Object System.Windows.Forms.ToolStripMenuItem('Load Position')
 	$itmRelog = New-Object System.Windows.Forms.ToolStripMenuItem('Relog after Disconnect')
-	$itmSetHotkey = New-Object System.Windows.Forms.ToolStripMenuItem('Set Hotkey')
-	$ctxMenu.Items.AddRange(@($itmFront, $itmBack, $itmResizeCenter, $itmSavePos, $itmLoadPos, $itmRelog, $itmSetHotkey))
+	$itmSetHotkeyShow = New-Object System.Windows.Forms.ToolStripMenuItem('Set Hotkey (Show)')
+	$itmSetHotkeyHide = New-Object System.Windows.Forms.ToolStripMenuItem('Set Hotkey (Hide)')
+	$itmSetHotkeyLoadPos = New-Object System.Windows.Forms.ToolStripMenuItem('Set Hotkey (Load Pos)')
+	$ctxMenu.Items.AddRange(@($itmFront, $itmBack, $itmResizeCenter, $itmSavePos, $itmLoadPos, $itmRelog, $itmSetHotkeyShow, $itmSetHotkeyHide, $itmSetHotkeyLoadPos))
 	$DataGridMain.ContextMenuStrip = $ctxMenu
 
 	$p = @{ type = 'Panel'; height = 8; dock = 'Bottom'; cursor = 'SizeNS'; id = 'ResizeGrip'; bg = @(20, 20, 20); tooltip = "Resize`nClick and drag to resize the dashboard window." }
@@ -1539,7 +1777,7 @@ function InitializeUI
 
 	$settingsTabs = New-Object Custom.DarkTabControl
 	$settingsTabs.Dock = 'Top'
-	$settingsTabs.Height = 575
+	$settingsTabs.Height = 610
 
 	$tabGeneral = New-Object System.Windows.Forms.TabPage 'General'
 	$tabGeneral.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
@@ -1732,15 +1970,17 @@ function InitializeUI
 	$p = &$AddPickerRow 'Disconnect OK:' 'DisconnectOK' ($rowY + 130) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Disconnect 'OK' button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['DisconnectOK'] = $p
 	$p = &$AddPickerRow 'Login Wrong OK:' 'LoginDetailsOK' ($rowY + 155) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Wrong Password 'OK' button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['LoginDetailsOK'] = $p
 
-	$p = @{ type = 'Label'; width = 150; height = 20; top = ($rowY + 180); left = 10
+	$p = &$AddPickerRow 'Launcher Play:' 'LauncherPlay' ($rowY + 180) 1 "Set Coordinate`n1. Click your Launcher window.`n2. Hover over the Play/Start button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['LauncherPlay'] = $p
+
+	$p = @{ type = 'Label'; width = 150; height = 20; top = ($rowY + 205); left = 10
 		bg = @(30, 30, 30, 0); fg = @(240, 240, 240); text = 'Post-Login Delay (s):'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Post-Login Delay`nSeconds to wait after login before performing actions (e.g., Collector)." 
 	}
 	$lblPostLoginDelay = SetUIElement @p
-	$p = @{ type = 'TextBox'; width = 80; height = 20; top = ($rowY + 180); left = 160; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'txtPostLoginDelayInput'; text = '5'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Post-Login Delay`nSeconds to wait after login before performing actions (e.g., Collector)." }
+	$p = @{ type = 'TextBox'; width = 80; height = 20; top = ($rowY + 205); left = 160; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'txtPostLoginDelayInput'; text = '5'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Post-Login Delay`nSeconds to wait after login before performing actions (e.g., Collector)." }
 	$txtPostLoginDelay = SetUIElement @p
 	$tabLoginSettings.Controls.AddRange(@($lblPostLoginDelay, $txtPostLoginDelay))
 
-	$gridTop = $rowY + 205
+	$gridTop = $rowY + 240
 	$gridHeight = 285
 
 	$p = @{ type = 'DataGridView'; width = 560; height = $gridHeight; top = $gridTop; left = 10; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'LoginConfigGrid'; text = ''; font = (New-Object System.Drawing.Font('Segoe UI', 9)) }
@@ -1796,10 +2036,10 @@ function InitializeUI
 	$btnUnregisterHotkey = SetUIElement @p
 	$tabHotkeys.Controls.Add($btnUnregisterHotkey)
 
-	$p = @{ type = 'Button'; width = 120; height = 40; top = 585; left = 20; bg = @(35, 175, 75); fg = @(240, 240, 240); id = 'Save'; text = 'Save'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Save`nApply and save all changes to the configuration file." }
+	$p = @{ type = 'Button'; width = 120; height = 40; top = 605; left = 20; bg = @(35, 175, 75); fg = @(240, 240, 240); id = 'Save'; text = 'Save'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Save`nApply and save all changes to the configuration file." }
 	$btnSave = SetUIElement @p
 
-	$p = @{ type = 'Button'; width = 120; height = 40; top = 585; left = 150; bg = @(210, 45, 45); fg = @(240, 240, 240); id = 'Cancel'; text = 'Cancel'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Cancel`nDiscard changes and close the settings window." }
+	$p = @{ type = 'Button'; width = 120; height = 40; top = 605; left = 150; bg = @(210, 45, 45); fg = @(240, 240, 240); id = 'Cancel'; text = 'Cancel'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Cancel`nDiscard changes and close the settings window." }
 	$btnCancel = SetUIElement @p
 
 	#endregion
@@ -2177,7 +2417,7 @@ function InitializeUI
 		}
 	}
 	$bossTimer.Add_Tick($bossTimerTick.GetNewClosure())
-	$bossTimer.Interval = 100
+	$bossTimer.Interval = 1000
 	$bossTimer.Start()
 	$global:DashboardConfig.Resources.Timers['BossTimer'] = $bossTimer
 
@@ -2348,7 +2588,9 @@ function InitializeUI
 		ContextMenuResizeAndCenter         = $itmResizeCenter
 		ContextMenuSavePos                 = $itmSavePos
 		ContextMenuLoadPos                 = $itmLoadPos
-		SetHotkey                          = $itmSetHotkey
+		SetHotkeyShow                      = $itmSetHotkeyShow
+		SetHotkeyHide                      = $itmSetHotkeyHide
+		SetHotkeyLoadPos                   = $itmSetHotkeyLoadPos
 		Relog                              = $itmRelog
 	}
 	if ($null -ne $uiPropertiesToAdd)
@@ -2545,9 +2787,7 @@ function RegisterUIEventHandlers
 
 
 				$s.Items.Add('-')
-
-				$defaultItem = $s.Items.Add('Default / Selected')
-
+				$defaultItem = $s.Items.Add('Main Launcher')
 
 				1..10 | ForEach-Object {
 					$count = $_
@@ -2557,7 +2797,7 @@ function RegisterUIEventHandlers
 					$subItem.add_Click({
 							param($s, $ev)
 							$launchCount = $s.Tag
-							StartClientLaunch -ClientAddCount $launchCount
+							$launchCount = StartClientLaunch -ClientAddCount $launchCount -ProfileNameOverride 'Default'
 						})
 				}
 
@@ -2642,13 +2882,74 @@ function RegisterUIEventHandlers
 				}
 			}
 		}
-		Ftool                      = @{ Click = { if (Get-Command FtoolSelectedRow -EA 0 -Verbose:$False) { $global:DashboardConfig.UI.DataGridMain.SelectedRows | ForEach-Object { FtoolSelectedRow $_ } } } }
-		Macro                      = @{ Click = { if (Get-Command MacroSelectedRow -EA 0 -Verbose:$False) { $global:DashboardConfig.UI.DataGridMain.SelectedRows | ForEach-Object { MacroSelectedRow $_ } } } }
-		Extra                      = @{ Click = {
+		Ftool                      = @{ 
+			MouseDown = {
+				param($s, $e)
+				if ($e.Button -eq 'Left') {
+					if (Get-Command FtoolSelectedRow -EA 0 -Verbose:$False) { $global:DashboardConfig.UI.DataGridMain.SelectedRows | ForEach-Object { FtoolSelectedRow $_ } }
+				} elseif ($e.Button -eq 'Right') {
+					$confirm = Show-DarkMessageBox "Are you sure you want to reset ALL Ftool settings globally?`n`nThis will:`n1. Close all active Ftool windows.`n2. Delete all Ftool configurations from settings.`n`nThis cannot be undone." "Reset All Ftool Settings" "YesNo" "Warning"
+					if ($confirm -eq 'Yes') {
+						if ($global:DashboardConfig.Resources.FtoolForms) {
+							$keys = [System.Collections.ArrayList]@($global:DashboardConfig.Resources.FtoolForms.Keys)
+							foreach ($k in $keys) {
+								$f = $global:DashboardConfig.Resources.FtoolForms[$k]
+								if ($f -and -not $f.IsDisposed) {
+									if (-not $f.Tag.Type -or $f.Tag.Type -ne 'Macro') {
+										$f.Close()
+									}
+								}
+							}
+						}
+						if ($global:DashboardConfig.Config.Contains('Ftool')) {
+							$global:DashboardConfig.Config['Ftool'].Clear()
+						}
+						if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
+						Show-DarkMessageBox "All Ftool settings have been reset." "Reset Complete" "Ok" "Information" "success"
+					}
+				}
+			} 
+		}
+		Macro                      = @{ 
+			MouseDown = {
+				param($s, $e)
+				if ($e.Button -eq 'Left') {
+					if (Get-Command MacroSelectedRow -EA 0 -Verbose:$False) { $global:DashboardConfig.UI.DataGridMain.SelectedRows | ForEach-Object { MacroSelectedRow $_ } }
+				} elseif ($e.Button -eq 'Right') {
+					$confirm = Show-DarkMessageBox "Are you sure you want to reset ALL Macro settings globally?`n`nThis will:`n1. Close all active Macro windows.`n2. Delete all Macro configurations from settings.`n`nThis cannot be undone." "Reset All Macro Settings" "YesNo" "Warning"
+					if ($confirm -eq 'Yes') {
+						if ($global:DashboardConfig.Resources.FtoolForms) {
+							$keys = [System.Collections.ArrayList]@($global:DashboardConfig.Resources.FtoolForms.Keys)
+							foreach ($k in $keys) {
+								$f = $global:DashboardConfig.Resources.FtoolForms[$k]
+								if ($f -and -not $f.IsDisposed) {
+									if ($f.Tag.Type -eq 'Macro') {
+										$f.Close()
+									}
+								}
+							}
+						}
+						if ($global:DashboardConfig.Config.Contains('Macro')) {
+							$global:DashboardConfig.Config['Macro'].Clear()
+						}
+						if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
+						Show-DarkMessageBox "All Macro settings have been reset." "Reset Complete" "Ok" "Information" "success"
+					}
+				}
+			} 
+		}
+		Extra                      = @{ MouseDown = {
+			param($s,$e)
+				if ($e.Button -eq 'Left') {
 				ShowExtraForm
 				if (Get-Command RefreshNoteGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNoteGrid }
 				if (Get-Command RefreshNotificationGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNotificationGrid }
-			} }
+				}
+				if ($e.Button -eq 'Right') {
+					if (Get-Command ChatCommanderSelectedRow -EA 0 -Verbose:$False) { $global:DashboardConfig.UI.DataGridMain.SelectedRows | ForEach-Object { ChatCommanderSelectedRow $_ } }
+				}
+			} 
+		}
 		Wiki                      = @{ Click = { 
 			try
 				{
@@ -2707,7 +3008,9 @@ function RegisterUIEventHandlers
 				if ($e.RowIndex -lt 0) { return }
 				
 				$row = $s.Rows[$e.RowIndex]
-				if (-not $row.Tag) { return }
+				# Ignore header / separator rows
+				if (-not $row.Tag -or ($row.Tag -is [System.Collections.IDictionary] -and $row.Tag.Contains('Header') -and $row.Tag.Header)) { return }
+				if (-not $row.Tag.Id -or -not $row.Tag.OwnerKey) { return }
 				
 				$null = $id; $id = $row.Tag.Id
 				$ownerKey = $row.Tag.OwnerKey
@@ -2755,6 +3058,65 @@ function RegisterUIEventHandlers
 									}
 								}
 							}.GetNewClosure())
+					}
+				}
+				elseif ($ownerKey -match '^quickcmd_(.+)_(.+)')
+				{
+					$instanceId = $Matches[1]
+					$cmdId = $Matches[2]
+					if ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+					{
+						$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+						if ($form -and -not $form.IsDisposed)
+						{
+							$data = $form.Tag
+							$cmd = $null
+							if ($data.SavedCommands) { $cmd = $data.SavedCommands | Where-Object { $_.Id -eq $cmdId } | Select-Object -First 1 }
+							if (-not $cmd -and $data.GlobalCommandList) { $cmd = $data.GlobalCommandList | Where-Object { $_.Id -eq $cmdId } | Select-Object -First 1 }
+							if ($cmd)
+							{
+								# Save to config and re-register hotkey
+								if (-not $global:DashboardConfig.Config.Contains('ChatCommander')) { $global:DashboardConfig.Config['ChatCommander'] = [ordered]@{} }
+								$cmd.Hotkey = $newKey
+								$cmd.HotkeyId = $null
+								try { UnregisterHotkeyInstance -Id $id -OwnerKey "quickcmd_$($instanceId)_$($cmdId)" } catch {}
+								try { UnregisterHotkeyInstance -Id $id -OwnerKey $instanceId } catch {}
+								if ($newKey) {
+									$scriptBlock = [scriptblock]::Create("Invoke-SpecificChatCommand -InstanceId '$($instanceId)' -CommandId '$($cmdId)'")
+									$ownerKeyNew = "quickcmd_$($instanceId)_$($cmdId)"
+									# Compute friendly label for UI
+									$ownerLabel = $null
+									if ($cmd.PSObject.Properties['Name'] -and -not [string]::IsNullOrEmpty($cmd.Name)) { $ownerLabel = $cmd.Name }
+									elseif ($cmd.PSObject.Properties['CommandText'] -and -not [string]::IsNullOrEmpty($cmd.CommandText)) { $ownerLabel = $cmd.CommandText }
+									else { $ownerLabel = "Invoke Command: $cmdId" }
+									try { $cmd.HotkeyId = SetHotkey -KeyCombinationString $newKey -Action $scriptBlock -OwnerKey $ownerKeyNew -OwnerLabel $ownerLabel -OldHotkeyId $id } catch {}
+								}
+								if (Get-Command UpdateChatCommanderSettings -ErrorAction SilentlyContinue -Verbose:$False) { UpdateChatCommanderSettings $data -forceWrite }
+								if ($form -and -not $form.IsDisposed) { RefreshSavedCommandsUI $form }
+							}
+						}
+					}
+				}
+				elseif ($ownerKey -match '^macroinst_(.+)')
+				{
+					$instanceId = $Matches[1]
+					if ($global:DashboardConfig.Resources.FtoolForms -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+					{
+						$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+						if ($form -and -not $form.IsDisposed)
+						{
+							$data = $form.Tag
+							# Update instance hotkey
+							$data.Hotkey = $newKey
+							$data.HotkeyId = $null
+							try { UnregisterHotkeyInstance -Id $id -OwnerKey "macroinst_$($instanceId)" } catch {}
+							try { UnregisterHotkeyInstance -Id $id -OwnerKey $instanceId } catch {}
+							if ($newKey) {
+								$script = [scriptblock]::Create("ToggleMacroInstance -InstanceId '$($instanceId)'")
+								try { $data.HotkeyId = SetHotkey -KeyCombinationString $newKey -Action $script -OwnerKey "macroinst_$($instanceId)" -OldHotkeyId $id } catch {}
+							}
+							if (Get-Command UpdateMacroSettings -ErrorAction SilentlyContinue -Verbose:$False) { UpdateMacroSettings $data -forceWrite }
+						}
 					}
 				}
 				elseif ($ownerKey -match '^global_toggle_(.+)')
@@ -2848,7 +3210,7 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
 				RefreshHotkeysList
 			}
 		}
-		SetHotkey                  = @{
+		SetHotkeyShow              = @{
 			Click = {
 				$grid = $global:DashboardConfig.UI.DataGridMain
 				$selectedRows = $grid.SelectedRows
@@ -2865,7 +3227,7 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
 				if ($identities.Count -eq 1)
 				{ $defaultName = ($identities[0] -split ':')[0] }
 				
-				$groupName = ShowInputBox -Title 'Hotkey Group' -Prompt 'Enter a name for this selection group:' -DefaultText $defaultName
+				$groupName = ShowInputBox -Title 'Hotkey Group (Show)' -Prompt 'Enter a name for this selection group:' -DefaultText $defaultName
 				if ([string]::IsNullOrWhiteSpace($groupName)) { return }
 
 				$currentKey = 'none'
@@ -2893,6 +3255,110 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
 				Show-DarkMessageBox "Hotkey '$newKey' assigned as '$groupName' to:`n$($identities -join "`n")" 'Hotkeys Created' 'Ok' 'Information' 'success'
 			}
 		}
+		SetHotkeyHide              = @{
+			Click = {
+				$grid = $global:DashboardConfig.UI.DataGridMain
+				$selectedRows = $grid.SelectedRows
+				if ($selectedRows.Count -eq 0) { return }
+
+				$identities = @()
+				foreach ($row in $selectedRows)
+				{
+					$id = Get-RowIdentity -Row $row
+					if (-not [string]::IsNullOrEmpty($id)) { $identities += $id }
+				}
+
+				$defaultName = 'NewGroup'
+				if ($identities.Count -eq 1)
+				{ $defaultName = ($identities[0] -split ':')[0] }
+				
+				$groupName = ShowInputBox -Title 'Hotkey Group (Hide)' -Prompt 'Enter a name for this selection group:' -DefaultText $defaultName
+				if ([string]::IsNullOrWhiteSpace($groupName)) { return }
+
+				$currentKey = 'none'
+				if ($global:DashboardConfig.Config.Contains('HotkeysHide'))
+				{
+					if ($global:DashboardConfig.Config['HotkeysHide'].Contains($groupName))
+					{
+						$currentKey = $global:DashboardConfig.Config['HotkeysHide'][$groupName]
+					}
+				}
+
+				$newKey = Show-KeyCaptureDialog -currentKey $currentKey -Owner $global:DashboardConfig.UI.MainForm
+				
+				if ($null -eq $newKey -or ($newKey -eq $currentKey -and $currentKey -ne 'none')) { return }
+
+				if (-not $global:DashboardConfig.Config.Contains('HotkeysHide')) {
+					$global:DashboardConfig.Config['HotkeysHide'] = @{}
+				}
+				if (-not $global:DashboardConfig.Config.Contains('HotkeyGroupsHide')) {
+					$global:DashboardConfig.Config['HotkeyGroupsHide'] = @{}
+				}
+
+				$global:DashboardConfig.Config['HotkeysHide'][$groupName] = $newKey
+				$global:DashboardConfig.Config['HotkeyGroupsHide'][$groupName] = ($identities -join ',')
+
+				if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
+
+				SyncConfigToUI
+				RegisterConfiguredHotkeys
+				RefreshHotkeysList
+				
+				Show-DarkMessageBox "Hotkey '$newKey' assigned as '$groupName' to:`n$($identities -join "`n")" 'Hotkeys (Hide) Created' 'Ok' 'Information' 'success'
+			}
+		}
+		SetHotkeyLoadPos           = @{
+			Click = {
+				$grid = $global:DashboardConfig.UI.DataGridMain
+				$selectedRows = $grid.SelectedRows
+				if ($selectedRows.Count -eq 0) { return }
+
+				$identities = @()
+				foreach ($row in $selectedRows)
+				{
+					$id = Get-RowIdentity -Row $row
+					if (-not [string]::IsNullOrEmpty($id)) { $identities += $id }
+				}
+
+				$defaultName = 'NewGroup'
+				if ($identities.Count -eq 1)
+				{ $defaultName = ($identities[0] -split ':')[0] }
+				
+				$groupName = ShowInputBox -Title 'Hotkey Group (Load Pos)' -Prompt 'Enter a name for this selection group:' -DefaultText $defaultName
+				if ([string]::IsNullOrWhiteSpace($groupName)) { return }
+
+				$currentKey = 'none'
+				if ($global:DashboardConfig.Config.Contains('HotkeysLoadPos'))
+				{
+					if ($global:DashboardConfig.Config['HotkeysLoadPos'].Contains($groupName))
+					{
+						$currentKey = $global:DashboardConfig.Config['HotkeysLoadPos'][$groupName]
+					}
+				}
+
+				$newKey = Show-KeyCaptureDialog -currentKey $currentKey -Owner $global:DashboardConfig.UI.MainForm
+				
+				if ($null -eq $newKey -or ($newKey -eq $currentKey -and $currentKey -ne 'none')) { return }
+
+				if (-not $global:DashboardConfig.Config.Contains('HotkeysLoadPos')) {
+					$global:DashboardConfig.Config['HotkeysLoadPos'] = @{}
+				}
+				if (-not $global:DashboardConfig.Config.Contains('HotkeyGroupsLoadPos')) {
+					$global:DashboardConfig.Config['HotkeyGroupsLoadPos'] = @{}
+				}
+
+				$global:DashboardConfig.Config['HotkeysLoadPos'][$groupName] = $newKey
+				$global:DashboardConfig.Config['HotkeyGroupsLoadPos'][$groupName] = ($identities -join ',')
+
+				if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
+
+				SyncConfigToUI
+				RegisterConfiguredHotkeys
+				RefreshHotkeysList
+				
+				Show-DarkMessageBox "Hotkey '$newKey' assigned as '$groupName' to:`n$($identities -join "`n")" 'Hotkeys (Load Pos) Created' 'Ok' 'Information' 'success'
+			}
+		}
 		ResizeGrip                 = @{
 			MouseDown = {
 				param($s, $e)
@@ -2900,6 +3366,11 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
 					[Custom.Native]::ReleaseCapture()
 					[Custom.Native]::SendMessage($global:DashboardConfig.UI.MainForm.Handle, 0x112, 0xF006, 0)
 				}
+				# Persist and refresh the hotkey list after removals
+				if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
+				# Re-register configured hotkeys and refresh UI to reflect removals immediately
+				RegisterConfiguredHotkeys
+				RefreshHotkeysList
 			}
 		}
 		#endregion
@@ -3231,6 +3702,95 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
 							$data = $global:DashboardConfig.Config['LoginConfig'][$oldName]
 							$global:DashboardConfig.Config['LoginConfig'].Remove($oldName)
 							$global:DashboardConfig.Config['LoginConfig'][$newName] = $data
+						}
+
+						# Update Selected Profile in Options
+						if ($global:DashboardConfig.Config['Options'] -and $global:DashboardConfig.Config['Options']['SelectedProfile'] -eq $oldName)
+						{
+							$global:DashboardConfig.Config['Options']['SelectedProfile'] = $newName
+						}
+
+						# Update Setups
+						$configKeys = [System.Collections.ArrayList]@($global:DashboardConfig.Config.Keys)
+						foreach ($key in $configKeys)
+						{
+							if ($key -match '^Setup_')
+							{
+								$setupData = $global:DashboardConfig.Config[$key]
+								$clientKeys = [System.Collections.ArrayList]@($setupData.Keys)
+								foreach ($clientKey in $clientKeys)
+								{
+									$val = $setupData[$clientKey]
+									$parts = $val -split ','
+									# 0=GridPos, 1=Profile, 2=ProfIndex, 3=Title, 4=Login
+									if ($parts.Count -ge 2 -and $parts[1] -eq $oldName)
+									{
+										$parts[1] = $newName
+										# Also update title if it has [OldName] prefix
+										if ($parts.Count -ge 4)
+										{
+											$title = $parts[3]
+											if ($title -match "^\[$([regex]::Escape($oldName))\]")
+											{
+												$parts[3] = $title -replace "^\[$([regex]::Escape($oldName))\]", "[$newName]"
+											}
+										}
+										$setupData[$clientKey] = $parts -join ','
+									}
+								}
+							}
+						}
+
+						# Update SavedWindowPositions
+						if ($global:DashboardConfig.Config.Contains('SavedWindowPositions'))
+						{
+							$swp = $global:DashboardConfig.Config['SavedWindowPositions']
+							$swpKeys = [System.Collections.ArrayList]@($swp.Keys)
+							foreach ($key in $swpKeys)
+							{
+								if ($key -match "^\[$([regex]::Escape($oldName))\](.*)")
+								{
+									$rest = $Matches[1]
+									$newKey = "[$newName]$rest"
+									$val = $swp[$key]
+									$swp.Remove($key)
+									$swp[$newKey] = $val
+								}
+							}
+						}
+
+						# Update HotkeyGroups
+						if ($global:DashboardConfig.Config.Contains('HotkeyGroups'))
+						{
+							$hkg = $global:DashboardConfig.Config['HotkeyGroups']
+							$hkgKeys = [System.Collections.ArrayList]@($hkg.Keys)
+							foreach ($groupName in $hkgKeys)
+							{
+								$memberString = $hkg[$groupName]
+								if (-not [string]::IsNullOrWhiteSpace($memberString))
+								{
+									$members = $memberString -split ','
+									$newMembers = @()
+									$modified = $false
+									foreach ($member in $members)
+									{
+										if ($member -match "^\[$([regex]::Escape($oldName))\](.*)")
+										{
+											$rest = $Matches[1]
+											$newMembers += "[$newName]$rest"
+											$modified = $true
+										}
+										else
+										{
+											$newMembers += $member
+										}
+									}
+									if ($modified)
+									{
+										$hkg[$groupName] = ($newMembers -join ',')
+									}
+								}
+							}
 						}
 
 						SyncProfilesToConfig
@@ -3693,6 +4253,8 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
 
 				foreach ($row in $selectedRows)
 				{
+					# Skip header/separator rows
+					if (-not $row.Tag -or -not $row.Tag.Id) { continue }
 					if ($row.Tag)
 					{
 						$id = $row.Tag.Id
@@ -3715,9 +4277,66 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
 								$global:DashboardConfig.Config['HotkeyGroups'].Remove($groupName)
 							}
 						}
+						elseif ($ownerKey -match '^GroupHotkeyHide_(.+)')
+						{
+							$groupName = $Matches[1]
+							if ($global:DashboardConfig.Config.Contains('HotkeysHide') -and $global:DashboardConfig.Config['HotkeysHide'].Contains($groupName))
+							{
+								$global:DashboardConfig.Config['HotkeysHide'].Remove($groupName)
+							}
+							if ($global:DashboardConfig.Config.Contains('HotkeyGroupsHide') -and $global:DashboardConfig.Config['HotkeyGroupsHide'].Contains($groupName))
+							{
+								$global:DashboardConfig.Config['HotkeyGroupsHide'].Remove($groupName)
+							}
+						}
+						elseif ($ownerKey -match '^GroupHotkeyLoadPos_(.+)')
+						{
+							$groupName = $Matches[1]
+							if ($global:DashboardConfig.Config.Contains('HotkeysLoadPos') -and $global:DashboardConfig.Config['HotkeysLoadPos'].Contains($groupName))
+							{
+								$global:DashboardConfig.Config['HotkeysLoadPos'].Remove($groupName)
+							}
+							if ($global:DashboardConfig.Config.Contains('HotkeyGroupsLoadPos') -and $global:DashboardConfig.Config['HotkeyGroupsLoadPos'].Contains($groupName))
+							{
+								$global:DashboardConfig.Config['HotkeyGroupsLoadPos'].Remove($groupName)
+							}
+						}
 						
 						if ($global:DashboardConfig.Resources.FtoolForms)
 						{
+							if ($ownerKey -match '^quickcmd_(.+)_(.+)')
+							{
+								$instanceId = $Matches[1]
+								$cmdId = $Matches[2]
+								if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+								{
+									$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+									if ($form -and -not $form.IsDisposed)
+									{
+										$data = $form.Tag
+										# Try to clear Hotkey for the specific command in SavedCommands or GlobalCommandList
+										$cmd = $null
+										if ($data.SavedCommands) { $cmd = $data.SavedCommands | Where-Object { $_.Id -eq $cmdId } | Select-Object -First 1 }
+										if (-not $cmd -and $data.GlobalCommandList) { $cmd = $data.GlobalCommandList | Where-Object { $_.Id -eq $cmdId } | Select-Object -First 1 }
+										if ($cmd) { $cmd.Hotkey = $null; $cmd.HotkeyId = $null }
+										if (Get-Command UpdateChatCommanderSettings -ErrorAction SilentlyContinue -Verbose:$False) { UpdateChatCommanderSettings $data -forceWrite }
+										if ($form -and -not $form.IsDisposed) { RefreshSavedCommandsUI $form }
+									}
+								}
+							}
+							elseif ($ownerKey -match '^macroinst_(.+)')
+							{
+								$instanceId = $Matches[1]
+								if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+								{
+									$form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
+									if ($form -and -not $form.IsDisposed)
+									{
+										$data = $form.Tag; $data.Hotkey = $null; $data.HotkeyId = $null; $data.BtnHotKey.Text = 'Hotkey'
+										if (Get-Command UpdateMacroSettings -ErrorAction SilentlyContinue -Verbose:$False) { UpdateMacroSettings $data -forceWrite }
+									}
+								}
+							}
 							if ($ownerKey -match '^global_toggle_(.+)')
 							{
 								$instanceId = $Matches[1]
@@ -3807,7 +4426,7 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
 				if ($global:DashboardConfig.Resources.Timers['BossTimer']) {
 					$t = $global:DashboardConfig.Resources.Timers['BossTimer']
 					$t.Stop()
-					$t.Interval = 10
+					$t.Interval = 1000
 					$t.Start()
 				}
 			}

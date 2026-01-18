@@ -704,6 +704,8 @@ function CreatePositionTimer
 		InstanceId   = $formData.InstanceId
 		FormData     = $formData
 		FtoolZState  = 'unknown' 
+		RealLeft     = $formData.Form.Left
+		RealTop      = $formData.Form.Top
 	}
         
 	$positionTimer.Add_Tick({
@@ -730,14 +732,16 @@ function CreatePositionTimer
 							$maxTop = $rect.Bottom - $timerData['FtoolForm'].Height - 8
 							$targetTop = $rect.Top + 8 + (($maxTop - ($rect.Top + 8)) * $sliderValueY / 100)
     
-							$currentLeft = $timerData['FtoolForm'].Left
-							$newLeft = $currentLeft + ($targetLeft - $currentLeft) * 0.2 
-							$timerData['FtoolForm'].Left = [int]$newLeft
-    
-							$currentTop = $timerData['FtoolForm'].Top
-							$newTop = $currentTop + ($targetTop - $currentTop) * 0.2 
-							$timerData['FtoolForm'].Top = [int]$newTop
-                                                    
+							# Use and update a high-precision 'Real' position to prevent snapping
+							$newRealLeft = $timerData.RealLeft + ($targetLeft - $timerData.RealLeft) * 0.2
+							$newRealTop = $timerData.RealTop + ($targetTop - $timerData.RealTop) * 0.2
+							
+							$timerData.RealLeft = $newRealLeft
+							$timerData.RealTop = $newRealTop
+
+							# Set the form's integer position for display
+							$timerData['FtoolForm'].Left = [int]$newRealLeft
+							$timerData['FtoolForm'].Top = [int]$newRealTop
                                                         
 							$ftoolHandle = $timerData['FtoolForm'].Handle
 							$linkedHandle = $timerData['WindowHandle']
@@ -1065,6 +1069,19 @@ function CleanupInstanceResources
 	{
 		$global:DashboardConfig.Resources.ExtensionData.Remove($key)
 	}
+
+	# Defensive cleanup: some extension hotkey owners may remain in the global registry
+	# (for example if HotkeyId was missing, translated, or ownerKey variants were used).
+	# Use the pattern matcher to clean up everything related to this instance
+	try
+	{
+		if (Get-Command UnregisterHotkeysByOwnerPattern -ErrorAction SilentlyContinue)
+		{
+			# Matches instanceId, global_toggle_instanceId, ext_instanceId_*, etc.
+			UnregisterHotkeysByOwnerPattern -OwnerPattern "ext_${instanceId}_*"
+		}
+	}
+	catch { Write-Verbose ('FTOOL: Error during defensive owner cleanup: {0}' -f $_.Exception.Message) }
     
 	$timerKeysToRemove = @()
 	foreach ($key in $global:DashboardConfig.Resources.Timers.Keys)
@@ -1121,6 +1138,9 @@ function CleanupInstanceResources
 			}
 		}
 	}
+
+	# Ensure the Hotkeys UI reflects any removals performed during cleanup
+	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
 
 	if ($global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
 	{
@@ -1249,6 +1269,8 @@ function RemoveExtension
 				Write-Warning "FTOOL: Failed to unregister hotkey ID $($extData.HotkeyId) for extension $($extKey). Error: $_"
 			}
 		}
+        # Ensure the Hotkeys UI reflects the extension hotkey removal immediately
+        if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
         
 		RepositionExtensions $form $instanceId
         
@@ -1401,19 +1423,24 @@ function CreateFtoolForm
 		$labelWinTitle = SetUIElement -type 'Label' -visible $true -width 120 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
 		$headerPanel.Controls.Add($labelWinTitle)
 
-		$btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 15 -top 2 -left 135 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
+		$btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 15 -top 2 -left 120 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
 		$headerPanel.Controls.Add($btnInstanceHotkeyToggle)
 
-		$btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 15 -top 3 -left 150 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific Ftool instance."
+		$btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 15 -top 3 -left 135 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific macro instance."
 		$headerPanel.Controls.Add($btnHotkeyToggle)
 			
-		$btnAdd = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 180 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Extension`nAdd another Ftool extension slot for this client."
+		$btnAdd = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 165 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Sequence`nAdds a new key sequence step to the macro list."
 		$headerPanel.Controls.Add($btnAdd)
-			
-		$btnShowHide = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 195 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Minimize/Expand`nCollapse or expand the Ftool window."
+		
+		# MOVED: Show/Hide button slightly right
+		$btnShowHide = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 180 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Minimize/Expand`nCollapse or expand the macro window to save screen space."
 		$headerPanel.Controls.Add($btnShowHide)
 			
-		$btnClose = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 215 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Close`nStops all actions and closes this Ftool window."
+		# ADDED: Reset button
+		$btnReset = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 195 -bg @(100, 100, 100) -fg @(255, 255, 255) -text ([char]0x21BB) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Reset`nReset all settings for this instance to default."
+		$headerPanel.Controls.Add($btnReset)
+
+		$btnClose = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 215 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Close`nStops the macro and closes this window."
 		$headerPanel.Controls.Add($btnClose)
         
 		$panelSettings = SetUIElement -type 'Panel' -visible $true -width 190 -height 60 -top 60 -left 40 -bg @(50, 50, 50)
@@ -1445,7 +1472,7 @@ function CreateFtoolForm
 		$positionSliderY.Maximum = 118
 		$positionSliderY.TickFrequency = 300
 		$positionSliderY.Value = 0
-		$positionSliderY.Size = New-Object System.Drawing.Size(1, 110)
+		$positionSliderY.Size = New-Object System.Drawing.Size(15, 110)
 		$positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
 		$ftoolForm.Controls.Add($positionSliderY)
             
@@ -1454,7 +1481,7 @@ function CreateFtoolForm
 		$positionSliderX.Maximum = 125
 		$positionSliderX.TickFrequency = 300
 		$positionSliderX.Value = 0
-		$positionSliderX.Size = New-Object System.Drawing.Size(190, 1)
+		$positionSliderX.Size = New-Object System.Drawing.Size(200, 15)
 		$positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
 		$ftoolForm.Controls.Add($positionSliderX)
 
@@ -1475,6 +1502,7 @@ function CreateFtoolForm
 		BtnHotKey               = $btnHotKey
 		BtnInstanceHotkeyToggle = $btnInstanceHotkeyToggle
 		BtnHotkeyToggle         = $btnHotkeyToggle
+        BtnReset                = $btnReset
 		BtnAdd                  = $btnAdd
 		BtnClose                = $btnClose
 		BtnShowHide             = $btnShowHide
@@ -1508,7 +1536,12 @@ function CreateFtoolForm
 		try
 		{
 			$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($formData.InstanceId)' -ExtKey `$null")
-			$newHotkeyId = SetHotkey -KeyCombinationString $formData.Hotkey -Action $scriptBlock -OwnerKey $formData.InstanceId
+			# Friendly label for UI
+			$ownerLabel = $null
+					if ($formData.Name -and -not [string]::IsNullOrEmpty($formData.Name.Text)) { $ownerLabel = $formData.Name.Text }
+			elseif ($formData.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($formData.WindowTitle)) { $ownerLabel = $formData.WindowTitle }
+			else { $ownerLabel = "Ftool: $($formData.InstanceId)" }
+			$newHotkeyId = SetHotkey -KeyCombinationString $formData.Hotkey -Action $scriptBlock -OwnerKey $formData.InstanceId -OwnerLabel $ownerLabel
 			$formData.HotkeyId = $newHotkeyId
 			$hotkeyIdDisplay = if ($formData.HotkeyId) { $formData.HotkeyId } else { 'None' }
 			Write-Verbose "FTOOL: Registered hotkey $($formData.Hotkey) (ID: $hotkeyIdDisplay) for main instance $($formData.InstanceId) on load."
@@ -1549,7 +1582,12 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.Instance
 }
 "@
 			$scriptBlock = [scriptblock]::Create($script)
-			$formData.GlobalHotkeyId = SetHotkey -KeyCombinationString $formData.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey
+			# Friendly label for UI
+			$ownerLabel = $null
+			if ($formData.Name -and -not [string]::IsNullOrEmpty($formData.Name.Text)) { $ownerLabel = $formData.Name.Text }
+			elseif ($formData.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($formData.WindowTitle)) { $ownerLabel = $formData.WindowTitle }
+			else { $ownerLabel = "Ftool: $($formData.InstanceId)" }
+			$formData.GlobalHotkeyId = SetHotkey -KeyCombinationString $formData.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel
 			Write-Verbose "FTOOL: Registered global-toggle hotkey $($formData.GlobalHotkey) (ID: $($formData.GlobalHotkeyId)) for instance $($formData.InstanceId) on load."
 		}
 		catch
@@ -1719,7 +1757,12 @@ function AddFtoolEventHandlers
 				try
 				{
 					$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($data.InstanceId)' -ExtKey `$null")
-					$data.HotkeyId = SetHotkey -KeyCombinationString $data.Hotkey -Action $scriptBlock -OwnerKey $data.InstanceId -OldHotkeyId $oldHotkeyIdToUnregister
+					# Friendly label for UI
+					$ownerLabel = $null
+					if ($data.Name -and -not [string]::IsNullOrEmpty($data.Name.Text)) { $ownerLabel = $data.Name.Text }
+					elseif ($data.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($data.WindowTitle)) { $ownerLabel = $data.WindowTitle }
+					else { $ownerLabel = "Ftool: $($data.InstanceId)" }
+					$data.HotkeyId = SetHotkey -KeyCombinationString $data.Hotkey -Action $scriptBlock -OwnerKey $data.InstanceId -OwnerLabel $ownerLabel -OldHotkeyId $oldHotkeyIdToUnregister
 					$data.BtnHotKey.Text = $newHotkey 
 					Write-Verbose "FTOOL: Registered hotkey $($data.Hotkey) (ID: $($data.HotkeyId)) for main instance $($data.InstanceId)."
 				}
@@ -1807,7 +1850,12 @@ function AddFtoolEventHandlers
         }
 "@
 					$scriptBlock = [scriptblock]::Create($script)
-					$data.GlobalHotkeyId = SetHotkey -KeyCombinationString $data.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey -OldHotkeyId $oldHotkeyIdToUnregister
+					# Friendly label for UI
+					$ownerLabel = $null
+					if ($data.Name -and -not [string]::IsNullOrEmpty($data.Name.Text)) { $ownerLabel = $data.Name.Text }
+					elseif ($data.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($data.WindowTitle)) { $ownerLabel = $data.WindowTitle }
+					else { $ownerLabel = "Ftool: $($data.InstanceId)" }
+					$data.GlobalHotkeyId = SetHotkey -KeyCombinationString $data.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel -OldHotkeyId $oldHotkeyIdToUnregister
 					Write-Verbose "FTOOL: Registered global-toggle hotkey $($data.GlobalHotkey) (ID: $($data.GlobalHotkeyId)) for instance $($data.InstanceId)."
 				}
 				catch
@@ -1864,6 +1912,76 @@ function AddFtoolEventHandlers
 				$this.Text = [char]0x25BC  
 			}
 		})
+
+    $formData.BtnReset.Add_Click({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag) { return }
+        $data = $form.Tag
+        
+        if ((Show-DarkMessageBox "Are you sure you want to reset this Ftool instance to default settings? This will remove all extensions and clear keys." "Reset Defaults" "YesNo" "Warning") -eq 'Yes')
+        {
+            # Stop main spammer
+            if ($data.RunningSpammer)
+            {
+                $data.BtnStop.PerformClick()
+            }
+            
+            # Remove all extensions
+            $extKeysToRemove = [System.Collections.ArrayList]@()
+            foreach ($k in $global:DashboardConfig.Resources.ExtensionData.Keys) {
+                if ($k -like "ext_$($data.InstanceId)_*") {
+                    $extKeysToRemove.Add($k)
+                }
+            }
+            foreach ($k in $extKeysToRemove) {
+                RemoveExtension $form $k
+            }
+            $data.ExtensionCount = 0
+
+            # Unregister Global Hotkeys if any
+            if ($data.GlobalHotkeyId) {
+                 $ownerKey = "global_toggle_$($data.InstanceId)"
+                 try { UnregisterHotkeyInstance -Id $data.GlobalHotkeyId -OwnerKey $ownerKey } catch {}
+                 $data.GlobalHotkeyId = $null
+                 $data.GlobalHotkey = $null
+            }
+
+            # Unregister Hotkey if any
+            if ($data.HotkeyId) {
+                 try { UnregisterHotkeyInstance -Id $data.HotkeyId -OwnerKey $data.InstanceId } catch {}
+                 $data.HotkeyId = $null
+                 $data.Hotkey = $null
+            }
+
+            # Reset Controls
+            $data.BtnKeySelect.Text = ""
+            $data.Interval.Text = "1000"
+            $data.Name.Text = "Main"
+            $data.BtnHotKey.Text = "Hotkey"
+            $data.BtnHotkeyToggle.Checked = $true
+            $data.PositionSliderX.Value = 0
+            $data.PositionSliderY.Value = 100
+
+            # Clear Config specific to this profile
+            $profilePrefix = $data.ProfilePrefix
+            if ($profilePrefix) {
+                $keysToClear = [System.Collections.ArrayList]@()
+                foreach ($k in $global:DashboardConfig.Config['Ftool'].Keys) {
+                    if ($k -match "_$profilePrefix$") {
+                        $keysToClear.Add($k)
+                    }
+                }
+                foreach ($k in $keysToClear) {
+                    $global:DashboardConfig.Config['Ftool'].Remove($k)
+                }
+            }
+
+            # Save clean state
+            UpdateSettings $data -forceWrite
+            $form.Height = 130
+            $data.OriginalHeight = 130
+        }
+    })
     
 	$formData.BtnAdd.Add_Click({
 			$form = $this.FindForm()
@@ -1902,7 +2020,14 @@ function AddFtoolEventHandlers
 				try
 				{
 					$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($extData.InstanceId)' -ExtKey '$($extKeyForScriptBlock)'")
-					$newHotkeyId = SetHotkey -KeyCombinationString $extData.Hotkey -Action $scriptBlock -OwnerKey $extKeyForScriptBlock
+					# Friendly label for UI
+					$ownerLabel = $null
+					$mainName = if ($formData.Name -and $formData.Name.Text) { $formData.Name.Text } else { $null }
+					$extName = if ($extData.Name -and $extData.Name.Text) { $extData.Name.Text } else { $null }
+					if (-not [string]::IsNullOrEmpty($mainName) -and -not [string]::IsNullOrEmpty($extName)) { $ownerLabel = "$($mainName): $extName" }
+					elseif (-not [string]::IsNullOrEmpty($extName)) { $ownerLabel = $extName }
+					else { $ownerLabel = "Ftool Extension: $($extKeyForScriptBlock)" }
+					$newHotkeyId = SetHotkey -KeyCombinationString $extData.Hotkey -Action $scriptBlock -OwnerKey $extKeyForScriptBlock -OwnerLabel $ownerLabel
 					$extData.HotkeyId = $newHotkeyId
 					$extHotKeyIdDisplay = if ($extData.HotkeyId) { $extData.HotkeyId } else { 'None' }
 					Write-Verbose "FTOOL: Registered hotkey $($extData.Hotkey) (ID: $extHotKeyIdDisplay) for extension $($extKeyForScriptBlock) on load."
@@ -2322,7 +2447,14 @@ function AddExtensionEventHandlers
 				try
 				{
 					$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($extData.InstanceId)' -ExtKey '$($extKey)'")
-					$extData.HotkeyId = SetHotkey -KeyCombinationString $extData.Hotkey -Action $scriptBlock -OwnerKey $extKey -OldHotkeyId $oldHotkeyIdToUnregister
+					# Friendly label for UI
+					$ownerLabel = $null
+					$mainName = if ($formData.Name -and $formData.Name.Text) { $formData.Name.Text } else { $null }
+					$extName = if ($extData.Name -and $extData.Name.Text) { $extData.Name.Text } else { $null }
+					if (-not [string]::IsNullOrEmpty($mainName) -and -not [string]::IsNullOrEmpty($extName)) { $ownerLabel = "$($mainName): $extName" }
+					elseif (-not [string]::IsNullOrEmpty($extName)) { $ownerLabel = $extName }
+					else { $ownerLabel = "Ftool Extension: $($extKey)" }
+					$extData.HotkeyId = SetHotkey -KeyCombinationString $extData.Hotkey -Action $scriptBlock -OwnerKey $extKey -OwnerLabel $ownerLabel -OldHotkeyId $oldHotkeyIdToUnregister
 					$extData.BtnHotKey.Text = $newHotkey 
 					$extHotKeyIdDisplay = if ($extData.HotkeyId) { $extData.HotkeyId } else { 'None' }
 					Write-Verbose "FTOOL: Registered hotkey $($extData.Hotkey) (ID: $extHotKeyIdDisplay) for extension $($extKey)."
@@ -2392,5 +2524,4 @@ function AddExtensionEventHandlers
 
 #region Module Exports
 Export-ModuleMember -Function *
-#endregion
 #endregion

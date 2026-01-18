@@ -1,67 +1,36 @@
 Author: Immortal / Divine
-Version: 2.4
+Version: 2.5
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 [Changelogs]
    - Added:
-    - Comprehensive guide that explains you every feature of the dashboard.
 
-	- New wiki, allows you to create your own custom wiki! Or use it for something completely different!
-
-    - One Click Setup Profiles, instead of single Setup, you can create multiple setups now
-     - The "One Click Setup" now calculates the exact difference between running clients and the setup requirements, launching only the missing amount rather than a fixed number
-
-	- Macro System to have a fixed sequence of actions replayed
-
-    - Setup logs in already started but not logged in clients in now
-     - As long as a client is in the login screen, it won't start an extra client
-
-    - Worldboss Notifications within the Dashboard for the Divine Server (and Genesis)
-     - Both worldboss channel can recieve and send worldboss notifications through the dashboard, access code required (check discord)
-
-    - Resizeable dashboard
-     - If you had many clients open your client list had to be scrolled
-
-    - Notes / Timer / Reminder feature in the Extra Tab
-     - Can add custom notifications with functionality, highly customizable 
-
-    - Notification history in the Extra Tab
-     - You can reshow and hide old notification there
-
-    - Launch and Login retrys (3) added to ensure a successful setup start
-     - If a client is not ready within 60 seconds, it retrys the process. The old client gets closed
-
-    - More informations inside notifications
-
-    - Window Position Management
-     - Right-click a client in the grid to "Save Position" or "Load Position"
-     - Dashboard remembers its own size and position on close
-
-	- Force Disconnect (TCP Kill)
-     - Right-clicking the "Terminate" button now offers a "Disconnect" option, which severs the TCP connection without closing the client to simulate a connection loss.
-
-	- Login Priority Sorting
-     - The login automation now sorts clients by profile priority before account number, ensuring critical profiles log in first
+    - User friendly Edit mode in the wiki.
+	- Sync buttons to update local wiki with online version.
+	- Auto Patch and Play
+	 - Does open the main launcher first if no clients are open to patch, and continues by starting the profiles launcher. 
+	 - Set Play coordinates per profile. 
+	 - Does not auto copy the neuz.exe, and requires a launcher log file!
+	- You can reset individual ftool / macro settings or do a full reset through right clicking the buttons.
+	- Quick Command to preset Chat messages or commands
+	- You can now also set hotkeys to hide windows and to load the saved position
+	- UI indicator for elements with right-click functionality
 
 
    - Fixed:
-    - Auto updater is working again from now on
 
-    - Ftool not being able to press Key Combinations strings ingame
-     - Ctrl + F1 can now also be set as Ftool key
-	- Multiple different Hotkeys can now be pressed at the same time
+	- Sent Worldboss Notification also shows who sent them now in discord ping
+	- Boss Notifications will now hide after 5 minutes of inactivity
+    - Some parts of the wiki
+	 - Wiki gets updated step by step
+	 - You can help me by sharing your edits
+	- Hotkey Manager now auto refreshes the list of active hotkeys
+	 - It also shows the correct informations for the Action
+	- Renaming a profile also renames every setting linked to this profile
+	- The reconnect should not hang anymore after hours of idle time
+	- Notification timer is not bound to fixed times anymore, but to the OS time instead
+	- Minimized clients are not repositioned anymore
+	- The default launch now launches the main launcher, not a profile
 
-    - Some broken dialog boxes
-    - Launch sometimes not minimizing
-    - Launch Progress Notification being frozen
-    - Rare pipeline bug where dashboard could go idle and not trigger any notifications at all
-    - Dashboard UI Freezing
-     - The client list (DataGrid), Launch, and Login processes now run in separate threads (Runspaces) to keep the UI responsive
-    - Window State Detection
-
-   - More:
-    - Code Cleanup
-    - Themed Dashboard
-     - All alerts and input boxes now use a custom Dark Mode
-
+   - Dont forget to request your Access Code in Discord!
 

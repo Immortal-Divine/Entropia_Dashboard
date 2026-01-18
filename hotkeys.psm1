@@ -68,6 +68,8 @@ function SetHotkey
 		[AllowEmptyString()]
 		[string]$OwnerKey = $null,
 		[Parameter(Mandatory = $false)]
+		[string]$OwnerLabel = $null,
+		[Parameter(Mandatory = $false)]
 		[int]$OldHotkeyId = $null
 	)
 
@@ -81,53 +83,72 @@ function SetHotkey
 		$idsToClean = @()
 		foreach ($kvp in $global:RegisteredHotkeys.GetEnumerator())
 		{
+			# Exact match first
 			if ($kvp.Value.Owners -and $kvp.Value.Owners.ContainsKey($OwnerKey))
 			{
 				$idsToClean += $kvp.Key
+				continue
+			}
+			# If no exact match, try substring-based heuristics to catch ownerKey variants
+			if ($kvp.Value.Owners) {
+				foreach ($ok in $kvp.Value.Owners.Keys) {
+					try {
+						if ($ok -like "*$OwnerKey*" -or $OwnerKey -like "*$ok*") { $idsToClean += $kvp.Key; break }
+					} catch {}
+				}
 			}
 		}
 
 		foreach ($id in $idsToClean)
 		{
 			Write-Verbose "HOTKEYS: Found existing registration for owner '$OwnerKey' on ID $id. Removing..."
-           
-			$ownerAction = $global:RegisteredHotkeys[$id].Owners[$OwnerKey]
-           
-			$unregisteredSpecific = $false
-			try
+
+			# Determine which owner keys to remove: prefer exact match.
+			# Removed heuristic substring match to prevent accidental removal of parent/sibling hotkeys.
+			$ownersToRemove = @()
+			if ($global:RegisteredHotkeys[$id] -and $global:RegisteredHotkeys[$id].Owners -and $global:RegisteredHotkeys[$id].Owners.ContainsKey($OwnerKey))
 			{
-				if ($ownerAction)
+				$ownersToRemove += $OwnerKey
+			}
+
+			foreach ($removeKey in $ownersToRemove) {
+				$ownerAction = $global:RegisteredHotkeys[$id].Owners[$removeKey]
+				$unregisteredSpecific = $false
+				try
 				{
-					$unregisterMethod = [Custom.HotkeyManager].GetMethod('UnregisterAction')
-					if ($unregisterMethod)
+					if ($ownerAction)
 					{
-						[Custom.HotkeyManager]::UnregisterAction($id, $ownerAction.ActionDelegate)
-						$unregisteredSpecific = $true
+						$unregisterMethod = [Custom.HotkeyManager].GetMethod('UnregisterAction')
+						if ($unregisterMethod)
+						{
+							[Custom.HotkeyManager]::UnregisterAction($id, $ownerAction.ActionDelegate)
+							$unregisteredSpecific = $true
+						}
 					}
 				}
-			}
-			catch { Write-Verbose "HOTKEYS: Specific unregister failed: $unregisteredSpecific $_" }
+				catch { Write-Verbose "HOTKEYS: Specific unregister failed: $unregisteredSpecific $_" }
 
-			if ($global:RegisteredHotkeys.ContainsKey($id))
-			{
-				$global:RegisteredHotkeys[$id].Owners.Remove($OwnerKey)
-               
-				if ($global:RegisteredHotkeys[$id].Owners.Count -eq 0)
+				if ($global:RegisteredHotkeys.ContainsKey($id) -and $global:RegisteredHotkeys[$id] -and $global:RegisteredHotkeys[$id].Owners -and $global:RegisteredHotkeys[$id].Owners.ContainsKey($removeKey))
 				{
-					$unregisteredSuccessfully = $false
-					try
-					{
-						[Custom.HotkeyManager]::Unregister($id)
-						$unregisteredSuccessfully = $true
-					}
-					catch { Write-Warning "HOTKEYS: Failed to unregister OS hotkey ID $id for '$OwnerKey'. Error: $_" }
+					$global:RegisteredHotkeys[$id].Owners.Remove($removeKey)
+				}
+			}
 
-					if ($unregisteredSuccessfully)
-					{
-						$ks = $global:RegisteredHotkeys[$id].KeyString
-						if ($ks) { $global:RegisteredHotkeyByString.Remove($ks) }
-						$global:RegisteredHotkeys.Remove($id)
-					}
+			if ($global:RegisteredHotkeys.ContainsKey($id) -and (-not $global:RegisteredHotkeys[$id].Owners -or $global:RegisteredHotkeys[$id].Owners.Count -eq 0))
+			{
+				$unregisteredSuccessfully = $false
+				try
+				{
+					[Custom.HotkeyManager]::Unregister($id)
+					$unregisteredSuccessfully = $true
+				}
+				catch { Write-Warning "HOTKEYS: Failed to unregister OS hotkey ID $id for '$OwnerKey'. Error: $_" }
+
+				if ($unregisteredSuccessfully)
+				{
+					$ks = $global:RegisteredHotkeys[$id].KeyString
+					if ($ks) { $global:RegisteredHotkeyByString.Remove($ks) }
+					$global:RegisteredHotkeys.Remove($id)
 				}
 			}
 		}
@@ -191,8 +212,15 @@ function SetHotkey
 
 	$vkNameFromNormalized = if ($parsedResult.Normalized) { ($parsedResult.Normalized -split '\+')[-1] } else { $null }
 	$virtualKeyName = if (-not [string]::IsNullOrEmpty($vkNameFromNormalized)) { $vkNameFromNormalized } else { $parsedPrimaryKey }
-	$virtualKey = (GetVirtualKeyMappings)[([string]$virtualKeyName).ToUpper()]
+	
+	$vkMap = GetVirtualKeyMappings
+	if ($null -eq $vkMap) { throw "CRITICAL: GetVirtualKeyMappings returned null." }
+	
+	$virtualKey = $vkMap[([string]$virtualKeyName).ToUpper()]
 	if (-not $virtualKey) { throw "Invalid primary key: $virtualKeyName" }
+
+	if (-not $global:RegisteredHotkeys) { $global:RegisteredHotkeys = @{} }
+	if (-not $global:RegisteredHotkeyByString) { $global:RegisteredHotkeyByString = @{} }
 
 	$canonicalOrder = @('Ctrl','Alt','Shift','Win')
 	$canonicalModifiers = @(); foreach ($m in $canonicalOrder) { if ($parsedModifierKeys -contains $m) { $canonicalModifiers += $m } }
@@ -208,6 +236,8 @@ function SetHotkey
 	$hotkeyActionEntry = New-Object Custom.HotkeyManager+HotkeyActionEntry
 	$hotkeyActionEntry.ActionDelegate = $actionDelegate
 	$hotkeyActionEntry.Type = $actionType
+	# Attach an optional OwnerLabel to the owner action entry for UI display hints
+	if (-not [string]::IsNullOrEmpty($OwnerLabel)) { try { $hotkeyActionEntry | Add-Member -MemberType NoteProperty -Name 'OwnerLabel' -Value $OwnerLabel -Force } catch {} }
 
 	$ownerToggleOn = $true
 	if ($OwnerKey)
@@ -291,21 +321,28 @@ function SetHotkey
 	if ($global:RegisteredHotkeyByString.ContainsKey($normalizedKeyString))
 	{
 		$existingId = $global:RegisteredHotkeyByString[$normalizedKeyString]
-		if ($OwnerKey -and $global:RegisteredHotkeys.ContainsKey($existingId) -and $global:RegisteredHotkeys[$existingId].Owners.ContainsKey($OwnerKey))
-		{
-			$staleAction = $global:RegisteredHotkeys[$existingId].Owners[$OwnerKey]
-			try { [Custom.HotkeyManager]::UnregisterAction($existingId, $staleAction.ActionDelegate) } catch {}
-			$global:RegisteredHotkeys[$existingId].Owners.Remove($OwnerKey)
-		}
-		try
-		{
+		# Defensive: RegisteredHotkeys or its Owners map may be missing/NULL in edge cases.
+		try {
+			if ($OwnerKey -and $global:RegisteredHotkeys.ContainsKey($existingId)) {
+				if (-not $global:RegisteredHotkeys[$existingId] -or -not $global:RegisteredHotkeys[$existingId].Owners) { if (-not $global:RegisteredHotkeys[$existingId]) { $global:RegisteredHotkeys[$existingId] = @{} }; $global:RegisteredHotkeys[$existingId].Owners = @{} }
+				if ($global:RegisteredHotkeys[$existingId].Owners.ContainsKey($OwnerKey)) {
+					$staleAction = $global:RegisteredHotkeys[$existingId].Owners[$OwnerKey]
+					try { [Custom.HotkeyManager]::UnregisterAction($existingId, $staleAction.ActionDelegate) } catch {}
+					$global:RegisteredHotkeys[$existingId].Owners.Remove($OwnerKey)
+				}
+			}
 			$id = [Custom.HotkeyManager]::Register($mod, $virtualKey, $hotkeyActionEntry)
-		}
-		catch
-		{
-			Write-Warning "HOTKEYS: Failed to register hotkey $($KeyCombinationString): $_"
-			$id = $null
-			throw 
+		} catch {
+			# If we failed due to malformed or missing internal structures, try to repair and retry once.
+			Write-Warning "HOTKEYS: Error while handling existing registration for key '$normalizedKeyString'. Attempting repair and retry. Error: $_"
+			try {
+				if ($global:RegisteredHotkeys.ContainsKey($existingId) -and -not $global:RegisteredHotkeys[$existingId].Owners) { $global:RegisteredHotkeys[$existingId].Owners = @{} }
+				$id = [Custom.HotkeyManager]::Register($mod, $virtualKey, $hotkeyActionEntry)
+			} catch {
+				Write-Warning "HOTKEYS: Retry failed for registering hotkey '$normalizedKeyString': $_"
+				$id = $null
+				throw
+			}
 		}
 	}
 	else
@@ -344,7 +381,7 @@ function SetHotkey
    
 	if ($OwnerKey)
 	{
-		if (-not $global:RegisteredHotkeys[$id].Owners) { $global:RegisteredHotkeys[$id].Owners = @{} }
+		if (-not $global:RegisteredHotkeys[$id] -or -not $global:RegisteredHotkeys[$id].Owners) { if (-not $global:RegisteredHotkeys[$id]) { $global:RegisteredHotkeys[$id] = @{} }; $global:RegisteredHotkeys[$id].Owners = @{} }
 		$global:RegisteredHotkeys[$id].Owners[$OwnerKey] = $hotkeyActionEntry
 	}
 	$global:RegisteredHotkeyByString[$normalizedKeyString] = $id
@@ -439,10 +476,11 @@ function ResumeAllHotkeys
 					if (-not $registeredId) { continue }
                    
 					$global:PausedIdMap[$oldId] = $registeredId
-					if (-not $global:RegisteredHotkeys.ContainsKey($registeredId))
+					if (-not $global:RegisteredHotkeys[$registeredId])
 					{
 						$global:RegisteredHotkeys[$registeredId] = @{ Modifier = $mod; Key = $vk; KeyString = $ks; Owners = @{}; Action = $null; ActionType = $hotkeyActionEntry.Type }
 					}
+					if (-not $global:RegisteredHotkeys[$registeredId].Owners) { $global:RegisteredHotkeys[$registeredId].Owners = @{} }
 					$global:RegisteredHotkeys[$registeredId].Owners[$ok] = $hotkeyActionEntry
 					if ($ks) { $global:RegisteredHotkeyByString[$ks] = $registeredId }
 					$global:RegisteredHotkeys[$registeredId].ActionType = $hotkeyActionEntry.Type 
@@ -513,10 +551,11 @@ function ResumePausedKeys
                
 					$registeredId = [Custom.HotkeyManager]::Register($mod, $vk, $hotkeyActionEntry)
 					$global:PausedIdMap[$oldId] = $registeredId
-					if (-not $global:RegisteredHotkeys.ContainsKey($registeredId))
+					if (-not $global:RegisteredHotkeys[$registeredId])
 					{
 						$global:RegisteredHotkeys[$registeredId] = @{ Modifier = $mod; Key = $vk; KeyString = $ks; Owners = @{}; Action = $null; ActionType = $hotkeyActionEntry.Type }
 					}
+					if (-not $global:RegisteredHotkeys[$registeredId].Owners) { $global:RegisteredHotkeys[$registeredId].Owners = @{} }
 					$global:RegisteredHotkeys[$registeredId].Owners[$ok] = $hotkeyActionEntry
 					$global:RegisteredHotkeys[$registeredId].ActionType = $hotkeyActionEntry.Type
 					if ($ks) { $global:RegisteredHotkeyByString[$ks] = $registeredId }
@@ -545,6 +584,7 @@ function ResumeHotkeysForOwner
 	if (-not $OwnerKey) { return }
 	if (-not $global:PausedRegisteredHotkeys -or $global:PausedRegisteredHotkeys.Count -eq 0) { return }
 	if (-not $global:PausedIdMap) { $global:PausedIdMap = @{} }
+	if (-not $global:RegisteredHotkeys) { $global:RegisteredHotkeys = @{} }
    
 	$idsToResume = @()
 	foreach ($kvp in $global:PausedRegisteredHotkeys.GetEnumerator())
@@ -587,10 +627,11 @@ function ResumeHotkeysForOwner
 
 					$registeredId = [Custom.HotkeyManager]::Register($mod, $vk, $hotkeyActionEntry)
 					$global:PausedIdMap[$oldId] = $registeredId
-					if (-not $global:RegisteredHotkeys.ContainsKey($registeredId))
+					if (-not $global:RegisteredHotkeys[$registeredId])
 					{
 						$global:RegisteredHotkeys[$registeredId] = @{Modifier = $mod; Key = $vk; KeyString = $ks; Owners = @{}; Action = $null; ActionType = $hotkeyActionEntry.Type }
 					}
+					if (-not $global:RegisteredHotkeys[$registeredId].Owners) { $global:RegisteredHotkeys[$registeredId].Owners = @{} }
 					$global:RegisteredHotkeys[$registeredId].Owners[$ok] = $hotkeyActionEntry
 					$global:RegisteredHotkeys[$registeredId].ActionType = $hotkeyActionEntry.Type
 					if ($ks) { $global:RegisteredHotkeyByString[$ks] = $registeredId }
@@ -870,20 +911,35 @@ function UnregisterHotkeyInstance
 			}
 			else
 			{
-				$global:PausedRegisteredHotkeys.Remove($IdToUse)
-				$didUnregister = $true
+				# Attempt substring-based match cleanup for paused entries as well
+				$matched = @()
+				if ($OwnerKey -and $pausedMeta.Owners) {
+					foreach ($ok in $pausedMeta.Owners.Keys) {
+						try { if ($ok -like "*$OwnerKey*" -or $OwnerKey -like "*$ok*") { $matched += $ok } } catch {}
+					}
+				}
+				if ($matched.Count -gt 0) {
+					foreach ($m in $matched) { try { $pausedMeta.Owners.Remove($m) } catch {} }
+					if ($pausedMeta.Owners.Count -eq 0) { $global:PausedRegisteredHotkeys.Remove($IdToUse) }
+					$didUnregister = $true
+				}
+				else {
+					# No matching owner found in paused entry; do not remove entire paused meta to avoid affecting other owners
+					# Leave paused meta intact and return early
+					return
+				}
 			}
 		}
-		if ($OwnerKey -and $global:RegisteredHotkeys.ContainsKey($Id) -and $global:RegisteredHotkeys[$Id].Owners.ContainsKey($OwnerKey))
+		if ($OwnerKey -and $global:RegisteredHotkeys.ContainsKey($IdToUse) -and $global:RegisteredHotkeys[$IdToUse].Owners -and $global:RegisteredHotkeys[$IdToUse].Owners.ContainsKey($OwnerKey))
 		{
-			$ownerEntry = $global:RegisteredHotkeys[$Id].Owners[$OwnerKey]
+			$ownerEntry = $global:RegisteredHotkeys[$IdToUse].Owners[$OwnerKey]
 			$unregisterMethod = $null
 			try { $unregisterMethod = [Custom.HotkeyManager].GetMethod('UnregisterAction') } catch {}
 			if ($unregisterMethod)
 			{
 				try
 				{
-					[Custom.HotkeyManager]::UnregisterAction($Id, $ownerEntry.ActionDelegate) 
+					[Custom.HotkeyManager]::UnregisterAction($IdToUse, $ownerEntry.ActionDelegate) 
 					$didUnregister = $true
 				}
 				catch
@@ -891,38 +947,46 @@ function UnregisterHotkeyInstance
 					Write-Warning 'HOTKEYS: UnregisterAction failed. Fallback.'
 				}
 			} 
-			if ($global:RegisteredHotkeys.ContainsKey($Id) -and $global:RegisteredHotkeys[$Id].Owners.ContainsKey($OwnerKey))
+			if ($global:RegisteredHotkeys.ContainsKey($IdToUse) -and $global:RegisteredHotkeys[$IdToUse].Owners -and $global:RegisteredHotkeys[$IdToUse].Owners.ContainsKey($OwnerKey))
 			{
-				$global:RegisteredHotkeys[$Id].Owners.Remove($OwnerKey)
+				$global:RegisteredHotkeys[$IdToUse].Owners.Remove($OwnerKey)
 			}
-			if ($global:RegisteredHotkeys.ContainsKey($Id) -and $global:RegisteredHotkeys[$Id].Owners.Count -eq 0)
+			if ($global:RegisteredHotkeys.ContainsKey($IdToUse) -and (-not $global:RegisteredHotkeys[$IdToUse].Owners -or $global:RegisteredHotkeys[$IdToUse].Owners.Count -eq 0))
 			{
-				$ks = $global:RegisteredHotkeys[$Id].KeyString
+				$ks = $global:RegisteredHotkeys[$IdToUse].KeyString
 				if ($ks) { $global:RegisteredHotkeyByString.Remove($ks) }
-				$global:RegisteredHotkeys.Remove($Id)
+				$global:RegisteredHotkeys.Remove($IdToUse)
 			}
 		}
 		if (-not $didUnregister)
 		{
-			if ($global:RegisteredHotkeys.ContainsKey($Id))
+			if ($global:RegisteredHotkeys.ContainsKey($IdToUse))
 			{
 				$unregisteredSuccessfully = $false
 				try
 				{
-					[Custom.HotkeyManager]::Unregister($Id)
+					[Custom.HotkeyManager]::Unregister($IdToUse)
 					$unregisteredSuccessfully = $true
 				}
 				catch {}
                
 				if ($unregisteredSuccessfully)
 				{
-					if ($global:RegisteredHotkeys.ContainsKey($Id))
+					if ($global:RegisteredHotkeys.ContainsKey($IdToUse))
 					{
-						$ks = $global:RegisteredHotkeys[$Id].KeyString
+						$ks = $global:RegisteredHotkeys[$IdToUse].KeyString
 						if ($ks) { $global:RegisteredHotkeyByString.Remove($ks) }
-						$global:RegisteredHotkeys.Remove($Id)
+						$global:RegisteredHotkeys.Remove($IdToUse)
 					}
+					# Mark that we removed a hotkey so callers can refresh UI
+					$didUnregister = $true
 				}
+			}
+
+			# If we removed anything, refresh the Hotkeys UI (if available)
+			if ($didUnregister -and (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False))
+			{
+				try { RefreshHotkeysList } catch {}
 			}
 		}
 	}
@@ -1456,6 +1520,40 @@ function Show-KeyCaptureDialog
             Remove-Variable -Name KeyCapture_PausedSnapshot -Scope Script -ErrorAction SilentlyContinue
             $script:capturedPrimaryKey = $null
             $script:capturedModifierKeys = @()
+        }
+    }
+}
+
+function UnregisterHotkeysByOwnerPattern
+{
+    param([string]$OwnerPattern)
+    if (-not $OwnerPattern) { return }
+    
+    $idsToCheck = @()
+    if ($global:RegisteredHotkeys) { $idsToCheck += @($global:RegisteredHotkeys.Keys) }
+    if ($global:PausedRegisteredHotkeys) { $idsToCheck += @($global:PausedRegisteredHotkeys.Keys) }
+
+    foreach ($id in $idsToCheck)
+    {
+        $meta = $null
+        if ($global:RegisteredHotkeys.ContainsKey($id)) { $meta = $global:RegisteredHotkeys[$id] }
+        elseif ($global:PausedRegisteredHotkeys.ContainsKey($id)) { $meta = $global:PausedRegisteredHotkeys[$id] }
+        
+        if ($meta -and $meta.Owners)
+        {
+            $ownersToRemove = @()
+            foreach ($key in $meta.Owners.Keys)
+            {
+                if ($key -like $OwnerPattern)
+                {
+                    $ownersToRemove += $key
+                }
+            }
+            
+            foreach ($key in $ownersToRemove)
+            {
+                UnregisterHotkeyInstance -Id $id -OwnerKey $key
+            }
         }
     }
 }

@@ -1,12 +1,35 @@
-[Download](https://github.com/Immortal-Divine/Entropia_Dashboard/raw/refs/heads/main/Entropia%20Dashboard.exe)
 
-<a href='https://ko-fi.com/U7U61S0EGT' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+<p align="center">
+  <a href="" rel="noopener">
+ <img width=400px height=500px src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface-start.png" alt="Entropia Dashboard"></a>
+</p>
 
-# Entropia Dashboard
+<h3 align="center">Entropia Dashboard</h3>
+
+<div align="center">
+
+  [![Homepage](https://img.shields.io/badge/Homepage-gray)](https://immortal-divine.github.io/Entropia_Dashboard/) 
+  [![Download](https://img.shields.io/badge/Download-Now-blue)](https://github.com/Immortal-Divine/Entropia_Dashboard/raw/refs/heads/main/Entropia%20Dashboard.exe) 
+  [![Donate](https://shields.io/badge/ko--fi-donate-ff5f5f?logo=ko-fi)](https://ko-fi.com/U7U61S0EGT) 
+
+</div>
+
+---
+A powerful, free, and open-source application designed to streamline your Flyff gameplay.
+
+Written in PowerShell, it offers robust client management, automated launch and logins, and a customizable F-Tool/Macro to enhance your efficiency without compromising security. 
+And many more!
+
+- [About](#about)
+- [Getting Started](#getting_started)
+- [Usage](#usage)
+- [Built Using](#built_using)
+
+## About <a name = "about"></a>
 
 > Interface
 
-![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface-start.png) ![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/custom-start.png) ![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface.png)
+![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/custom-start.png) ![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface.png)
 
 > Settings
 
@@ -23,9 +46,30 @@
 ![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/reconnect.png)
 
 
+  One-Click Login & Launch
+  Forget typing passwords 8 times. Setup your team profiles once, and launch/login your entire party with a single click.
+   * Smart Patching: Detects when patching is done and launches immediately.
+   * Auto-Entry: Handles Server, Channel, Character selection!
+
+  Smart Reconnect System
+  Internet hiccup? AFK disconnect? We got you.
+   * The dashboard monitors your connection in real-time. If a client drops, it automatically handles the "Disconnect" dialog and logs you back in.
+
+  F-Tool & Macro
+  Built-in tools that work in the background.
+   * Advanced F-Tool: Create unlimited key spammers. They attach to specific windows so you can alt-tab freely without stopping your rotation.
+   * Sequence Macros: Need complex combos? Build timed sequences with holds, waits, and loops.
+   * Overlay Mode: Draggable mini-windows that snap to your game client.
+
+  Chat Commander
+  Type commands like /PartyInvite or shout trade messages across multiple clients with global hotkeys. Supports variables for dynamic messaging!
+
+  Built-in Knowledge Base
+   * Online/Offline Wiki: Access guides instantly.
 
 
-### Features
+## Getting Started <a name = "getting_started"></a>
+
 
 + Process list
 
@@ -106,7 +150,7 @@
 	+ Close the selected clients instantly
 
 
-### Tutorial
+## Usage <a name="usage"></a>
 
 + Download and start Entropia Dashboard.exe
 
@@ -145,8 +189,15 @@
 
 
 + Check the tooltips! All UI elements have them on mouse hover!
++ Open the guide for a more defauled explanation!
 
-# 
+
+## Built Using <a name = "built_using"></a>
+- [Powershell 5.1]([https://www.mongodb.com/](https://github.com/PowerShell/PowerShell))
+
+
+<a href='https://ko-fi.com/U7U61S0EGT' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+
 
 # [Entropia Flyff](https://entropia.fun/)
 
