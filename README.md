@@ -44,6 +44,7 @@ And many more!
 > Disconnect System
 
 ![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/reconnect.png)
+ 
 
 
   One-Click Login & Launch
@@ -67,9 +68,13 @@ And many more!
   Built-in Knowledge Base
    * Online/Offline Wiki: Access guides instantly.
 
-
 ## Getting Started <a name = "getting_started"></a>
 
+<<<<<<< HEAD
+## Getting Started <a name = "getting_started"></a>
+
+=======
+>>>>>>> 8016ac75b3965a6d829b20c559c99d30d623b50b
 
 + Process list
 
@@ -191,7 +196,10 @@ And many more!
 + Check the tooltips! All UI elements have them on mouse hover!
 + Open the guide for a more defauled explanation!
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 8016ac75b3965a6d829b20c559c99d30d623b50b
 ## Built Using <a name = "built_using"></a>
 - [Powershell 5.1]([https://www.mongodb.com/](https://github.com/PowerShell/PowerShell))
 
