@@ -1,7 +1,7 @@
 <# datagrid.psm1 #>
 
 #region Global Configuration
-$script:UpdateInterval = 150
+$script:UpdateInterval = 750
 
 $script:States = @{
 	Checking  = 'Checking...'
@@ -52,26 +52,10 @@ function RestoreWindowStyles
 	}
 }
 
-function GetProcessList
-{
-	[CmdletBinding()]
-	[OutputType([System.Diagnostics.Process[]])]
-	param()
-	$processName = $global:DashboardConfig.Config['ProcessName']['ProcessName']
-	try
-	{
-		$allProcesses = Get-Process -Name $processName -ErrorAction SilentlyContinue
-		$validProcesses = @()
-		foreach ($proc in $allProcesses) { try { if (-not $proc.HasExited) { $validProcesses += $proc } } catch {} }
-		return $validProcesses
-	}
- catch { return @() }
-}
-
 function RemoveTerminatedProcesses
 {
 	[CmdletBinding()]
-	param([System.Windows.Forms.DataGridView]$Grid, [System.Diagnostics.Process[]]$CurrentProcesses = @())
+	param([System.Windows.Forms.DataGridView]$Grid, [object[]]$CurrentProcesses = @())
 	if ($Grid.Rows.Count -eq 0) { return }
 	$rowsToRemove = [System.Collections.Generic.List[System.Windows.Forms.DataGridViewRow]]::new()
 	$processIdLookup = @{}
@@ -106,11 +90,10 @@ function NewRowLookupDictionary
 function UpdateExistingRow
 {
 	[CmdletBinding()]
-	param([System.Windows.Forms.DataGridViewRow]$Row, [int]$Index, [string]$ProcessTitle, [int]$ProcessId, [System.Diagnostics.Process]$Process)
+	param([System.Windows.Forms.DataGridViewRow]$Row, [int]$Index, [string]$ProcessTitle, [int]$ProcessId, [object]$Process)
 	if ($Row.Cells[0].Value -ne $Index) { $Row.Cells[0].Value = $Index }
 	if ($Row.Cells[1].Value -ne $ProcessTitle) { $Row.Cells[1].Value = $ProcessTitle }
 	if ($Row.Cells[2].Value -ne $ProcessId) { $Row.Cells[2].Value = $ProcessId }
-	$Row.Tag = $Process
 }
 
 function UpdateRowIndices
@@ -124,9 +107,10 @@ function UpdateRowIndices
 		for ($i = 0; $i -lt $Grid.Rows.Count; $i++)
 		{
 			$row = $Grid.Rows[$i]
+			if ($null -eq $row.Cells -or $row.Cells.Count -lt 2) { continue }
 			$processTitle = $row.Cells[1].Value
 			$profileName = ''
-			if ($processTitle -match '^\[([^\]]+)\]') { $profileName = $Matches[1] }
+			if ($processTitle -match '^\[(?<pName>[^\]]+)\]') { $profileName = $Matches['pName'] }
 			if ([string]::IsNullOrEmpty($profileName)) { $profileName = 'NoProfile' }
 			if (-not $profileCounters.ContainsKey($profileName)) { $profileCounters[$profileName] = 0 }
 			$profileCounters[$profileName]++
@@ -141,7 +125,7 @@ function AddNewProcessRow
 {
 	[CmdletBinding()]
 	[OutputType([System.Windows.Forms.DataGridViewRow])]
-	param([System.Windows.Forms.DataGridView]$Grid, [System.Diagnostics.Process]$Process, [int]$Index, [string]$ProcessTitle)
+	param([System.Windows.Forms.DataGridView]$Grid, [object]$Process, [int]$Index, [string]$ProcessTitle)
 	try
 	{
 		$rowIndex = $Grid.Rows.Add($Index, $ProcessTitle, $Process.Id, $script:States.Checking)
@@ -156,7 +140,7 @@ function AddNewProcessRow
 function StartWindowStateCheck
 {
 	[CmdletBinding()]
-	param([System.Diagnostics.Process]$Process, [System.Windows.Forms.DataGridViewRow]$Row, [System.Windows.Forms.DataGridView]$Grid, [IntPtr]$CachedHandle = [IntPtr]::Zero)
+	param([object]$Process, [System.Windows.Forms.DataGridViewRow]$Row, [System.Windows.Forms.DataGridView]$Grid, [IntPtr]$CachedHandle = [IntPtr]::Zero)
 
 	if ($script:PendingChecks.Contains($Process.Id)) { return }
 	$targetHandle = $CachedHandle
@@ -201,11 +185,14 @@ function StartWindowStateCheck
 				if ($isResponsive -and $hWnd -ne 0 -and $hWnd -ne [IntPtr]::Zero)
 				{
 					$shouldHide = $false
-					$rowTitle = $targetRow.Cells[1].Value
-					if ($rowTitle -match '^\[(.*?)\]')
+					if ($null -ne $targetRow.Cells -and $targetRow.Cells.Count -gt 1)
 					{
-						$profileName = $matches[1]
-						if ($global:DashboardConfig.Config['HideProfiles'] -and $global:DashboardConfig.Config['HideProfiles'].Contains($profileName)) { $shouldHide = $true }
+						$rowTitle = $targetRow.Cells[1].Value
+						if ($rowTitle -match '^\[(?<pName>.*?)\]')
+						{
+							$profileName = $Matches['pName']
+							if ($global:DashboardConfig.Config['HideProfiles'] -and $global:DashboardConfig.Config['HideProfiles'].Contains($profileName)) { $shouldHide = $true }
+						}
 					}
 					if ($shouldHide)
 					{
@@ -217,10 +204,8 @@ function StartWindowStateCheck
 
 				$currentState = $targetRow.Cells[3].Value
 				
-				if ($currentState -in @('Reconnecting...', 'Queued...', 'Cancelled', 'Error') -or $currentState -like 'Client *')
+				if ($currentState -in @('Error') -or $currentState -like 'Client *')
 				{
-					
-					
 					return
 				}
 
@@ -289,10 +274,10 @@ function GetProcessProfile
 {
 	[CmdletBinding()]
 	[OutputType([string])]
-	param([System.Diagnostics.Process]$Process)
+	param($Process)
 	[string]$matchedProfile = ''; [string]$processExePath = ''
 	if ('Custom.Native' -as [Type]) { try { $processExePath = [Custom.Native]::GetProcessPathById($Process.Id) } catch {} }
-	if ([string]::IsNullOrEmpty($processExePath)) { try { if ($Process.MainModule) { $processExePath = $Process.MainModule.FileName } } catch {} }
+	if ([string]::IsNullOrEmpty($processExePath) -and $Process.PSObject.Properties['MainModule']) { try { if ($Process.MainModule) { $processExePath = $Process.MainModule.FileName } } catch {} }
 	if ([string]::IsNullOrEmpty($processExePath)) { return $matchedProfile }
 
 	if (-not [string]::IsNullOrEmpty($processExePath) -and $global:DashboardConfig -and $global:DashboardConfig.Config -and
@@ -364,9 +349,12 @@ function Save-WindowPositions
 				$width = $rect.Right - $rect.Left
 				$height = $rect.Bottom - $rect.Top
 				$posString = "$($rect.Left),$($rect.Top),$width,$height"
-				$identity = $row.Cells[1].Value.ToString()
-				$global:DashboardConfig.Config['SavedWindowPositions'][$identity] = $posString
-				$savedCount++
+				if ($null -ne $row.Cells -and $row.Cells.Count -gt 1 -and $null -ne $row.Cells[1].Value)
+				{
+					$identity = $row.Cells[1].Value.ToString()
+					$global:DashboardConfig.Config['SavedWindowPositions'][$identity] = $posString
+					$savedCount++
+				}
 			}
 		}
 	}
@@ -388,15 +376,18 @@ function Restore-WindowPositions
 	
 	foreach ($row in $grid.SelectedRows)
 	{
-		$identity = $row.Cells[1].Value.ToString()
-		if ($global:DashboardConfig.Config['SavedWindowPositions'].Contains($identity))
+		if ($null -ne $row.Cells -and $row.Cells.Count -gt 1 -and $null -ne $row.Cells[1].Value)
 		{
-			$pos = $global:DashboardConfig.Config['SavedWindowPositions'][$identity] -split ','
-			if ($pos.Count -eq 4 -and $row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
+			$identity = $row.Cells[1].Value.ToString()
+			if ($global:DashboardConfig.Config['SavedWindowPositions'].Contains($identity))
 			{
-				if (-not [Custom.Native]::IsMinimized($row.Tag.MainWindowHandle))
+				$pos = $global:DashboardConfig.Config['SavedWindowPositions'][$identity] -split ','
+				if ($pos.Count -eq 4 -and $row.Tag -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero)
 				{
-					[Custom.Native]::PositionWindow($row.Tag.MainWindowHandle, [IntPtr]::Zero, [int]$pos[0], [int]$pos[1], [int]$pos[2], [int]$pos[3], 0x0014) 
+					if (-not [Custom.Native]::IsMinimized($row.Tag.MainWindowHandle))
+					{
+						[Custom.Native]::PositionWindow($row.Tag.MainWindowHandle, [IntPtr]::Zero, [int]$pos[0], [int]$pos[1], [int]$pos[2], [int]$pos[3], 0x0014) 
+					}
 				}
 			}
 		}
@@ -408,123 +399,86 @@ function Restore-WindowPositions
 function UpdateDataGrid
 {
 	[CmdletBinding()]
-	param([System.Windows.Forms.DataGridView]$Grid)
+	param(
+		[System.Windows.Forms.DataGridView]$Grid,
+		[System.Collections.Generic.List[object]]$CurrentProcesses = $null
+	)
 	if (-not (TestValidParameters -Grid $Grid)) { return }
+	
+	$processes = $CurrentProcesses
+	if ($null -eq $processes)
+	{
+		$processName = $global:DashboardConfig.Config['ProcessName']['ProcessName']
+		$profileMap = $global:DashboardConfig.Config.Profiles
+		$processes = [Custom.ProcessHelper]::GetProcessDataList($processName, $profileMap)
+	}
+
 	$Grid.SuspendLayout()
 	try
 	{
-		$currentProcesses = GetProcessList
-		RemoveTerminatedProcesses -Grid $Grid -CurrentProcesses $currentProcesses
-		if ($currentProcesses.Count -eq 0) { return }
+		RemoveTerminatedProcesses -Grid $Grid -CurrentProcesses $processes
+		if ($processes.Count -eq 0) { return }
 
 		$rowLookup = NewRowLookupDictionary -Grid $Grid
-		$processedProcesses = [System.Collections.Generic.List[PSObject]]::new()
+		
+		$profileCounters = @{}
+		$previousProfile = $null; $previousRow = $null
 
-		foreach ($process in $currentProcesses)
+		foreach ($process in $processes)
 		{
 			$pidVal = $process.Id
 			if (-not $script:ProcessCache.ContainsKey($pidVal)) { $script:ProcessCache[$pidVal] = @{} }
 
-			
-			$cachedHWnd = [IntPtr]::Zero
-			if ($script:ProcessCache[$pidVal].ContainsKey('hWnd')) { $cachedHWnd = $script:ProcessCache[$pidVal].hWnd }
-			$lastWindowCheck = [DateTime]::MinValue
-			if ($script:ProcessCache[$pidVal].ContainsKey('LastWindowCheck')) { $lastWindowCheck = $script:ProcessCache[$pidVal]['LastWindowCheck'] }
-			if ($cachedHWnd -eq [IntPtr]::Zero -or -not [Custom.Native]::IsWindow($cachedHWnd))
-			{
-				if ([DateTime]::Now -gt $lastWindowCheck.AddSeconds(5))
-				{
-					if ('Custom.SafeWindowCore' -as [Type])
-					{
-						$cachedHWnd = [Custom.SafeWindowCore]::FindBestWindow($pidVal)
-						$script:ProcessCache[$pidVal]['hWnd'] = $cachedHWnd
-						$script:ProcessCache[$pidVal]['LastWindowCheck'] = [DateTime]::Now
-					}
-				}
-			}
-			$processTitle = $process.ProcessName
-			$shouldUpdateTitle = $true
-			if ($script:ProcessCache[$pidVal].ContainsKey('CachedTitle') -and $script:ProcessCache[$pidVal].ContainsKey('LastTitleCheck'))
-			{
-				if ([DateTime]::Now -lt $script:ProcessCache[$pidVal]['LastTitleCheck'].AddSeconds(2))
-				{
-					$shouldUpdateTitle = $false; $processTitle = $script:ProcessCache[$pidVal]['CachedTitle']
-				}
-			}
-			if ($cachedHWnd -ne [IntPtr]::Zero -and $shouldUpdateTitle)
-			{
-				if ('Custom.SafeWindowCore' -as [Type])
-				{
-					$safeTitle = [Custom.SafeWindowCore]::GetText($cachedHWnd)
-					if (-not [string]::IsNullOrEmpty($safeTitle))
-					{
-						$processTitle = $safeTitle; $script:ProcessCache[$pidVal]['CachedTitle'] = $safeTitle
-					}
-					$script:ProcessCache[$pidVal]['LastTitleCheck'] = [DateTime]::Now
-				}
-			}
-			elseif ($cachedHWnd -ne [IntPtr]::Zero -and -not $shouldUpdateTitle)
-			{
-				if ($script:ProcessCache[$pidVal].ContainsKey('CachedTitle')) { $processTitle = $script:ProcessCache[$pidVal]['CachedTitle'] }
-			}
-			$processProfile = $null
-			if ($script:ProcessCache[$pidVal].ContainsKey('Profile')) { $processProfile = $script:ProcessCache[$pidVal]['Profile'] }
-			else { $processProfile = GetProcessProfile -Process $process; $script:ProcessCache[$pidVal]['Profile'] = $processProfile }
-			$pStartTime = [DateTime]::MinValue
-			if ($script:ProcessCache[$pidVal].ContainsKey('StartTime')) { $pStartTime = $script:ProcessCache[$pidVal]['StartTime'] }
-			else { try { $pStartTime = $process.StartTime; $script:ProcessCache[$pidVal]['StartTime'] = $pStartTime } catch {} }
+			# Profile index (already sorted by C#)
+			$processProfile = $process.Profile
+			if ([string]::IsNullOrEmpty($processProfile)) { $processProfile = 'NoProfile' }
+			if (-not $profileCounters.ContainsKey($processProfile)) { $profileCounters[$processProfile] = 0 }
+			$profileCounters[$processProfile]++
+			$perProfileIndex = $profileCounters[$processProfile]
 
-			$processedProcesses.Add([PSCustomObject]@{ Process = $process; ProcessTitle = $processTitle; ProcessProfile = $processProfile; StartTime = $pStartTime; CachedHWnd = $cachedHWnd })
-		}
-
-		
-		$processedProcesses.Sort({
-				param($a, $b)
-				$res = [string]::Compare($a.ProcessProfile, $b.ProcessProfile, [StringComparison]::OrdinalIgnoreCase)
-				if ($res -ne 0) { return $res }
-				return [DateTime]::Compare($a.StartTime, $b.StartTime)
-			})
-		$sortedProcesses = $processedProcesses
-
-		$processIndex = 0
-		$previousProfile = $null; $previousRow = $null
-
-		foreach ($processedProcess in $sortedProcesses)
-		{
-			$processIndex++
-			$process = $processedProcess.Process; $processTitle = $processedProcess.ProcessTitle; $processProfile = $processedProcess.ProcessProfile; $hWnd = $processedProcess.CachedHWnd
-
-			if (-not [string]::IsNullOrEmpty($processProfile)) { $processTitle = "[$processProfile]$processTitle" }
+			# Final Title with Profile
+			$processTitle = $process.Title
+			if ($process.Profile) { $processTitle = "[$($process.Profile)]$processTitle" }
 			if ($script:ProcessCache.ContainsKey($process.Id)) { $script:ProcessCache[$process.Id].LastSeen = [DateTime]::Now }
 
 			$existingRow = $null
 			if ($rowLookup.ContainsKey($process.Id)) { $existingRow = $rowLookup[$process.Id] }
 
-			if ($existingRow) { UpdateExistingRow -Row $existingRow -Index $processIndex -ProcessTitle $processTitle -ProcessId $process.Id -Process $process }
-			else { $newRow = AddNewProcessRow -Grid $Grid -Process $process -Index $processIndex -ProcessTitle $processTitle; $existingRow = $newRow; if ($newRow) { $rowLookup[$process.Id] = $newRow } }
+			if ($existingRow) 
+			{ 
+				UpdateExistingRow -Row $existingRow -Index $perProfileIndex -ProcessTitle $processTitle -ProcessId $process.Id -Process $process
+				$existingRow.Tag = $process
+			}
+			else 
+			{ 
+				$newRow = AddNewProcessRow -Grid $Grid -Process $process -Index $perProfileIndex -ProcessTitle $processTitle
+				$existingRow = $newRow
+				if ($newRow) { $rowLookup[$process.Id] = $newRow } 
+			}
 
-			
 			if ($existingRow)
 			{
 				if ($existingRow.DividerHeight -ne 0) { $existingRow.DividerHeight = 0 }
-				if ($null -ne $previousRow -and $processProfile -ne $previousProfile) { $previousRow.DividerHeight = 4 }
+				if ($null -ne $previousRow -and $process.Profile -ne $previousProfile) { $previousRow.DividerHeight = 4 }
 
-				
-
-				
 				$isDisconnected = ($global:DashboardConfig.State.FlashingPids -and $global:DashboardConfig.State.FlashingPids.ContainsKey($process.Id))
-
-				
 				$isWindowFlashing = $false
-				if (-not $isDisconnected -and $hWnd -ne [IntPtr]::Zero -and ('Custom.SafeWindowCore' -as [Type]))
+				$cachedHWnd = $process.MainWindowHandle
+				if (-not $isDisconnected -and $cachedHWnd -ne [IntPtr]::Zero -and ('Custom.SafeWindowCore' -as [Type]))
 				{
-					$isWindowFlashing = [Custom.SafeWindowCore]::IsWindowFlashing($hWnd)
+					# Window flashing is fast enough for UI thread
+					$isWindowFlashing = [Custom.SafeWindowCore]::IsWindowFlashing($cachedHWnd)
+
+					# Smoothing: Keep flashing state for 2.5s to avoid intermittency
+					if ($isWindowFlashing) { $script:ProcessCache[$process.Id].LastFlashSeen = [DateTime]::Now }
+					elseif ($script:ProcessCache[$process.Id].LastFlashSeen -and ([DateTime]::Now - $script:ProcessCache[$process.Id].LastFlashSeen).TotalSeconds -lt 2.5) {
+						$isWindowFlashing = $true
+					}
 				}
 
 				if ($isDisconnected)
 				{
-					
-					if ($existingRow.DefaultCellStyle.BackColor -ne [System.Drawing.Color]::DarkRed)
+					if ($existingRow.DefaultCellStyle.BackColor -ne [System.Drawing.Color]::DarkRed -or $existingRow.DefaultCellStyle.SelectionBackColor -ne [System.Drawing.Color]::DarkRed)
 					{
 						$existingRow.DefaultCellStyle.BackColor = [System.Drawing.Color]::DarkRed
 						$existingRow.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Black
@@ -534,8 +488,7 @@ function UpdateDataGrid
 				}
 				elseif ($isWindowFlashing)
 				{
-					
-					if ($existingRow.DefaultCellStyle.BackColor -ne [System.Drawing.Color]::Orange)
+					if ($existingRow.DefaultCellStyle.BackColor -ne [System.Drawing.Color]::Orange -or $existingRow.DefaultCellStyle.SelectionBackColor -ne [System.Drawing.Color]::DarkOrange)
 					{
 						$existingRow.DefaultCellStyle.BackColor = [System.Drawing.Color]::Orange
 						$existingRow.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Black
@@ -545,10 +498,15 @@ function UpdateDataGrid
 				}
 				else
 				{
-					
+					# Only clear if we were previously highlighted to avoid constant style resets
+					$isHighlighted = ($existingRow.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::DarkRed -or 
+									  $existingRow.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::Orange -or
+									  $existingRow.DefaultCellStyle.SelectionBackColor -eq [System.Drawing.Color]::DarkRed -or
+									  $existingRow.DefaultCellStyle.SelectionBackColor -eq [System.Drawing.Color]::DarkOrange)
 
-					if ($existingRow.DefaultCellStyle.BackColor -ne [System.Drawing.Color]::Empty)
+					if ($isHighlighted)
 					{
+						$script:ProcessCache[$process.Id].LastFlashSeen = $null
 						$existingRow.DefaultCellStyle.BackColor = [System.Drawing.Color]::Empty
 						$existingRow.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Empty
 						$existingRow.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::Empty
@@ -556,7 +514,9 @@ function UpdateDataGrid
 					}
 				}
 
-				$previousProfile = $processProfile
+				$hWnd = $process.MainWindowHandle
+
+				$previousProfile = $process.Profile
 				$previousRow = $existingRow
 				StartWindowStateCheck -Process $process -Row $existingRow -Grid $Grid -CachedHandle $hWnd
 			}
@@ -587,62 +547,50 @@ function StartDataGridUpdateTimer
         } catch {}
         $global:DashboardConfig.Resources.LaunchResources.Remove('DataGridUpdater')
     }
-    if ($global:DashboardConfig.Resources.Timers['dataGridUpdateTimer'])
-    {
-        try {
-            $global:DashboardConfig.Resources.Timers['dataGridUpdateTimer'].Stop()
-            $global:DashboardConfig.Resources.Timers['dataGridUpdateTimer'].Dispose()
-        } catch {}
-        $global:DashboardConfig.Resources.Timers.Remove('dataGridUpdateTimer')
-    }
 
     $grid = $global:DashboardConfig.UI.DataGridMain
     if (-not $grid) { return }
     
-    
     $prop = $grid.GetType().GetProperty('DoubleBuffered', [System.Reflection.BindingFlags]'Instance, NonPublic')
     if ($prop) { $prop.SetValue($grid, $true, $null) }
 
-    
-    
-    
-    $updateAction = [Action]{
+    # UI update action that accepts collected data
+    $updateAction = [System.Action[System.Object]]{
+        param($data)
         if ($global:DashboardConfig.UI.DataGridMain -and -not $global:DashboardConfig.UI.DataGridMain.IsDisposed) {
             try {
-                UpdateDataGrid -Grid $global:DashboardConfig.UI.DataGridMain
+                UpdateDataGrid -Grid $global:DashboardConfig.UI.DataGridMain -CurrentProcesses $data
             } catch {
                 Write-Verbose "Error in timer-invoked UpdateDataGrid: $_"
             }
         }
     }
 
-    
+    $processName = $global:DashboardConfig.Config['ProcessName']['ProcessName']
+    $profileMap = $global:DashboardConfig.Config.Profiles
+
     $rs = [runspacefactory]::CreateRunspace()
     $rs.ApartmentState = "STA"
     $rs.ThreadOptions = "ReuseThread"
     $rs.Open()
     
-    
     $rs.SessionStateProxy.SetVariable('TargetGrid', $grid)
     $rs.SessionStateProxy.SetVariable('UpdateAction', $updateAction)
     $rs.SessionStateProxy.SetVariable('Interval', $script:UpdateInterval)
+    $rs.SessionStateProxy.SetVariable('ProcessName', $processName)
+    $rs.SessionStateProxy.SetVariable('ProfileMap', $profileMap)
 
-    
-    
     $pulseScript = {
         while ($true)
         {
             if (-not $TargetGrid -or $TargetGrid.IsDisposed) { break }
-            
             try {
+                $data = [Custom.ProcessHelper]::GetProcessDataList($ProcessName, $ProfileMap)
                 
-                
-                $TargetGrid.BeginInvoke($UpdateAction) | Out-Null
+                # INVOKE UI UPDATE WITH PRE-FETCHED DATA
+                $TargetGrid.BeginInvoke($UpdateAction, $data) | Out-Null
             }
-            catch {
-                break
-            }
-            
+            catch { break }
             Start-Sleep -Milliseconds $Interval
         }
     }

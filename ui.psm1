@@ -542,7 +542,7 @@ function RegisterConfiguredHotkeys
 								{
 									$h = $row.Tag.MainWindowHandle
 									# Minimize the window instead of changing its extended window style
-									try { [Custom.Native]::ShowWindow($h, [Custom.Native]::SW_MINIMIZE) } catch {}
+									try { [Custom.Native]::ShowWindow($h, [Custom.Native]::SW_MINIMIZE); [Custom.Native]::EmptyWorkingSet($row.Tag.Id) } catch {}
 								}
 							}
 						}
@@ -694,8 +694,8 @@ function RefreshHotkeysList
 					$g = $global:DashboardConfig.UI.DataGridMain
 					if ($g)
 					{
-						$r = $g.Rows | Where-Object { $_.Cells[2].Value.ToString() -eq $pidStr } | Select-Object -First 1
-						if ($r) { $title = $r.Cells[1].Value }
+						$r = $g.Rows | Where-Object { $null -ne $_.Cells -and $_.Cells.Count -gt 2 -and $null -ne $_.Cells[2].Value -and $_.Cells[2].Value.ToString() -eq $pidStr } | Select-Object -First 1
+						if ($r -and $null -ne $r.Cells -and $r.Cells.Count -gt 1) { $title = $r.Cells[1].Value }
 					}
 					return $title
 				}
@@ -1036,8 +1036,7 @@ function Update-BossButtonImage
 function Get-RowIdentity
 {
 	param($Row)
-	if (-not $Row -or -not $Row.Cells[1].Value) { return '' }
-	
+	if (-not $Row -or -not $Row.Cells -or -not $Row.Cells[1].Value) { return '' }
 	$fullTitle = $Row.Cells[1].Value.ToString()
 	$p = 'Default'
 	$title = $fullTitle
@@ -1135,19 +1134,19 @@ function SyncProfilesToConfig
 
 		foreach ($row in $UI.ProfileGrid.Rows)
 		{
-			if ($row.Cells[0].Value -and $row.Cells[1].Value)
+			if ($null -ne $row.Cells -and $row.Cells.Count -gt 1 -and $null -ne $row.Cells[0].Value -and $null -ne $row.Cells[1].Value)
 			{
 				$key = $row.Cells[0].Value.ToString()
 				$val = $row.Cells[1].Value.ToString()
 
 				$global:DashboardConfig.Config['Profiles'][$key] = $val
 
-				if ($row.Cells[2].Value -eq $true -or $row.Cells[2].Value -eq 1)
+				if ($row.Cells.Count -gt 2 -and ($row.Cells[2].Value -eq $true -or $row.Cells[2].Value -eq 1))
 				{
 					$global:DashboardConfig.Config['ReconnectProfiles'][$key] = '1'
 				}
 
-				if ($row.Cells[3].Value -eq $true -or $row.Cells[3].Value -eq 1)
+				if ($row.Cells.Count -gt 3 -and ($row.Cells[3].Value -eq $true -or $row.Cells[3].Value -eq 1))
 				{
 					$global:DashboardConfig.Config['HideProfiles'][$key] = '1'
 				}
@@ -1198,6 +1197,7 @@ function SyncUIToConfig
 		$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin'] = if ($UI.NeverRestartingCollectorLogin.Checked) { '1' } else { '0' }
 		$global:DashboardConfig.Config['Options']['WorldBossListener']           = if ($UI.WorldBossListener.Checked) { '1' } else { '0' }
 		$global:DashboardConfig.Config['Options']['ShowBossImages']              = if ($UI.ShowBossImages.Checked) { '1' } else { '0' }
+		$global:DashboardConfig.Config['Options']['NotificationPosition']        = $UI.NotificationPositionSelector.SelectedItem
 
 		# --- END FIX ---
 
@@ -1207,18 +1207,18 @@ function SyncUIToConfig
 
 		foreach ($row in $UI.ProfileGrid.Rows)
 		{
-			if ($row.Cells[0].Value -and $row.Cells[1].Value)
+			if ($null -ne $row.Cells -and $row.Cells.Count -gt 1 -and $null -ne $row.Cells[0].Value -and $null -ne $row.Cells[1].Value)
 			{
 				$key = $row.Cells[0].Value.ToString()
 				$val = $row.Cells[1].Value.ToString()
 				$global:DashboardConfig.Config['Profiles'][$key] = $val
 
-				if ($row.Cells[2].Value -eq $true -or $row.Cells[2].Value -eq 1)
+				if ($row.Cells.Count -gt 2 -and ($row.Cells[2].Value -eq $true -or $row.Cells[2].Value -eq 1))
 				{
 					$global:DashboardConfig.Config['ReconnectProfiles'][$key] = '1'
 				}
 
-				if ($row.Cells[3].Value -eq $true -or $row.Cells[3].Value -eq 1)
+				if ($row.Cells.Count -gt 3 -and ($row.Cells[3].Value -eq $true -or $row.Cells[3].Value -eq 1))
 				{
 					$global:DashboardConfig.Config['HideProfiles'][$key] = '1'
 				}
@@ -1227,11 +1227,11 @@ function SyncUIToConfig
 
 		if ($UI.ProfileGrid.SelectedRows.Count -gt 0)
 		{
-			$val = $UI.ProfileGrid.SelectedRows[0].Cells[0].Value
+			$row = $UI.ProfileGrid.SelectedRows[0]
 			$global:DashboardConfig.Config['Options']['LauncherTimeout'] = $UI.InputLauncherTimeout.Text
-			if ($val)
+			if ($null -ne $row.Cells -and $row.Cells.Count -gt 0 -and $null -ne $row.Cells[0].Value)
 			{
-				$global:DashboardConfig.Config['Options']['SelectedProfile'] = $val.ToString()
+				$global:DashboardConfig.Config['Options']['SelectedProfile'] = $row.Cells[0].Value.ToString()
 			}
 			else
 			{
@@ -1297,14 +1297,17 @@ function SyncUIToConfig
 		for ($i = 0; $i -le 9; $i++)
 		{
 			$row = $grid.Rows[$i]
-			$clientNum = $row.Cells[0].Value
-			$s = if ($row.Cells[1].Value) { $row.Cells[1].Value.ToString() } else { '1' }
-			$c = if ($row.Cells[2].Value) { $row.Cells[2].Value.ToString() } else { '1' }
-			$char = if ($row.Cells[3].Value) { $row.Cells[3].Value.ToString() } else { '1' }
-			$coll = if ($row.Cells[4].Value) { $row.Cells[4].Value.ToString() } else { 'No' }
+			if ($null -ne $row.Cells -and $row.Cells.Count -gt 4)
+			{
+				$clientNum = $row.Cells[0].Value
+				$s = if ($row.Cells[1].Value) { $row.Cells[1].Value.ToString() } else { '1' }
+				$c = if ($row.Cells[2].Value) { $row.Cells[2].Value.ToString() } else { '1' }
+				$char = if ($row.Cells[3].Value) { $row.Cells[3].Value.ToString() } else { '1' }
+				$coll = if ($row.Cells[4].Value) { $row.Cells[4].Value.ToString() } else { 'No' }
 
-			$val = "$s,$c,$char,$coll"
-			$currentProfileLoginConfig["Client${clientNum}_Settings"] = $val
+				$val = "$s,$c,$char,$coll"
+				$currentProfileLoginConfig["Client${clientNum}_Settings"] = $val
+			}
 		}
 
 		Write-Verbose '  UI: UI synced to config'
@@ -1339,6 +1342,10 @@ function SyncConfigToUI
 		if ($global:DashboardConfig.Config.Contains('Login') -and $global:DashboardConfig.Config['Login'].Contains('NeverRestartingCollectorLogin')) { $UI.NeverRestartingCollectorLogin.Checked = ([int]$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin']) -eq 1 }
 		if ($global:DashboardConfig.Config.Contains('Options') -and $global:DashboardConfig.Config['Options'].Contains('WorldBossListener')) { $UI.WorldBossListener.Checked = ([int]$global:DashboardConfig.Config['Options']['WorldBossListener']) -eq 1 }
 		if ($global:DashboardConfig.Config.Contains('Options') -and $global:DashboardConfig.Config['Options'].Contains('ShowBossImages')) { $UI.ShowBossImages.Checked = ([int]$global:DashboardConfig.Config['Options']['ShowBossImages']) -eq 1 } else { $UI.ShowBossImages.Checked = $true }
+		if ($global:DashboardConfig.Config.Contains('Options') -and $global:DashboardConfig.Config['Options'].Contains('NotificationPosition')) { 
+			$pos = $global:DashboardConfig.Config['Options']['NotificationPosition']
+			if ($UI.NotificationPositionSelector.Items.Contains($pos)) { $UI.NotificationPositionSelector.SelectedItem = $pos }
+		} else { $UI.NotificationPositionSelector.SelectedIndex = 0 }
 
 
 		try
@@ -1396,7 +1403,7 @@ function SyncConfigToUI
 			$found = $false
 			foreach ($row in $UI.ProfileGrid.Rows)
 			{
-				if ($row.Cells[0].Value.ToString() -eq $selectedProfileName)
+				if ($null -ne $row.Cells -and $row.Cells.Count -gt 0 -and $null -ne $row.Cells[0].Value -and $row.Cells[0].Value.ToString() -eq $selectedProfileName)
 				{
 					$row.Selected = $true
 					$UI.ProfileGrid.CurrentCell = $row.Cells[0]
@@ -1512,10 +1519,13 @@ function SyncConfigToUI
 				}
 			}
 
-			$row.Cells[1].Value = $s
-			$row.Cells[2].Value = $c
-			$row.Cells[3].Value = $char
-			$row.Cells[4].Value = $coll
+			if ($null -ne $row.Cells -and $row.Cells.Count -gt 4)
+			{
+				$row.Cells[1].Value = $s
+				$row.Cells[2].Value = $c
+				$row.Cells[3].Value = $char
+				$row.Cells[4].Value = $coll
+			}
 		}
 
 		if (Get-Command RefreshNoteGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNoteGrid }
@@ -1702,7 +1712,7 @@ function InitializeUI
 	$topBar = SetUIElement @p
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; fg = @(240, 240, 240); id = 'TitleLabel'; text = 'Entropia Dashboard'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
 	$titleLabelForm = SetUIElement @p
-	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.5'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
+	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.6'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
 	$copyrightLabelForm = SetUIElement @p
 	$p = @{ type = 'Button'; width = 40; height = 30; left = 370; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'InfoForm'; text = 'Guide'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); tooltip = "Help / Info`nOpens the project website for documentation and support." }
 	$btnInfoForm = SetUIElement @p
@@ -1836,6 +1846,13 @@ function InitializeUI
 
 	$p = @{ type = 'CheckBox'; width = 200; height = 20; top = 430; left = 0; bg = @(30, 30, 30); fg = @(240, 240, 240); id = 'NeverRestartingCollectorLogin'; text = 'Collector Double Click'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Collector Fix`nEnable if the Collector start button needs a double-click to work." }
 	$chkNeverRestartingLogin = SetUIElement @p
+	
+	$p = @{ type = 'Label'; width = 120; height = 20; top = 460; left = 20; bg = @(30, 30, 30, 0); fg = @(240, 240, 240); id = 'LabelNotificationPosition'; text = 'Notification Position:'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Notification Position`nSets the corner of the screen where notifications will appear." }
+	$lblNotificationPosition = SetUIElement @p
+	
+	$p = @{ type = 'Custom.DarkComboBox'; width = 145; height = 25; top = 457; left = 145; bg = @(40,40,40); fg = @(240,240,240); id = 'NotificationPositionSelector'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); dropDownStyle = 'DropDownList' }
+	$ddlNotificationPosition = SetUIElement @p
+	$ddlNotificationPosition.Items.AddRange(@('Bottom Right', 'Bottom Left', 'Top Right', 'Top Left')) | Out-Null
 
 	$p = @{ type = 'Label'; width = 220; height = 20; top = 25; left = 300; bg = @(30, 30, 30, 0); fg = @(240, 240, 240); id = 'LabelProfiles'; text = 'Select Client Profile for Default Launch:'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Default Profile`nSelect the profile to be used when clicking the main 'Launch' button." }
 	$lblProfiles = SetUIElement @p
@@ -1897,8 +1914,9 @@ function InitializeUI
 	$p = @{ type = 'Button'; width = 60; height = 25; top = 480; left = 495; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'DeleteSetup'; text = 'Delete'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Delete`nRemove the selected setup configuration." }
 	$btnDeleteSetup = SetUIElement @p
 
-	$tabGeneral.Controls.AddRange(@($lblLauncher, $txtLauncher, $btnBrowseLauncher, $lblProcessName, $txtProcessName, $lblMaxClients, $txtMaxClients, $lblLauncherTimeout, $txtLauncherTimeout, $lblJunction, $txtJunction, $btnBrowseJunction, $btnStartJunction, $btnCopyNeuz, $chkNeverRestartingLogin, $chkReconnectNotificationCloseOnAction, $lblProfiles, $ProfileGrid, $btnAddProfile, $btnRenameProfile, $btnRemoveProfile, $btnDeleteProfile, $lblSetups, $SetupGrid, $btnAddSetup, $btnEditSetup, $btnRenameSetup, $btnDeleteSetup))
+	$tabGeneral.Controls.AddRange(@($lblLauncher, $txtLauncher, $btnBrowseLauncher, $lblProcessName, $txtProcessName, $lblMaxClients, $txtMaxClients, $lblLauncherTimeout, $txtLauncherTimeout, $lblJunction, $txtJunction, $btnBrowseJunction, $btnStartJunction, $btnCopyNeuz, $chkNeverRestartingLogin, $lblNotificationPosition, $ddlNotificationPosition, $lblProfiles, $ProfileGrid, $btnAddProfile, $btnRenameProfile, $btnRemoveProfile, $btnDeleteProfile, $lblSetups, $SetupGrid, $btnAddSetup, $btnEditSetup, $btnRenameSetup, $btnDeleteSetup))
 
+	$uiPropertiesToAdd.NotificationPositionSelector = $ddlNotificationPosition
 	#endregion
 
 	#region Login Settings
@@ -2409,7 +2427,7 @@ function InitializeUI
 		} 
 		catch { 
 			Write-Verbose "Boss timer tick failed: $_" 
-			$nextInterval = 5000
+			$nextInterval = 15000
 		} 
 		finally {
 			if ($this.Interval -ne $nextInterval) { $this.Interval = $nextInterval }
@@ -2417,7 +2435,7 @@ function InitializeUI
 		}
 	}
 	$bossTimer.Add_Tick($bossTimerTick.GetNewClosure())
-	$bossTimer.Interval = 1000
+	$bossTimer.Interval = 2000
 	$bossTimer.Start()
 	$global:DashboardConfig.Resources.Timers['BossTimer'] = $bossTimer
 
@@ -2551,7 +2569,6 @@ function InitializeUI
 		InputLauncherTimeout               = $txtLauncherTimeout
 		BrowseJunction                     = $btnBrowseJunction
 		NeverRestartingCollectorLogin      = $chkNeverRestartingLogin
-		ReconnectNotificationCloseOnAction = $chkReconnectNotificationCloseOnAction
 		WorldBossListener                  = $chkWorldBossListener
 		RefreshBosses                      = $btnRefreshBosses
 		ShowBossImages                     = $chkShowImages
@@ -2880,6 +2897,7 @@ function RegisterUIEventHandlers
 				{
 					if ((Show-DarkMessageBox 'Are you sure you want to disconnect the selected Clients?' 'Confirm' 'YesNo' 'Warning') -eq 'Yes') { $global:DashboardConfig.UI.DataGridMain.SelectedRows | ForEach-Object { try { [Custom.Native]::CloseTcpConnectionsForPid($_.Tag.Id) } catch {} } }
 				}
+				$script:LastExitClick = [DateTime]::Now
 			}
 		}
 		Ftool                      = @{ 
@@ -2982,7 +3000,7 @@ function RegisterUIEventHandlers
 			}
 		}
 		ContextMenuFront           = @{ Click = { $global:DashboardConfig.UI.DataGridMain.SelectedRows | ForEach-Object { $h = $_.Tag.MainWindowHandle; SetWindowToolStyle -hWnd $h -Hide $false; [Custom.Native]::BringToFront($h); SetWindowToolStyle -hWnd $h -Hide $false } } }                
-		ContextMenuBack            = @{ Click = { $global:DashboardConfig.UI.DataGridMain.SelectedRows | ForEach-Object { [Custom.Native]::SendToBack($_.Tag.MainWindowHandle) } } }
+		ContextMenuBack            = @{ Click = { $global:DashboardConfig.UI.DataGridMain.SelectedRows | ForEach-Object { [Custom.Native]::SendToBack($_.Tag.MainWindowHandle); [Custom.Native]::EmptyWorkingSet($_.Tag.Id) } } }
 		ContextMenuResizeAndCenter = @{ Click = { $scr = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $global:DashboardConfig.UI.DataGridMain.SelectedRows | ForEach-Object { [Custom.Native]::PositionWindow($_.Tag.MainWindowHandle, [Custom.Native]::TopWindowHandle, [int](($scr.Width - 1040) / 2), [int](($scr.Height - 807) / 2), 1040, 807, 0x0010) } } }
 		ContextMenuSavePos         = @{ Click = { if (Get-Command Save-WindowPositions -ErrorAction SilentlyContinue -Verbose:$False) { Save-WindowPositions } } }
 		ContextMenuLoadPos         = @{ Click = { if (Get-Command Restore-WindowPositions -ErrorAction SilentlyContinue -Verbose:$False) { Restore-WindowPositions } } }
@@ -4402,6 +4420,18 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
 					$global:DashboardConfig.State.WorldBossListener.NextRunTime = [DateTime]::MinValue
 				} else {
 					if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "World Boss" -Message "Listener is not running." -Type "Warning" }
+				}
+			}
+		}
+		NotificationPositionSelector = @{
+			SelectedIndexChanged = {
+				param($s, $e)
+				if (-not $global:DashboardConfig.Config.Contains('Options')) { $global:DashboardConfig.Config['Options'] = [ordered]@{} }
+				$newValue = $s.SelectedItem
+				if ($newValue -and $global:DashboardConfig.Config['Options']['NotificationPosition'] -ne $newValue) {
+					$global:DashboardConfig.Config['Options']['NotificationPosition'] = $newValue
+					if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
+					if (Get-Command UpdateNotificationPositions -ErrorAction SilentlyContinue -Verbose:$False) { UpdateNotificationPositions }
 				}
 			}
 		}

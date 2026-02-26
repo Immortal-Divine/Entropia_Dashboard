@@ -129,24 +129,37 @@ function ToggleInstanceHotkeys
 
 function Invoke-FtoolSpamAction
 {
-	param($timerData)
+	param($timerData, $Action = 'Full')
 	try
 	{
-		if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
+		if (-not $timerData -or -not $timerData.ContainsKey('WindowHandle') -or -not $timerData.ContainsKey('Key') -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) {
+            Write-Verbose "FTOOL: Invalid timer data received in Invoke-FtoolSpamAction."
+            return 0
+        }
 
-		$keyCombinationString = $timerData['Key']
-		$parsedKey = ParseKeyString -KeyCombinationString $keyCombinationString
-		if (-not $parsedKey -or -not $parsedKey.Primary)
-		{
-			Write-Verbose "FTOOL: Invalid key to spam: '$keyCombinationString'"
-			return
-		}
-
-		$primaryKeyName = $parsedKey.Primary
-		$modifierNames = $parsedKey.Modifiers
-
-		$keyMappings = GetVirtualKeyMappings
-		$virtualKeyCode = $keyMappings[$primaryKeyName]
+        # Optimization: Parse key once and store in timerData if not present
+        if (-not $timerData.ContainsKey('ParsedKey')) {
+            $keyCombinationString = $timerData['Key']
+            if ([string]::IsNullOrWhiteSpace($keyCombinationString)) { return 0 }
+            
+            $parsedKey = ParseKeyString -KeyCombinationString $keyCombinationString
+            if (-not $parsedKey -or -not $parsedKey.Primary) { return 0 }
+            
+            $keyMappings = GetVirtualKeyMappings
+            if (-not $keyMappings) { return 0 }
+            
+            $virtualKeyCode = $keyMappings[$parsedKey.Primary]
+            if (-not $virtualKeyCode) { return 0 }
+            
+            $timerData['ParsedKey'] = @{
+                VirtualKeyCode = $virtualKeyCode
+                ModifierNames = $parsedKey.Modifiers
+            }
+        }
+        
+        $pk = $timerData['ParsedKey']
+        $virtualKeyCode = $pk.VirtualKeyCode
+        $modifierNames = $pk.ModifierNames
 
 		if ($virtualKeyCode)
 		{
@@ -156,16 +169,22 @@ function Invoke-FtoolSpamAction
 			$WM_MBUTTONDOWN = 0x0207; $WM_MBUTTONUP = 0x0208
 			$WM_XBUTTONDOWN = 0x020B; $WM_XBUTTONUP = 0x020C
 
-			$point = New-Object Custom.Win32Point
-			[Custom.Win32MouseUtils]::GetCursorPos([ref]$point) | Out-Null
-			[Custom.Win32MouseUtils]::ScreenToClient($timerData['WindowHandle'], [ref]$point) | Out-Null
-			$lParam = [Custom.Win32MouseUtils]::MakeLParam($point.X, $point.Y)
+            $lParam = 0
+            if ($virtualKeyCode -ge 0x01 -and $virtualKeyCode -le 0x06)
+            {
+			    $point = New-Object Custom.Win32Point
+			    [Custom.Win32MouseUtils]::GetCursorPos([ref]$point) | Out-Null
+			    [Custom.Win32MouseUtils]::ScreenToClient($timerData['WindowHandle'], [ref]$point) | Out-Null
+			    $lParam = [Custom.Win32MouseUtils]::MakeLParam($point.X, $point.Y)
+            }
 
-			$dwellTime = Get-Random -Minimum 2 -Maximum 9
+            if ($Action -eq 'Down' -or $Action -eq 'Full')
+            {
+			    $dwellTime = Get-Random -Minimum 2 -Maximum 9
 
-			if ($virtualKeyCode -ge 0x01 -and $virtualKeyCode -le 0x06)
-			{
-				$MK_LBUTTON = 0x0001; $MK_RBUTTON = 0x0002; $MK_SHIFT = 0x0004
+			    if ($virtualKeyCode -ge 0x01 -and $virtualKeyCode -le 0x06)
+			    {
+				    $MK_LBUTTON = 0x0001; $MK_RBUTTON = 0x0002; $MK_SHIFT = 0x0004
 				$MK_CONTROL = 0x0008; $MK_MBUTTON = 0x0010; $MK_XBUTTON1 = 0x0020
 				$MK_XBUTTON2 = 0x0040
 
@@ -174,25 +193,23 @@ function Invoke-FtoolSpamAction
 				if ($modifierNames -contains 'Ctrl') { $wDown = $wDown -bor $MK_CONTROL }
 				if ($modifierNames -contains 'Shift') { $wDown = $wDown -bor $MK_SHIFT }
 
-				$targetButtonFlag = 0; $xButtonData = 0
-				$msgDown = 0; $msgUp = 0
+				    $targetButtonFlag = 0; $xButtonData = 0
+				    $msgDown = 0; 
 
 				switch ($virtualKeyCode)
 				{
-					0x01 { $targetButtonFlag = $MK_LBUTTON; $msgDown = $WM_LBUTTONDOWN; $msgUp = $WM_LBUTTONUP }
-					0x02 { $targetButtonFlag = $MK_RBUTTON; $msgDown = $WM_RBUTTONDOWN; $msgUp = $WM_RBUTTONUP }
-					0x04 { $targetButtonFlag = $MK_MBUTTON; $msgDown = $WM_MBUTTONDOWN; $msgUp = $WM_MBUTTONUP }
-					0x05 { $targetButtonFlag = $MK_XBUTTON1; $xButtonData = 0x00010000; $msgDown = $WM_XBUTTONDOWN; $msgUp = $WM_XBUTTONUP }
-					0x06 { $targetButtonFlag = $MK_XBUTTON2; $xButtonData = 0x00020000; $msgDown = $WM_XBUTTONDOWN; $msgUp = $WM_XBUTTONUP }
+					    0x01 { $targetButtonFlag = $MK_LBUTTON; $msgDown = $WM_LBUTTONDOWN }
+					    0x02 { $targetButtonFlag = $MK_RBUTTON; $msgDown = $WM_RBUTTONDOWN }
+					    0x04 { $targetButtonFlag = $MK_MBUTTON; $msgDown = $WM_MBUTTONDOWN }
+					    0x05 { $targetButtonFlag = $MK_XBUTTON1; $xButtonData = 0x00010000; $msgDown = $WM_XBUTTONDOWN }
+					    0x06 { $targetButtonFlag = $MK_XBUTTON2; $xButtonData = 0x00020000; $msgDown = $WM_XBUTTONDOWN }
 				}
 
 				$wDown = $wDown -bor $targetButtonFlag
-				$wUp = $wDown -bxor $targetButtonFlag
 
 				if ($xButtonData -ne 0)
 				{
 					$wDown = $wDown -bor $xButtonData
-					$wUp = $wUp -bor $xButtonData
 				}
 
 				if ($modifierNames -contains 'Alt')
@@ -201,17 +218,10 @@ function Invoke-FtoolSpamAction
 				}
 
 				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $msgDown, [IntPtr]$wDown, $lParam)
-				Start-Sleep -Milliseconds $dwellTime
-				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $msgUp, [IntPtr]$wUp, $lParam)
-
-				if ($modifierNames -contains 'Alt')
-				{
-					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, 0x12, 0xC0000000)
-				}
-			}
-			else
-			{
-				$modifierVks = @()
+			    }
+			    else
+			    {
+				    $modifierVks = @()
 				foreach ($modName in $modifierNames)
 				{
 					switch ($modName.ToUpper())
@@ -228,18 +238,76 @@ function Invoke-FtoolSpamAction
 				}
 
 				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $virtualKeyCode, 0)
-				Start-Sleep -Milliseconds $dwellTime
-				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $virtualKeyCode, 0xC0000000)
+			    }
+                
+                if ($Action -eq 'Down') { return $dwellTime }
+                
+                # If Full, we sleep here (legacy behavior, though we are trying to avoid it)
+                Start-Sleep -Milliseconds $dwellTime
+            }
 
-				$reversedMods = $modifierVks | Sort-Object -Descending
-				foreach ($modVk in $reversedMods)
-				{
-					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $modVk, 0xC0000000)
-				}
-			}
+            if ($Action -eq 'Up' -or $Action -eq 'Full')
+            {
+                if ($virtualKeyCode -ge 0x01 -and $virtualKeyCode -le 0x06)
+                {
+                    $MK_LBUTTON = 0x0001; $MK_RBUTTON = 0x0002; $MK_SHIFT = 0x0004
+				    $MK_CONTROL = 0x0008; $MK_MBUTTON = 0x0010; $MK_XBUTTON1 = 0x0020
+				    $MK_XBUTTON2 = 0x0040
+                    
+                    $wDown = 0
+				    if ($modifierNames -contains 'Ctrl') { $wDown = $wDown -bor $MK_CONTROL }
+				    if ($modifierNames -contains 'Shift') { $wDown = $wDown -bor $MK_SHIFT }
+                    
+                    $msgUp = 0; $xButtonData = 0
+                    
+                    switch ($virtualKeyCode)
+				    {
+					    0x01 { $msgUp = $WM_LBUTTONUP }
+					    0x02 { $msgUp = $WM_RBUTTONUP }
+					    0x04 { $msgUp = $WM_MBUTTONUP }
+					    0x05 { $xButtonData = 0x00010000; $msgUp = $WM_XBUTTONUP }
+					    0x06 { $xButtonData = 0x00020000; $msgUp = $WM_XBUTTONUP }
+				    }
+                    
+                    $wUp = $wDown
+                    if ($xButtonData -ne 0) { $wUp = $wUp -bor $xButtonData }
+                    
+                    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $msgUp, [IntPtr]$wUp, $lParam)
+
+				    if ($modifierNames -contains 'Alt')
+				    {
+					    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, 0x12, 0xC0000000)
+				    }
+                }
+                else
+                {
+				    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $virtualKeyCode, 0xC0000000)
+
+                    # Re-calculate modifiers if not done in Down block (for Up-only calls)
+                    if ($null -eq $modifierVks) {
+                        $modifierVks = @()
+				        foreach ($modName in $modifierNames)
+				        {
+					        switch ($modName.ToUpper())
+					        {
+						        'CTRL' { $modifierVks += 0x11 }
+						        'ALT' { $modifierVks += 0x12 }
+						        'SHIFT' { $modifierVks += 0x10 }
+					        }
+				        }
+                    }
+
+				    $reversedMods = $modifierVks | Sort-Object -Descending
+				    foreach ($modVk in $reversedMods)
+				    {
+					    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $modVk, 0xC0000000)
+				    }
+                }
+            }
 		}
 	}
 	catch { Write-Verbose ('FTOOL: Spammer Error: {0}' -f $_.Exception.Message) }
+    return 0
 }
 
 function LoadFtoolSettings
@@ -697,7 +765,7 @@ function CreatePositionTimer
 	param($formData)
     
 	$positionTimer = New-Object System.Windows.Forms.Timer
-	$positionTimer.Interval = 10
+	$positionTimer.Interval = 15
 	$positionTimer.Tag = @{
 		WindowHandle = $formData.SelectedWindow
 		FtoolForm    = $formData.Form
@@ -796,10 +864,12 @@ function CreatePositionTimer
 								
 								while ($next -ne [IntPtr]::Zero -and $loopCount -lt 50)
 								{
+								if ([Custom.Native]::IsWindowVisible($next)) {
 									if ($next -eq $linkedHandle) { $amIAboveGame = $true; break }
-									$next = [Custom.Native]::GetWindow($next, 2)
 									$loopCount++
 								}
+								$next = [Custom.Native]::GetWindow($next, 2)
+							}
 
 								if (-not $amIAboveGame)
 								{
@@ -928,13 +998,20 @@ function CreateSpammerTimer
 {
 	param($windowHandle, $keyValue, $instanceId, $interval, $extNum = $null, $extKey = $null)
     
+	if ([string]::IsNullOrWhiteSpace($keyValue) -or $interval -lt 10) {
+        Write-Verbose "FTOOL: Invalid parameters for CreateSpammerTimer."
+        return $null
+    }
+
 	$spamTimer = New-Object System.Windows.Forms.Timer
-	$spamTimer.Interval = $interval
+	$spamTimer.Interval = $interval # Initial interval
     
 	$timerTag = @{
 		WindowHandle = $windowHandle
 		Key          = $keyValue
 		InstanceId   = $instanceId
+        State        = 'Idle'
+        NextInterval = $interval
 	}
     
 	if ($null -ne $extNum)
@@ -949,8 +1026,30 @@ function CreateSpammerTimer
 			param($s, $evt)
 			try
 			{
-				if (-not $s -or -not $s.Tag) { return }
-				Invoke-FtoolSpamAction -timerData $s.Tag
+				if (-not $s -or -not $s.Tag) { 
+                    if ($s) { $s.Stop(); $s.Dispose() }
+                    return
+                }
+                
+                $tData = $s.Tag
+                
+                if ($tData.State -eq 'Idle' -or $tData.State -eq 'Waiting')
+                {
+                    $dwell = Invoke-FtoolSpamAction -timerData $tData -Action 'Down'
+                    if ($dwell -gt 0) {
+                        $tData.State = 'Dwell'
+                        $s.Interval = $dwell
+                    } else {
+                        $s.Interval = $tData.NextInterval
+                        $tData.State = 'Waiting'
+                    }
+                }
+                elseif ($tData.State -eq 'Dwell')
+                {
+                    Invoke-FtoolSpamAction -timerData $tData -Action 'Up'
+                    $tData.State = 'Waiting'
+                    $s.Interval = $tData.NextInterval
+                }
 			}
 			catch
 			{
@@ -958,7 +1057,15 @@ function CreateSpammerTimer
 			}
 		})
     
-	Invoke-FtoolSpamAction -timerData $timerTag
+    # Start immediately with Down
+    $dwell = Invoke-FtoolSpamAction -timerData $timerTag -Action 'Down'
+    if ($dwell -gt 0) {
+        $timerTag.State = 'Dwell'
+        $spamTimer.Interval = $dwell
+    } else {
+        $timerTag.State = 'Waiting'
+        $spamTimer.Interval = $interval
+    }
 
 	$spamTimer.Start()
 	return $spamTimer
@@ -1328,18 +1435,10 @@ function FtoolSelectedRow
 	$targetWindowRect = New-Object Custom.Native+RECT
 	[Custom.Native]::GetWindowRect($windowHandle, [ref]$targetWindowRect)
     
-	$windowTitle = if ($row.Tag -and $row.Tag.MainWindowTitle)
-	{
-		$row.Tag.MainWindowTitle
-	}
-	elseif ($row.Cells[1].Value)
-	{
-		$row.Cells[1].Value.ToString()
-	}
-	else
-	{
-		"Window_$instanceId"
-	}
+	$windowTitle = if ($row.Tag.PSObject.Properties['MainWindowTitle']) { $row.Tag.MainWindowTitle }
+	elseif ($row.Tag.PSObject.Properties['Title']) { $row.Tag.Title }
+	elseif ($row.Cells[1].Value) { $row.Cells[1].Value.ToString() }
+	else { "Window_$instanceId" }
     
 	$ftoolForm = CreateFtoolForm $instanceId $targetWindowRect $windowTitle $row
     

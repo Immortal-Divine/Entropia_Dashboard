@@ -66,6 +66,19 @@ if (-not ([System.Management.Automation.PSTypeName]'DashboardPower').Type) {
 
 #region Internal Helper Functions
 
+function Find-RowByPid
+{
+	param([int]$Pid)
+	if (-not $global:DashboardConfig.UI.DataGridMain) { return $null }
+	foreach ($row in $global:DashboardConfig.UI.DataGridMain.Rows)
+	{
+		$tag = $row.Tag
+		if ($null -eq $tag -or -not ($tag.PSObject.Properties['Id'])) { continue }
+		if ($tag.Id -eq $Pid) { return $row }
+	}
+	return $null
+}
+
 function InvokeGuardedAction
 {
 	param([ScriptBlock]$Action)
@@ -120,7 +133,7 @@ function SleepWithCancel
 	$sw = [System.Diagnostics.Stopwatch]::StartNew()
 	while ($sw.Elapsed.TotalMilliseconds -lt $Milliseconds)
 	{
-		if ($CancellationContext.IsCancelled) { throw 'LoginCancelled' }
+		if ($global:LoginCancellation.IsCancelled) { throw 'LoginCancelled' }
 		Start-Sleep -Milliseconds 100
 	}
 }
@@ -135,7 +148,7 @@ function EnsureWindowResponsive
 	while (-not $proc.Responding)
 	{
 		if ($sw.Elapsed.TotalSeconds -gt 15) { throw 'Timeout: Window is Not Responding (Hung).' }
-		CheckCancel
+		if ($global:LoginCancellation.IsCancelled) { throw 'LoginCancelled' }
 		$proc.Refresh()
 		Start-Sleep -Milliseconds 10
 	}
@@ -149,7 +162,7 @@ function EnsureWindowState
                 
 	SetWindowToolStyle -hWnd $hWnd -Hide $false
 	$changed = $false
-	$CancellationContext.ScriptInitiatedMove = $true
+	$script:ReconnectScriptInitiatedMove = $true
 	try
 	{
 		if ([Custom.Native]::IsWindowMinimized($hWnd))
@@ -174,7 +187,7 @@ function EnsureWindowState
 	}
  finally
 	{
-		$CancellationContext.ScriptInitiatedMove = $false
+		$script:ReconnectScriptInitiatedMove = $false
 	}
                 
 	if ($changed)
@@ -193,11 +206,11 @@ function EnsureWindowState
 function Invoke-MouseClick
 {
 	param([int]$X, [int]$Y)
-	CheckCancel; EnsureWindowResponsive; CheckCancel
+	if ($global:LoginCancellation.IsCancelled) { throw 'LoginCancelled' }; EnsureWindowResponsive; if ($global:LoginCancellation.IsCancelled) { throw 'LoginCancelled' }
                 
 	EnsureWindowState
 
-	$CancellationContext.ScriptInitiatedMove = $true
+	$script:ReconnectScriptInitiatedMove = $true
 	try
 	{
 		[Custom.Native]::SetCursorPos($X, $Y); Start-Sleep -Milliseconds 20
@@ -208,7 +221,7 @@ function Invoke-MouseClick
 	}
  catch { Write-Verbose "Mouse click failed: $_" } finally
 	{ 
-		Start-Sleep -Milliseconds 50; $CancellationContext.ScriptInitiatedMove = $false; CheckCancel 
+		Start-Sleep -Milliseconds 50; $script:ReconnectScriptInitiatedMove = $false; if ($global:LoginCancellation.IsCancelled) { throw 'LoginCancelled' }
 		EnsureWindowState
 	}
 }
@@ -216,7 +229,7 @@ function Invoke-MouseClick
 function Invoke-KeyPress
 {
 	param([int]$VirtualKeyCode)
-	CheckCancel; EnsureWindowResponsive; CheckCancel
+	if ($global:LoginCancellation.IsCancelled) { throw 'LoginCancelled' }; EnsureWindowResponsive; if ($global:LoginCancellation.IsCancelled) { throw 'LoginCancelled' }
                 
 	EnsureWindowState
 
@@ -248,7 +261,7 @@ function Wait-ForLogEntry
 	$waitSw = [System.Diagnostics.Stopwatch]::StartNew()
 	while ($waitSw.Elapsed.TotalSeconds -lt $TimeoutSeconds)
 	{
-		CheckCancel
+		if ($global:LoginCancellation.IsCancelled) { throw 'LoginCancelled' }
 		if (-not [string]::IsNullOrWhiteSpace($LogPath) -and (Test-Path $LogPath))
 		{
 			try
@@ -265,17 +278,21 @@ function Wait-ForLogEntry
 
 function Wait-UntilWorldLoaded
 {
-	param($LogPath, $Config, $TotalSteps, $CurrentStep, $ClientIdx, $ClientCount, $EntryNum)
+	param($LogPath, $Config, $TotalSteps, $CurrentStep, $ClientIdx, $ClientCount, $EntryNum, $ProfileName)
 	$threshold = 3; $searchStr = '13 - CACHE_ACK_JOIN'
 	if ($Config['WorldLoadLogThreshold']) { $threshold = [int]$Config['WorldLoadLogThreshold'] }
 	if ($Config['WorldLoadLogEntry']) { $searchStr = $Config['WorldLoadLogEntry'] }
 	$foundCount = 0; $timeout = New-TimeSpan -Minutes 2; $sw = [System.Diagnostics.Stopwatch]::StartNew()
-	$null = $pct; $pct = [int](($CurrentStep / $TotalSteps) * 100)
-	$currentStep++; ReportLoginProgress -Action 'Waiting for World Load...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName
+	
+	$pct = 0
+	if ($TotalSteps -gt 0) { $pct = [int](($CurrentStep / $TotalSteps) * 100) }
+	
+	ReportLoginProgress -Action 'Waiting for World Load...' -Step $CurrentStep -TotalSteps $TotalSteps -ClientIdx $ClientIdx -ClientCount $ClientCount -EntryNum $EntryNum -ProfileName $ProfileName
+	
 	while ($foundCount -lt $threshold)
 	{
 		if ($sw.Elapsed -gt $timeout) { throw 'World load timeout' }
-		CheckCancel
+		if ($global:LoginCancellation.IsCancelled) { throw 'LoginCancelled' }
 		if (-not [string]::IsNullOrWhiteSpace($LogPath) -and (Test-Path $LogPath))
 		{
 			try
@@ -371,30 +388,30 @@ function StartDisconnectWatcher
 						}
 
 						$details = ''
-						if ($global:DashboardConfig.UI.DataGridMain)
+						$row = Find-RowByPid -Pid $sPid
+						if ($row -and $row.Cells -and $row.Cells.Count -gt 1)
 						{
-							$row = $global:DashboardConfig.UI.DataGridMain.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $sPid } | Select-Object -First 1
-							if ($row)
-							{
-								$proc = $row.Tag
-								$profileName = [string]$row.Cells[1].Value
-								$pName = 'Default'; $wTitle = $profileName
-								if ($profileName -match '^\[(.*?)\](.*)') { $pName = $matches[1]; $wTitle = $matches[2] }
-								$null = $launcherPath; $launcherPath = if ($global:DashboardConfig.Config['LauncherPath'] -and $global:DashboardConfig.Config['LauncherPath']['LauncherPath']) { $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] } else { '' }
-									
-								$isProfileAutoReconnect = $false
-								$rp = $global:DashboardConfig.Config['ReconnectProfiles']
-								if ($rp)
-								{
-									$pClean = $profileName
-									if ($pClean -match '\[(.*?)\]') { $pClean = $matches[1] }
-									if ($rp -is [System.Collections.Hashtable]) { if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true } } 
-									elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
-								}
-								$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
-								$details = "Profile: $pName | Title: $wTitle`nPID: $sPid | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
+							$proc = $row.Tag
+							$profileName = [string]$row.Cells[1].Value
+							$pName = 'Default'; $wTitle = $profileName
+							if ($profileName -match '^\[(?<pName>.*?)\](?<rest>.*)') { 
+								$m = $Matches
+								$pName = $m['pName']; $wTitle = $m['rest'] 
 							}
+							
+							$isProfileAutoReconnect = $false
+							$rp = $global:DashboardConfig.Config['ReconnectProfiles']
+							if ($rp)
+							{
+								$pClean = $profileName
+								if ($pClean -match '\[(?<pName>.*?)\]') { $pClean = $Matches['pName'] }
+								if ($rp -is [System.Collections.Hashtable]) { if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true } } 
+								elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
+							}
+							$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
+							$details = "Profile: $pName | Title: $wTitle`nPID: $sPid | Proc: $($proc.Name)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 						}
+						
 						if (-not $global:DashboardConfig.State.ReconnectQueue.Contains($sPid))
 						{
 							Write-Verbose "Auto-Reconnect Triggered for PID $sPid"
@@ -415,22 +432,14 @@ function StartDisconnectWatcher
 			$CheckFailed = $false
 			try
 			{
-				
-				
-				$AllConns = @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue 4>$null)
-				if ($AllConns)
-				{
-					foreach ($c in $AllConns)
-					{
-						$p = [int]$c.OwningProcess
-						if (-not $PidConnectionCounts.ContainsKey($p)) { $PidConnectionCounts[$p] = 0 }
-						$PidConnectionCounts[$p]++
-					}
+				# The C# helper now returns pre-calculated PID -> Established Connection Count map
+				$PidConnectionCounts = [Custom.Native]::GetTcpConnectionCounts()
+				if ($null -eq $PidConnectionCounts) { 
+					$PidConnectionCounts = @{} 
 				}
 			}
 			catch
 			{
-				
 				Write-Verbose "RECONNECT: Unexpected error polling TCP connections: $($_.Exception.Message)"
 				$CheckFailed = $true
 			}
@@ -444,13 +453,32 @@ function StartDisconnectWatcher
 
 				foreach ($row in $global:DashboardConfig.UI.DataGridMain.Rows)
 				{
-					if (-not ($row.Tag -is [System.Diagnostics.Process])) { continue }
-
 					$proc = $row.Tag
-					$pidInt = $proc.Id
-					$profileName = [string]$row.Cells[1].Value
+					if ($null -eq $proc) { continue }
 
-					if ($proc.HasExited)
+					$pidInt = 0
+					$isExited = $false
+
+					if ($proc -is [System.Diagnostics.Process])
+					{
+						$pidInt = $proc.Id
+						$isExited = $proc.HasExited
+					}
+					elseif ($proc.GetType().FullName -eq 'Custom.ProcessData')
+					{
+						$pidInt = $proc.Id
+						try { 
+							$pCheck = [System.Diagnostics.Process]::GetProcessById($pidInt)
+							if ($pCheck.HasExited) { $isExited = $true }
+							$pCheck.Dispose()
+						} catch { $isExited = $true }
+					}
+					else { 
+						Write-Verbose "RECONNECT: Row tag has unknown type: $($proc.GetType().FullName)"
+						continue 
+					}
+
+					if ($isExited)
 					{
 						if ($WasInGame.Contains($pidInt)) { $WasInGame.Remove($pidInt) }
 						if ($Flashing.ContainsKey($pidInt)) { $Flashing.Remove($pidInt) }
@@ -462,9 +490,16 @@ function StartDisconnectWatcher
 						continue
 					}
 
-					$CurrentCount = if ($PidConnectionCounts.ContainsKey($pidInt)) { $PidConnectionCounts[$pidInt] } else { 0 }
+					if ($null -eq $row.Cells -or $row.Cells.Count -lt 2) { continue }
+					$profileName = [string]$row.Cells[1].Value
 
-					
+					$CurrentCount = 0
+					if ($null -ne $PidConnectionCounts -and $PidConnectionCounts.ContainsKey($pidInt))
+					{
+						$CurrentCount = $PidConnectionCounts[$pidInt]
+					}
+
+					# Stability check: Only mark as in-game if count >= threshold for a few consecutive checks
 					if (-not (Get-Variable -Name 'ReconnectConnectionThreshold' -Scope Script -ErrorAction SilentlyContinue -Verbose:$False)) { Set-Variable -Scope Script -Name ReconnectConnectionThreshold -Value 2 -Option ReadOnly }
 
 					if ($CurrentCount -ge $script:ReconnectConnectionThreshold)
@@ -483,6 +518,16 @@ function StartDisconnectWatcher
 							{
 								$global:DashboardConfig.State.ScheduledReconnects.Remove($pidInt)
 							}
+							
+							# Reset row color to normal if it was highlighted
+							if ($row.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::DarkRed -or $row.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::Orange)
+							{
+								$row.DefaultCellStyle.BackColor = [System.Drawing.Color]::Empty
+								$row.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Empty
+								$row.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::Empty
+								$row.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::Empty
+							}
+
 							CloseToast -Key $pidInt
 						}
 					}
@@ -491,7 +536,7 @@ function StartDisconnectWatcher
 						if ($global:DashboardConfig.State.InGameStability.ContainsKey($pidInt)) { $global:DashboardConfig.State.InGameStability[$pidInt] = 0 }
 					}
 
-					if ($CurrentCount -eq 0 -and $WasInGame.Contains($pidInt))
+					if ($CurrentCount -lt $script:ReconnectConnectionThreshold -and $WasInGame.Contains($pidInt))
 					{
 
 						if ($global:DashboardConfig.State.ActiveLoginPids.Contains($pidInt)) { continue }
@@ -503,7 +548,7 @@ function StartDisconnectWatcher
 						if ($rp)
 						{
 							$pClean = $profileName
-							if ($pClean -match '\[(.*?)\]') { $pClean = $matches[1] }
+							if ($pClean -match '\[(?<pName>.*?)\]') { $pClean = $Matches['pName'] }
 
 							if ($rp -is [System.Collections.Hashtable])
 							{
@@ -519,7 +564,8 @@ function StartDisconnectWatcher
 						try
 						{
 							$fg = [Custom.Native]::GetForegroundWindow()
-							if ($proc.MainWindowHandle -ne [IntPtr]::Zero -and $proc.MainWindowHandle -eq $fg) { $isFocused = $true }
+							$targetHWnd = $proc.MainWindowHandle
+							if ($targetHWnd -ne [IntPtr]::Zero -and $targetHWnd -eq $fg) { $isFocused = $true }
 						}
 						catch {}
 
@@ -541,11 +587,13 @@ function StartDisconnectWatcher
 						$row.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Black
 
 						$pName = 'Default'; $wTitle = $profileName
-						if ($profileName -match '^\[(.*?)\](.*)') { $pName = $matches[1]; $wTitle = $matches[2] }
-						$launcherPath = if ($global:DashboardConfig.Config['LauncherPath'] -and $global:DashboardConfig.Config['LauncherPath']['LauncherPath']) { $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] } else { '' }
+						if ($profileName -match '^\[(?<pName>.*?)\](?<rest>.*)') { 
+							$m = $Matches
+							$pName = $m['pName']; $wTitle = $m['rest'] 
+						}
 
 						$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
-						$details = "Profile: $pName | Title: $wTitle`nPID: $pidInt | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
+						$details = "Profile: $pName | Title: $wTitle`nPID: $pidInt | Proc: $($proc.Name)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 
 						$btns = [ordered]@{
 							'Reconnect Now'                = 'Reconnect'
@@ -622,29 +670,28 @@ function StartDisconnectWatcher
 						}
 
 						$details = ''
-						if ($global:DashboardConfig.UI.DataGridMain)
+						$row = Find-RowByPid -Pid $cPid
+						if ($row -and $row.Cells -and $row.Cells.Count -gt 1)
 						{
-							$row = $global:DashboardConfig.UI.DataGridMain.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $cPid } | Select-Object -First 1
-							if ($row)
-							{
-								$proc = $row.Tag
-								$profileName = [string]$row.Cells[1].Value
-								$pName = 'Default'; $wTitle = $profileName
-								if ($profileName -match '^\[(.*?)\](.*)') { $pName = $matches[1]; $wTitle = $matches[2] }
-								$null = $launcherPath; $launcherPath = if ($global:DashboardConfig.Config['LauncherPath'] -and $global:DashboardConfig.Config['LauncherPath']['LauncherPath']) { $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] } else { '' }
-                                
-								$isProfileAutoReconnect = $false
-								$rp = $global:DashboardConfig.Config['ReconnectProfiles']
-								if ($rp)
-								{
-									$pClean = $profileName
-									if ($pClean -match '\[(.*?)\]') { $pClean = $matches[1] }
-									if ($rp -is [System.Collections.Hashtable]) { if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true } } 
-									elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
-								}
-								$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
-								$details = "Profile: $pName | Title: $wTitle`nPID: $pidInt | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
+							$proc = $row.Tag
+							$profileName = [string]$row.Cells[1].Value
+							$pName = 'Default'; $wTitle = $profileName
+							if ($profileName -match '^\[(?<pName>.*?)\](?<rest>.*)') { 
+								$m = $Matches
+								$pName = $m['pName']; $wTitle = $m['rest'] 
 							}
+							
+							$isProfileAutoReconnect = $false
+							$rp = $global:DashboardConfig.Config['ReconnectProfiles']
+							if ($rp)
+							{
+								$pClean = $profileName
+								if ($pClean -match '\[(?<pName>.*?)\]') { $pClean = $Matches['pName'] }
+								if ($rp -is [System.Collections.Hashtable]) { if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true } } 
+								elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
+							}
+							$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
+							$details = "Profile: $pName | Title: $wTitle`nPID: $cPid | Proc: $($proc.Name)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 						}
 						ShowReconnectInteractiveNotification -Title 'Reconnecting...' -Message "Initiating reconnection sequence...`n$details" -Type 'Info' -RelatedPid $cPid -TimeoutSeconds 0
 					}
@@ -665,29 +712,28 @@ function StartDisconnectWatcher
 						Write-Verbose "PID $cPid Reconnect delayed 2m"
                         
 						$details = ''
-						if ($global:DashboardConfig.UI.DataGridMain)
+						$row = Find-RowByPid -Pid $cPid
+						if ($row -and $row.Cells -and $row.Cells.Count -gt 1)
 						{
-							$row = $global:DashboardConfig.UI.DataGridMain.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $cPid } | Select-Object -First 1
-							if ($row)
-							{
-								$proc = $row.Tag
-								$profileName = [string]$row.Cells[1].Value
-								$pName = 'Default'; $wTitle = $profileName
-								if ($profileName -match '^\[(.*?)\](.*)') { $pName = $matches[1]; $wTitle = $matches[2] }
-								$launcherPath = if ($global:DashboardConfig.Config['LauncherPath'] -and $global:DashboardConfig.Config['LauncherPath']['LauncherPath']) { $global:DashboardConfig.Config['LauncherPath']['LauncherPath'] } else { '' }
-                                
-								$isProfileAutoReconnect = $false
-								$rp = $global:DashboardConfig.Config['ReconnectProfiles']
-								if ($rp)
-								{
-									$pClean = $profileName
-									if ($pClean -match '\[(.*?)\]') { $pClean = $matches[1] }
-									if ($rp -is [System.Collections.Hashtable]) { if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true } } 
-									elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
-								}
-								$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
-								$details = "Profile: $pName | Title: $wTitle`nPID: $pidInt | Proc: $($proc.ProcessName)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
+							$proc = $row.Tag
+							$profileName = [string]$row.Cells[1].Value
+							$pName = 'Default'; $wTitle = $profileName
+							if ($profileName -match '^\[(?<pName>.*?)\](?<rest>.*)') { 
+								$m = $Matches
+								$pName = $m['pName']; $wTitle = $m['rest'] 
 							}
+							
+							$isProfileAutoReconnect = $false
+							$rp = $global:DashboardConfig.Config['ReconnectProfiles']
+							if ($rp)
+							{
+								$pClean = $profileName
+								if ($pClean -match '\[(?<pName>.*?)\]') { $pClean = $Matches['pName'] }
+								if ($rp -is [System.Collections.Hashtable]) { if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true } } 
+								elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
+							}
+							$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
+							$details = "Profile: $pName | Title: $wTitle`nPID: $cPid | Proc: $($proc.Name)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 						}
 
 						$btns = [ordered]@{
@@ -790,17 +836,16 @@ function InvokeReconnectionSequence
 {
 	param([int]$PidToReconnect)
 
-	$Row = $null
-	if ($global:DashboardConfig.UI.DataGridMain)
-	{
-		$Row = $global:DashboardConfig.UI.DataGridMain.Rows | Where-Object { $_.Tag -is [System.Diagnostics.Process] -and $_.Tag.Id -eq $PidToReconnect } | Select-Object -First 1
-	}
-
+	$Row = Find-RowByPid -Pid $PidToReconnect
 	if (-not $Row) { return }
 
+	if ($null -eq $Row.Cells -or $Row.Cells.Count -lt 4) { return }
 	$CachedEntryNumber = [int]$Row.Cells[0].Value
 	$CachedProfileName = [string]$Row.Cells[1].Value
-	if ($CachedProfileName -match '\[(.*?)\]') { $CachedProfileName = $matches[1] }
+	if ($CachedProfileName -match '\[(?<pName>.*?)\]') { 
+		$m = $Matches
+		$CachedProfileName = $m['pName'] 
+	}
 
 	$global:LoginCancellation.IsCancelled = $false
 	$Row.DefaultCellStyle.BackColor = [System.Drawing.Color]::DarkRed
@@ -829,9 +874,15 @@ try
 		[Custom.MouseHookManager]::Start($hookCallback)
 
 		$Process = $Row.Tag
-		if ($Process.HasExited)
+		$isExited = $false
+		if ($Process -is [System.Diagnostics.Process]) { $isExited = $Process.HasExited }
+		elseif ($Process.GetType().FullName -eq 'Custom.ProcessData') { 
+			try { $pCheck = [System.Diagnostics.Process]::GetProcessById($PidToReconnect); $isExited = $pCheck.HasExited; $pCheck.Dispose() } catch { $isExited = $true }
+		}
+
+		if ($isExited)
 		{
-			$Row.Cells[3].Value = 'Exited'
+			if ($null -ne $Row.Cells -and $Row.Cells.Count -gt 3) { $Row.Cells[3].Value = 'Exited' }
 			return
 		}
 
@@ -850,7 +901,7 @@ try
 		{
 			if (-not ($global:DashboardConfig.Config['ReconnectProfiles'] -and $global:DashboardConfig.Config['ReconnectProfiles'].Contains($CachedProfileName)))
 			{
-				$Row.Cells[3].Value = 'Disconnected'
+				if ($null -ne $Row.Cells -and $Row.Cells.Count -gt 3) { $Row.Cells[3].Value = 'Disconnected' }
 				ShowReconnectInteractiveNotification -Title 'Reconnect Blocked' -Message "Profile '$CachedProfileName' not enabled for auto-reconnect." -Type 'Info' -RelatedPid $PidToReconnect -TimeoutSeconds 10
 				return
 			}
@@ -882,9 +933,11 @@ try
 
 		SleepWithCancel -Milliseconds 50
 		$maxWait = 25000; $counter = 0
-		while (-not $Process.Responding -and $counter -lt $maxWait)
+		
+		$isResponsive = [Custom.Native]::Responsive($hWnd, 100)
+		while (-not $isResponsive -and $counter -lt $maxWait)
 		{
-			SleepWithCancel -Milliseconds 500; $Process.Refresh(); $counter += 500
+			SleepWithCancel -Milliseconds 500; $isResponsive = [Custom.Native]::Responsive($hWnd, 100); $counter += 500
 		}
 		SleepWithCancel -Milliseconds 50
 
@@ -906,10 +959,11 @@ try
 		EnsureWindowReady $hWnd
 
 		SleepWithCancel -Milliseconds 50
-		$maxWait = 25000; $counter = 0
-		while (-not $Process.Responding -and $counter -lt $maxWait)
+		$counter = 0
+		$isResponsive = [Custom.Native]::Responsive($hWnd, 100)
+		while (-not $isResponsive -and $counter -lt $maxWait)
 		{
-			SleepWithCancel -Milliseconds 500; $Process.Refresh(); $counter += 500
+			SleepWithCancel -Milliseconds 500; $isResponsive = [Custom.Native]::Responsive($hWnd, 100); $counter += 500
 		}
 		SleepWithCancel -Milliseconds 50
 
@@ -948,10 +1002,11 @@ try
 		EnsureWindowReady $hWnd
 
 		SleepWithCancel -Milliseconds 1000
-		$maxWait = 25000; $counter = 0
-		while (-not $Process.Responding -and $counter -lt $maxWait)
+		$counter = 0
+		$isResponsive = [Custom.Native]::Responsive($hWnd, 100)
+		while (-not $isResponsive -and $counter -lt $maxWait)
 		{
-			SleepWithCancel -Milliseconds 2000; $Process.Refresh(); $counter += 2000
+			SleepWithCancel -Milliseconds 2000; $isResponsive = [Custom.Native]::Responsive($hWnd, 100); $counter += 2000
 		}
 		SleepWithCancel -Milliseconds 1000
 
@@ -971,10 +1026,11 @@ try
 		EnsureWindowReady $hWnd
 
 		SleepWithCancel -Milliseconds 50
-		$maxWait = 25000; $counter = 0
-		while (-not $Process.Responding -and $counter -lt $maxWait)
+		$counter = 0
+		$isResponsive = [Custom.Native]::Responsive($hWnd, 100)
+		while (-not $isResponsive -and $counter -lt $maxWait)
 		{
-			SleepWithCancel -Milliseconds 500; $Process.Refresh(); $counter += 500
+			SleepWithCancel -Milliseconds 500; $isResponsive = [Custom.Native]::Responsive($hWnd, 100); $counter += 500
 		}
 		SleepWithCancel -Milliseconds 50
 
@@ -1010,9 +1066,6 @@ try
 
 		CloseToast -Key $PidToReconnect
 
-		
-		
-		
 		try
 		{
 			try { $logPath = GetClientLogPath -Row $Row } catch { $logPath = $null }
@@ -1031,21 +1084,13 @@ try
 								if (-not $global:DashboardConfig -or -not $global:DashboardConfig.Config) { Write-Verbose 'RECONNECT: Global Config invalid in UI thread. Aborting.'; return }
 								if (-not $global:DashboardConfig.Config['LoginConfig']) { Write-Verbose 'RECONNECT: LoginConfig missing in UI thread. Aborting.'; return }
 
-								
-								if (-not $rowRef)
-								{
-									Write-Verbose 'RECONNECT: UI Thread Closure failed to capture row. Aborting UI selection.'
-									return 
-								}
-
 								if ($global:DashboardConfig.UI -and $global:DashboardConfig.UI.DataGridMain)
 								{
 									try { $global:DashboardConfig.UI.DataGridMain.ClearSelection() } catch {}
 									try { $rowRef.Selected = $true } catch {}
-									try { $global:DashboardConfig.UI.DataGridMain.CurrentCell = $rowRef.Cells[0] } catch {}
+									try { if ($rowRef.Cells.Count -gt 0) { $global:DashboardConfig.UI.DataGridMain.CurrentCell = $rowRef.Cells[0] } } catch {}
 								}
                         
-								
 								$safeHwnd = [IntPtr]::Zero
 								if ($hWndRef) { $safeHwnd = $hWndRef }
 
@@ -1072,15 +1117,6 @@ try
 		if ($hWnd -ne [IntPtr]::Zero)
 		{
 			try { [Custom.Native]::ShowWindow($hWnd, 6) } catch {}
-		}
-		if ($_.Exception.Message -eq 'LoginCancelled' -or $_.ToString() -eq 'LoginCancelled')
-		{
-			$Row.Cells[3].Value = 'Cancelled'
-		}
-		else
-		{
-			$Row.Cells[3].Value = 'Error'
-			Write-Verbose "Reconnect Error: $_"
 		}
 	}
  finally

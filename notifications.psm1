@@ -16,25 +16,50 @@ function UpdateNotificationPositions
 {
 	$global:LoginNotificationStack = [System.Collections.ArrayList]@($global:LoginNotificationStack | Where-Object { $_ -and -not $_.IsDisposed })
 
-	$screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-	$baseX = $screen.Right - 320
+    $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    $notificationWidth = 320
+    $notificationSpacing = 10
+
+    # Get notification position from config, default to 'Bottom Right'
+    $position = 'Bottom Right'
+    if ($global:DashboardConfig.Config.Options -and $global:DashboardConfig.Config.Options.Contains('NotificationPosition')) {
+        $position = $global:DashboardConfig.Config.Options.NotificationPosition
+    }
+
+    $yDirection = if ($position -like 'Top*') { 1 } else { -1 }
+    $xDirection = if ($position -like '*Left') { 1 } else { -1 }
+
+    $baseX = if ($xDirection -eq 1) { $screen.Left + $notificationSpacing } else { $screen.Right - $notificationWidth - $notificationSpacing }
+    $baseY = if ($yDirection -eq 1) { $screen.Top + $notificationSpacing } else { $screen.Bottom - $notificationSpacing }
     
-	
-	$currentY = $screen.Bottom - 2 
- 
-	for ($i = 0; $i -lt $global:LoginNotificationStack.Count; $i++)
- {
-		$form = $global:LoginNotificationStack[$i]
-		if ($form -and -not $form.IsDisposed -and $form.Visible)
-		{
-			
-			$currentY -= $form.Height
-			$form.Location = New-Object System.Drawing.Point($baseX, $currentY)
-            
-			
-			$currentY -= 10
-		}
-	}
+    $currentX = $baseX
+    $currentY = $baseY
+
+    for ($i = 0; $i -lt $global:LoginNotificationStack.Count; $i++) {
+        $form = $global:LoginNotificationStack[$i]
+        if ($form -and -not $form.IsDisposed -and $form.Visible) {
+            $formHeight = $form.Height
+
+            if ($yDirection -eq 1) { # Top positions
+                if ($currentY + $formHeight -gt $screen.Bottom) {
+                    $currentY = $baseY
+                    $currentX += ($notificationWidth + $notificationSpacing) * $xDirection
+                }
+                $form.Location = New-Object System.Drawing.Point($currentX, $currentY)
+                $currentY += $formHeight + $notificationSpacing
+            } else { # Bottom positions
+                $newY = $currentY - $formHeight
+                if ($newY -lt $screen.Top) {
+                    $currentY = $baseY
+                    $currentX += ($notificationWidth + $notificationSpacing) * $xDirection
+                    $newY = $currentY - $formHeight
+                }
+                $currentY = $newY
+                $form.Location = New-Object System.Drawing.Point($currentX, $currentY)
+                $currentY -= $notificationSpacing
+            }
+        }
+    }
 }
 
 function CloseToast
@@ -200,7 +225,7 @@ function ShowToast
 		else { $global:DashboardConfig.State.LoginNotificationMap.Remove($Key) }
 	}
 
-	$form = New-Object System.Windows.Forms.Form
+	$form = New-Object Custom.NoFocusForm
 	$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 	$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
 	$form.Location = New-Object System.Drawing.Point(-32000, -32000)

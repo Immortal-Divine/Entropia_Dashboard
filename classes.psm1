@@ -33,6 +33,7 @@ using System.Collections.Specialized;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -42,6 +43,26 @@ using System.Reflection;
 
 namespace Custom
 {
+    public class NoFocusForm : Form
+    {
+        protected override bool ShowWithoutActivation
+        {
+            get { return true; }
+        }
+        
+        private const int WM_MOUSEACTIVATE = 0x0021;
+        private const int MA_NOACTIVATE = 3;
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_MOUSEACTIVATE)
+            {
+                m.Result = (IntPtr)MA_NOACTIVATE;
+                return;
+            }
+            base.WndProc(ref m);
+        }
+    }
     // --- FIXED DARK TREEVIEW ---
 	public class DarkTreeView : TreeView
 	{
@@ -484,6 +505,143 @@ namespace Custom
 		}
     }
 
+	public class ProcessData : IComparable<ProcessData>
+	{
+		public int Id;
+		public string Name;
+		public IntPtr MainWindowHandle;
+		public DateTime StartTime;
+		public string Profile;
+		public string Title;
+		public bool IsResponsive;
+		public bool IsMinimized;
+
+		public int CompareTo(ProcessData other)
+		{
+			if (other == null) return 1;
+			int res = string.Compare(this.Profile, other.Profile, StringComparison.OrdinalIgnoreCase);
+			if (res != 0) return res;
+			return this.StartTime.CompareTo(other.StartTime);
+		}
+	}
+
+	public static class ProcessHelper
+	{
+		private static Dictionary<int, IntPtr> _handleCache = new Dictionary<int, IntPtr>();
+		private static Dictionary<int, string> _pathCache = new Dictionary<int, string>();
+		private static Dictionary<int, string> _profileCache = new Dictionary<int, string>();
+		private static Dictionary<int, string> _titleCache = new Dictionary<int, string>();
+		private static Dictionary<int, DateTime> _startTimeCache = new Dictionary<int, DateTime>();
+
+		public static List<ProcessData> GetProcessDataList(string processName, IDictionary profileMap)
+		{
+			var procs = Process.GetProcessesByName(processName);
+			var list = new List<ProcessData>();
+			var newHandleCache = new Dictionary<int, IntPtr>();
+			var newPathCache = new Dictionary<int, string>();
+			var newProfileCache = new Dictionary<int, string>();
+			var newTitleCache = new Dictionary<int, string>();
+			var newStartTimeCache = new Dictionary<int, DateTime>();
+			
+			var locker = new object();
+
+			Parallel.ForEach(procs, p => {
+				try
+				{
+					if (p.HasExited) return;
+					int pid = p.Id;
+					DateTime startTime = p.StartTime;
+					IntPtr hWnd = p.MainWindowHandle;
+
+					// Check if process is same as cached one
+					bool isSameProcess = false;
+					lock (_startTimeCache) {
+						if (_startTimeCache.ContainsKey(pid) && _startTimeCache[pid] == startTime) isSameProcess = true;
+					}
+
+					// 1. Resolve Handle
+					if (hWnd == IntPtr.Zero) {
+						if (isSameProcess) {
+							lock (_handleCache) {
+								if (_handleCache.ContainsKey(pid) && Native.IsWindow(_handleCache[pid])) hWnd = _handleCache[pid];
+							}
+						}
+						if (hWnd == IntPtr.Zero) hWnd = SafeWindowCore.FindBestWindow(pid);
+					}
+
+					// 2. Resolve Profile
+					string profile = "";
+					if (isSameProcess) {
+						lock (_profileCache) { if (_profileCache.ContainsKey(pid)) profile = _profileCache[pid]; }
+					}
+					
+					if (string.IsNullOrEmpty(profile)) {
+						string exePath = Native.GetProcessPathById(pid);
+						if (!string.IsNullOrEmpty(exePath)) {
+							string dir = Path.GetDirectoryName(exePath).TrimEnd('\\', '/') + "\\";
+							foreach (DictionaryEntry entry in profileMap) {
+								string pPath = ((string)entry.Value).TrimEnd('\\', '/') + "\\";
+								if (dir.StartsWith(pPath, StringComparison.OrdinalIgnoreCase)) {
+									profile = (string)entry.Key;
+									break;
+								}
+							}
+						}
+					}
+
+					// 3. Resolve Title & Responsiveness
+					string title = p.ProcessName;
+					if (isSameProcess) {
+						lock (_titleCache) { if (_titleCache.ContainsKey(pid)) title = _titleCache[pid]; }
+					}
+
+					bool isResponsive = true;
+					bool isMinimized = false;
+
+					if (hWnd != IntPtr.Zero) {
+						isResponsive = Native.Responsive(hWnd, 50);
+						isMinimized = SafeWindowCore.IsMinimized(hWnd);
+						
+						string fetchedTitle = SafeWindowCore.GetText(hWnd);
+						if (!string.IsNullOrEmpty(fetchedTitle)) title = fetchedTitle;
+					}
+
+					var data = new ProcessData {
+						Id = pid,
+						Name = p.ProcessName,
+						MainWindowHandle = hWnd,
+						StartTime = startTime,
+						Profile = profile,
+						Title = title,
+						IsResponsive = isResponsive,
+						IsMinimized = isMinimized
+					};
+
+					// Update temporary caches for next cycle
+					lock (locker) {
+						newHandleCache[pid] = hWnd;
+						newPathCache[pid] = profile; // We reuse profile cache as proxy for path check
+						newProfileCache[pid] = profile;
+						newTitleCache[pid] = title;
+						newStartTimeCache[pid] = startTime;
+						list.Add(data);
+					}
+				}
+				catch {}
+				finally { p.Dispose(); }
+			});
+
+			// Swap caches
+			_handleCache = newHandleCache;
+			_profileCache = newProfileCache;
+			_titleCache = newTitleCache;
+			_startTimeCache = newStartTimeCache;
+
+			list.Sort();
+			return list;
+		}
+	}
+
 	public static class MouseHookManager 
 	{
 		public delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
@@ -604,6 +762,105 @@ namespace Custom
 			return closedCount;
 		}
 
+		public static Dictionary<int, int> GetTcpConnectionCounts()
+		{
+			var pidCounts = new Dictionary<int, int>();
+			var pidIpMap = new Dictionary<int, Dictionary<string, int>>();
+			
+			// AF_INET = 2, AF_INET6 = 23
+			// TCP_TABLE_OWNER_PID_ALL = 5
+			int[] families = new int[] { 2, 23 };
+
+			foreach (int family in families)
+			{
+				int buffSize = 0;
+				uint ret = GetExtendedTcpTable(IntPtr.Zero, ref buffSize, false, family, 5, 0);
+				
+				for (int retry = 0; retry < 5; retry++)
+				{
+					if (buffSize == 0) buffSize = 32768;
+					IntPtr tcpTablePtr = Marshal.AllocHGlobal(buffSize);
+					try
+					{
+						ret = GetExtendedTcpTable(tcpTablePtr, ref buffSize, false, family, 5, 0);
+						if (ret == 0) // Success
+						{
+							int entryCount = Marshal.ReadInt32(tcpTablePtr);
+							IntPtr rowPtr = (IntPtr)((long)tcpTablePtr + 4);
+
+							if (family == 2) // IPv4
+							{
+								for (int i = 0; i < entryCount; i++)
+								{
+									int state = Marshal.ReadInt32(rowPtr, 0);
+									if (state == 5) // Established
+									{
+										int pid = Marshal.ReadInt32(rowPtr, 20);
+										uint remoteAddr = (uint)Marshal.ReadInt32(rowPtr, 12);
+										string ip = remoteAddr.ToString();
+
+										if (!pidIpMap.ContainsKey(pid)) pidIpMap[pid] = new Dictionary<string, int>();
+										if (!pidIpMap[pid].ContainsKey(ip)) pidIpMap[pid][ip] = 0;
+										pidIpMap[pid][ip]++;
+									}
+									rowPtr = (IntPtr)((long)rowPtr + 24);
+								}
+							}
+							else // IPv6
+							{
+								for (int i = 0; i < entryCount; i++)
+								{
+									int state = Marshal.ReadInt32(rowPtr, 48);
+									if (state == 5) // Established
+									{
+										int pid = Marshal.ReadInt32(rowPtr, 52);
+										byte[] remoteIpBytes = new byte[16];
+										Marshal.Copy((IntPtr)((long)rowPtr + 24), remoteIpBytes, 0, 16);
+										string ip = string.Join(":", remoteIpBytes.Select(b => b.ToString("x2")));
+
+										if (!pidIpMap.ContainsKey(pid)) pidIpMap[pid] = new Dictionary<string, int>();
+										if (!pidIpMap[pid].ContainsKey(ip)) pidIpMap[pid][ip] = 0;
+										pidIpMap[pid][ip]++;
+									}
+									rowPtr = (IntPtr)((long)rowPtr + 56); 
+								}
+							}
+							break;
+						}
+						else if (ret == 122) // ERROR_INSUFFICIENT_BUFFER
+						{
+							continue;
+						}
+						else
+						{
+							break;
+						}
+					}
+					catch { break; }
+					finally { Marshal.FreeHGlobal(tcpTablePtr); }
+				}
+			}
+
+			// Final aggregation: Only count connections to IPs that have at least 2 connections
+			foreach (var pidEntry in pidIpMap)
+			{
+				int totalValidConnections = 0;
+				foreach (var ipEntry in pidEntry.Value)
+				{
+					if (ipEntry.Value >= 2)
+					{
+						totalValidConnections += ipEntry.Value;
+					}
+				}
+				if (totalValidConnections > 0)
+				{
+					pidCounts[pidEntry.Key] = totalValidConnections;
+				}
+			}
+
+			return pidCounts;
+		}
+
 		[DllImport("user32.dll", EntryPoint = "SetWindowPos", SetLastError = true)]
 		public static extern bool PositionWindow(IntPtr windowHandle, IntPtr insertAfterHandle, int X, int Y, int width, int height, uint flags);
 
@@ -634,6 +891,15 @@ namespace Custom
 
 		[DllImport("psapi.dll", EntryPoint = "EmptyWorkingSet")]
 		public static extern bool EmptyWorkingSet(IntPtr hProcess);
+
+		public static bool EmptyWorkingSet(int processId)
+		{
+			IntPtr hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA, false, processId);
+			if (hProcess == IntPtr.Zero) hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, false, processId);
+			if (hProcess == IntPtr.Zero) return false;
+			try { return EmptyWorkingSet(hProcess); }
+			finally { CloseHandle(hProcess); }
+		}
 
 		[DllImport("user32.dll", EntryPoint = "MsgWaitForMultipleObjects", SetLastError = true)]
 		public static extern uint AsyncExecution(uint nCount, IntPtr[] pHandles, bool bWaitAll, uint dwMilliseconds, uint dwWakeMask);
@@ -680,8 +946,12 @@ namespace Custom
 		[DllImport("user32.dll", EntryPoint = "GetActiveWindow")]
 		public static extern IntPtr GetActiveWindowHandle();
 
-		[DllImport("user32.dll", EntryPoint = "IsWindowVisible")]
+		[DllImport("user32.dll", EntryPoint = "IsWindowActive")]
 		public static extern bool IsWindowActive(IntPtr windowHandle);
+
+		[DllImport("user32.dll")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		public static extern bool IsWindowVisible(IntPtr hWnd);
 
 		[DllImport("user32.dll", EntryPoint = "SetWindowText", SetLastError = true, CharSet = CharSet.Auto)]
 		public static extern bool SetWindowTitle(IntPtr windowHandle, string windowTitle);
@@ -829,6 +1099,7 @@ namespace Custom
 		
 		public const uint PROCESS_QUERY_INFORMATION = 0x0400;
 		public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+		public const uint PROCESS_SET_QUOTA = 0x0100;
 
 		public static string GetProcessPathById(int processId)
 		{

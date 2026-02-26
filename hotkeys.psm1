@@ -48,7 +48,11 @@ function InvokeHotkeyAction
 	if ($uiContext -and -not $uiContext.IsDisposed)
 	{
 		# 4. Offload to UI thread asynchronously. Returns immediately.
-		$uiContext.BeginInvoke([System.Action]$boundLogic)
+        if ($uiContext.InvokeRequired) {
+		    $uiContext.BeginInvoke([System.Action]$boundLogic)
+        } else {
+            & $boundLogic
+        }
 	}
 	else
 	{

@@ -50,10 +50,12 @@ function GetClientLogPath
 	$process = $Row.Tag
 	$profileName = ''
 	$processExeBaseFolder = ''
+	if ($null -eq $Row.Cells) { return '' }
 	$processTitle = $Row.Cells[1].Value
+	if ($null -eq $processTitle) { $processTitle = '' }
 	$null = $entryNum; $entryNum = $Row.Cells[0].Value
 
-	if ($processTitle -match '^\[([^\]]+)\]') { $profileName = $Matches[1] }
+	if ($processTitle -match '^\[(?<pName>[^\]]+)\]') { $profileName = $Matches['pName'] }
 
 	if ([string]::IsNullOrEmpty($profileName) -and $process -and $process.Id)
 	{
@@ -182,17 +184,17 @@ function LoginSelectedRow
 				$actualRow = $item.Row
 				$entryNum = $item.OverrideAccountID -as [int]
 			} 
-			else
+			elseif ($item.Cells -and $item.Cells.Count -gt 0)
 			{
 				$actualRow = $item
 				$entryNum = $actualRow.Cells[0].Value -as [int]
 			}
 
-			if ($null -ne $actualRow)
+			if ($null -ne $actualRow -and $actualRow.Cells -and $actualRow.Cells.Count -gt 1)
 			{
-				$title = $actualRow.Cells[1].Value
+				$title = [string]$actualRow.Cells[1].Value
 				$profileName = 'Default'
-				if ($title -match '^\[([^\]]+)\]') { $profileName = $Matches[1] }
+				if ($title -match '^\[(?<pName>[^\]]+)\]') { $profileName = $Matches['pName'] }
                 
 				[PSCustomObject]@{ 
 					OriginalRow = $actualRow
@@ -219,8 +221,9 @@ function LoginSelectedRow
 			$entryNum = [int]$dataItem.EntryNum 
             
 			$process = $row.Tag
-			$processTitle = $row.Cells[1].Value
-			$profileName = if ($processTitle -match '^\[([^\]]+)\]') { $Matches[1] } else { 'Default' }
+			if ($null -eq $row.Cells -or $null -eq $row.Cells[1].Value) { continue }
+			$processTitle = $row.Cells[1].Value.ToString()
+			$profileName = if ($processTitle -match '^\[(?<pName>[^\]]+)\]') { $Matches['pName'] } else { 'Default' }
 
 			$actualLogPath = $LogFilePath
 			if ([string]::IsNullOrEmpty($actualLogPath))

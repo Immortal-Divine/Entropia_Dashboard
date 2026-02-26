@@ -1073,13 +1073,17 @@ function InvokeSavedLaunchSequence
 
 	foreach ($row in $grid.Rows)
 	{
-		$title = $row.Cells[1].Value.ToString()
+		if ($null -eq $row.Cells -or $row.Cells.Count -lt 2) { continue }
+		$cellValue = $row.Cells[1].Value
+		if ($null -eq $cellValue) { continue }
+		$title = $cellValue.ToString()
 		$p = 'Default'
 		$cleanTitle = $title
-		if ($title -match '^\[([^\]]+)\](.*)')
+		if ($title -match '^\[(?<pName>[^\]]+)\](?<rest>.*)')
 		{
-			$p = $matches[1]
-			$cleanTitle = $matches[2]
+			$m = $Matches
+			$p = $m['pName']
+			$cleanTitle = $m['rest']
 		}
 		$isLoggedIn = ($cleanTitle -match ' - ')
 		if (-not $currentState.Contains($p))
@@ -1212,7 +1216,6 @@ function InvokeSavedLaunchSequence
 						$savedSlots = [System.Collections.Generic.List[PSObject]]::new()
 						if ($cSection)
 						{
-                    
 							foreach ($key in $cSection.Keys)
 							{
 								$val = $cSection[$key]
@@ -1239,7 +1242,6 @@ function InvokeSavedLaunchSequence
 						$savedSlots = [System.Collections.Generic.List[PSObject]]::new()
 						$savedSlots.AddRange([PSObject[]]$sortedSlots)
 
-						
 						$existingRows = [System.Collections.Generic.List[Object]]::new()
 						$newRows = [System.Collections.Generic.List[Object]]::new()
 						$sortedGridRows = $grid.Rows | Sort-Object Index
@@ -1263,12 +1265,16 @@ function InvokeSavedLaunchSequence
 						$rowsWithInfo = [System.Collections.Generic.List[Object]]::new()
 
 						foreach ($row in $allRows) {
-							$rt = $row.Cells[1].Value.ToString()
+							if ($null -eq $row.Cells -or $row.Cells.Count -lt 2) { continue }
+							$cellValue = $row.Cells[1].Value
+							if ($null -eq $cellValue) { continue }
+							$rt = $cellValue.ToString()
 							$pn = 'Default'
 							$ct = $rt
-							if ($rt -match '^\[([^\]]+)\]\s*(.*)') { 
-								$pn = $matches[1]
-								$ct = $matches[2].Trim()
+							if ($rt -match '^\[(?<pName>[^\]]+)\]\s*(?<rest>.*)') { 
+								$m = $Matches
+								$pn = $m['pName']
+								$ct = $m['rest'].Trim()
 							}
 							
 							if (-not $rowProfileCounters.ContainsKey($pn)) { $rowProfileCounters[$pn] = 0 }
@@ -1335,12 +1341,15 @@ function InvokeSavedLaunchSequence
 							if ($slot.AssignedRow) {
 								$row = $slot.AssignedRow
 								$pName = $slot.Profile
-
+							
+								if ($null -eq $row.Cells -or $row.Cells.Count -lt 2 -or $null -eq $row.Cells[1].Value) { continue }
 								$rowTitle = $row.Cells[1].Value.ToString()
 								$cleanTitle = $rowTitle
-								if ($rowTitle -match '^\[([^\]]+)\](.*)') { $cleanTitle = $matches[2] }
+								if ($rowTitle -match '^\[(?<pName>[^\]]+)\](?<rest>.*)') { 
+									$m = $Matches
+									$cleanTitle = $m['rest'] 
+								}
 								$isLoggedIn = ($cleanTitle -match ' - ')
-
 								if (-not $isLoggedIn) {
 									if ($targets.Contains($pName)) {
 										if (-not $loginCounts.Contains($pName)) { $loginCounts[$pName] = 0 }
@@ -1365,8 +1374,15 @@ function InvokeSavedLaunchSequence
 						{
 							$details = $finalLoginList | ForEach-Object {
 								$pName = 'Unknown'
-								if ($_.Row.Cells[1].Value -match '^\[([^\]]+)\]') { $pName = $matches[1] }
-								"[$pName (Row:$($_.Row.Cells[0].Value)) -> Enforce Acc:$($_.OverrideAccountID)]"
+								$rowNum = '?'
+								if ($null -ne $_.Row.Cells -and $_.Row.Cells.Count -gt 1) {
+									if ($_.Row.Cells[1].Value -match '^\[(?<pName>[^\]]+)\]') { 
+										$m = $Matches
+										$pName = $m['pName'] 
+									}
+									if ($null -ne $_.Row.Cells[0].Value) { $rowNum = $_.Row.Cells[0].Value }
+								}
+								"[$pName (Row:$rowNum) -> Enforce Acc:$($_.OverrideAccountID)]"
 							}
 							$detailString = $details -join ', '
                     

@@ -1,36 +1,25 @@
 Author: Immortal / Divine
-Version: 2.5
+Version: 2.6
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 [Changelogs]
    - Added:
 
-    - User friendly Edit mode in the wiki.
-	- Sync buttons to update local wiki with online version.
-	- Auto Patch and Play
-	 - Does open the main launcher first if no clients are open to patch, and continues by starting the profiles launcher. 
-	 - Set Play coordinates per profile. 
-	 - Does not auto copy the neuz.exe, and requires a launcher log file!
-	- You can reset individual ftool / macro settings or do a full reset through right clicking the buttons.
-	- Quick Command to preset Chat messages or commands
-	- You can now also set hotkeys to hide windows and to load the saved position
-	- UI indicator for elements with right-click functionality
+    - Auto Boss Update and Report (Live Update)
+	- You can set where notifications appear in the settings
+	- Hidden boss notifications do not retrigger on hp update anymore
 
 
    - Fixed:
 
-	- Sent Worldboss Notification also shows who sent them now in discord ping
-	- Boss Notifications will now hide after 5 minutes of inactivity
-    - Some parts of the wiki
-	 - Wiki gets updated step by step
-	 - You can help me by sharing your edits
-	- Hotkey Manager now auto refreshes the list of active hotkeys
-	 - It also shows the correct informations for the Action
-	- Renaming a profile also renames every setting linked to this profile
-	- The reconnect should not hang anymore after hours of idle time
-	- Notification timer is not bound to fixed times anymore, but to the OS time instead
-	- Minimized clients are not repositioned anymore
-	- The default launch now launches the main launcher, not a profile
+	- Auto Update (If the download saves the new version as .exe.new rename it to .exe)
+	- Auto Reconnect for new client version of Entropia
+	- Notifications cannot appear outside the screen and do not steal focus anymore
+	- Moving the mouse during reconnect does stop all reconnects now
+	- Global Toggle of Macro and Quickcommand can now unlock the hotkey for normal use again like in the Ftool
+	- Speed up multiple parts of the dashboard. UI, Ftool and Hotkeys are more responsive now
+	- Minimizing a client through the dashboard also resets the RAM usage of the client
+	- Terminate dialog box doesnt trigger after a manual disconnect anymore
 
-   - Dont forget to request your Access Code in Discord!
+   Dont forget to request your Access Code in Discord for the Worldboss Feature!
 

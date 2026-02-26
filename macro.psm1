@@ -211,10 +211,16 @@ function CreateMacroPositionTimer
             param($s, $e)
             try
             {
-                if (-not $s -or -not $s.Tag) { return }
+                if (-not $s -or -not $s.Tag) {
+                    $s.Stop(); $s.Dispose()
+                    return
+                }
+
                 $timerData = $s.Tag
-                if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
-                if (-not $timerData['Form'] -or $timerData['Form'].IsDisposed) { return }
+                if (-not $timerData -or -not $timerData.ContainsKey('WindowHandle') -or -not $timerData.ContainsKey('Form') -or $timerData['WindowHandle'] -eq [IntPtr]::Zero -or -not $timerData['Form'] -or $timerData['Form'].IsDisposed) {
+                    $s.Stop(); $s.Dispose()
+                    return
+                }
             
                 $rect = New-Object Custom.Native+RECT
                     
@@ -222,6 +228,8 @@ function CreateMacroPositionTimer
                 {
                     try
                     {
+                        if (-not $timerData.FormData -or -not $timerData.FormData.PositionSliderX -or -not $timerData.FormData.PositionSliderY) { return }
+
                         $sliderValueX = $timerData.FormData.PositionSliderX.Value
                         $maxLeft = $rect.Right - $timerData['Form'].Width - 8
                         $targetLeft = $rect.Left + 8 + (($maxLeft - ($rect.Left + 8)) * $sliderValueX / 100)
@@ -312,13 +320,20 @@ function CreateMacroPositionTimer
                 }
                 else
                 {
-                    $timerData['Form'].Close()
+                    if ($timerData.ContainsKey('Form') -and $timerData.Form -and -not $timerData.Form.IsDisposed) {
+                        $timerData['Form'].Close()
+                    }
                     $s.Stop()
                     $s.Dispose()
-                    $global:DashboardConfig.Resources.Timers.Remove("macroPosition_$($timerData.InstanceId)")
+                    if ($timerData.ContainsKey('InstanceId')) {
+                        $global:DashboardConfig.Resources.Timers.Remove("macroPosition_$($timerData.InstanceId)")
+                    }
                 }
             }
-            catch {}
+            catch {
+                $s.Stop()
+                $s.Dispose()
+            }
         })
     
     $positionTimer.Start()
@@ -705,13 +720,14 @@ function ToggleMacroHotkeys
 
     try
     {
+        $ownerKey = "macroinst_$InstanceId"
         if ($ToggleState)
         {
-            try { ResumeHotkeysForOwner -OwnerKey $InstanceId } catch {}
+            try { ResumeHotkeysForOwner -OwnerKey $ownerKey } catch {}
         }
         else
         {
-            try { PauseHotkeysForOwner -OwnerKey $InstanceId } catch {}
+            try { PauseHotkeysForOwner -OwnerKey $ownerKey } catch {}
         }
     }
     catch {}
@@ -979,20 +995,32 @@ function MacroSelectedRow
 {
     param($row)
     
-    if (-not $row -or -not $row.Cells -or $row.Cells.Count -lt 3) { return }
+    if (-not $row -or -not $row.Cells -or $row.Cells.Count -lt 3 -or -not $row.Cells[2].Value) {
+        Write-Verbose "MACRO: Invalid row data passed to MacroSelectedRow."
+        return
+    }
     
     $instanceId = "Macro_" + $row.Cells[2].Value.ToString()
 
-    if (-not $row.Tag -or -not $row.Tag.MainWindowHandle) { return }
+    if (-not $row.Tag -or -not $row.Tag.PSObject.Properties['MainWindowHandle'] -or -not $row.Tag.MainWindowHandle) {
+        Write-Verbose "MACRO: Row is missing a valid MainWindowHandle."
+        return
+    }
     
     $windowHandle = $row.Tag.MainWindowHandle
     
     if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
     {
         $existingForm = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
-        if (-not $existingForm.IsDisposed)
+        if ($existingForm -and -not $existingForm.IsDisposed)
         {
-            $existingForm.BringToFront()
+            try {
+                if ($existingForm.InvokeRequired) {
+                    $existingForm.Invoke([System.Action]{ $existingForm.BringToFront() })
+                } else {
+                    $existingForm.BringToFront()
+                }
+            } catch {}
             return
         }
         else
@@ -1004,14 +1032,20 @@ function MacroSelectedRow
     $targetWindowRect = New-Object Custom.Native+RECT
     [Custom.Native]::GetWindowRect($windowHandle, [ref]$targetWindowRect)
     
-    $windowTitle = if ($row.Tag -and $row.Tag.MainWindowTitle) { $row.Tag.MainWindowTitle } else { $row.Cells[1].Value.ToString() }
+    $windowTitle = "Macro: $instanceId"
+    if ($row.Tag.PSObject.Properties['MainWindowTitle'] -and -not [string]::IsNullOrEmpty($row.Tag.MainWindowTitle)) {
+        $windowTitle = $row.Tag.MainWindowTitle
+    } elseif ($row.Cells.Count -gt 1 -and $row.Cells[1].Value) {
+        $windowTitle = $row.Cells[1].Value.ToString()
+    }
     
     $macroForm = CreateMacroForm $instanceId $targetWindowRect $windowTitle $row
     
-    $global:DashboardConfig.Resources.FtoolForms[$instanceId] = $macroForm
-    
-    $macroForm.Show()
-    $macroForm.BringToFront()
+    if ($macroForm) {
+        $global:DashboardConfig.Resources.FtoolForms[$instanceId] = $macroForm
+        $macroForm.Show()
+        $macroForm.BringToFront()
+    }
 }
 
 function StopMacroForm
@@ -1022,14 +1056,15 @@ function StopMacroForm
     
     try
     {
-        $instanceId = $Form.Tag.InstanceId
-        if ($instanceId)
-        {
+        if ($Form.Tag -and $Form.Tag.InstanceId) {
+            $instanceId = $Form.Tag.InstanceId
             CleanupMacroResources $instanceId
-            if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId)) { $global:DashboardConfig.Resources.FtoolForms.Remove($instanceId) }
+            if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId)) {
+                $global:DashboardConfig.Resources.FtoolForms.Remove($instanceId)
+            }
         }
         $Form.Close()
-        $Form.Dispose()
+        # Dispose is handled by the Form's OnFormClosed event to prevent race conditions
     }
     catch {}
 }
@@ -1038,6 +1073,12 @@ function CreateMacroForm
 {
     param($instanceId, $targetWindowRect, $windowTitle, $row)
     
+    # Defensive check for row
+    if (-not $row -or -not $row.Cells -or $row.Cells.Count -lt 2) {
+        Write-Verbose "MACRO: Cannot create form due to invalid row data."
+        return $null
+    }
+
     $macroForm = New-Object Custom.FtoolFormWindow
     $macroForm.Width = 235
     $macroForm.Height = 145 
@@ -1082,7 +1123,8 @@ function CreateMacroForm
     $headerPanel = SetUIElement -type 'Panel' -visible $true -width 250 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
     $macroForm.Controls.Add($headerPanel)
 
-    $labelWinTitle = SetUIElement -type 'Label' -visible $true -width 105 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
+    $labelText = if ($row.Cells[1].Value) { $row.Cells[1].Value.ToString() } else { "" }
+    $labelWinTitle = SetUIElement -type 'Label' -visible $true -width 105 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $labelText -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
     $headerPanel.Controls.Add($labelWinTitle)
 
     $btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 15 -top 2 -left 105 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."

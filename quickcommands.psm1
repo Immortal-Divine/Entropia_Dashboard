@@ -652,13 +652,27 @@ function ToggleChatCommanderHotkeys
 
     try
     {
-        if ($ToggleState)
+        if ($global:DashboardConfig.Resources.FtoolForms.Contains($InstanceId))
         {
-            try { ResumeHotkeysForOwner -OwnerKey $InstanceId } catch {}
-        }
-        else
-        {
-            try { PauseHotkeysForOwner -OwnerKey $InstanceId } catch {}
+            $form = $global:DashboardConfig.Resources.FtoolForms[$InstanceId]
+            if ($form -and -not $form.IsDisposed -and $form.Tag -and $form.Tag.SavedCommands)
+            {
+                foreach ($cmd in $form.Tag.SavedCommands)
+                {
+                    if ($cmd.HotkeyId)
+                    {
+                        $ownerKey = "quickcmd_$($InstanceId)_$($cmd.Id)"
+                        if ($ToggleState)
+                        {
+                            try { ResumeHotkeysForOwner -OwnerKey $ownerKey } catch {}
+                        }
+                        else
+                        {
+                            try { PauseHotkeysForOwner -OwnerKey $ownerKey } catch {}
+                        }
+                    }
+                }
+            }
         }
     }
     catch {}
@@ -1016,7 +1030,9 @@ function ChatCommanderSelectedRow
     $targetWindowRect = New-Object Custom.Native+RECT
     [Custom.Native]::GetWindowRect($windowHandle, [ref]$targetWindowRect)
     
-    $windowTitle = if ($row.Tag -and $row.Tag.MainWindowTitle) { $row.Tag.MainWindowTitle } else { $row.Cells[1].Value.ToString() }
+    $windowTitle = if ($row.Tag.PSObject.Properties['MainWindowTitle']) { $row.Tag.MainWindowTitle }
+    elseif ($row.Tag.PSObject.Properties['Title']) { $row.Tag.Title }
+    else { $row.Cells[1].Value.ToString() }
     
     $ChatCommanderForm = CreateChatCommanderForm $instanceId $targetWindowRect $windowTitle $row
     

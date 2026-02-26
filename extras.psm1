@@ -423,14 +423,11 @@ function ProcessSpawnEvent {
         # Ensure we have the notification key
         $notifKey = $trackingKey.GetHashCode()
 
-        # If a notification was hidden, and it's now active again, remove it from hidden list
         if ($State.HiddenNotifications.Contains($trackingKey)) {
-            if ($hpStatus -ne 'Died' -and $hpStatus -ne 'False Alarm') {
+            if ($hpStatus -eq 'Died' -or $hpStatus -eq 'False Alarm') {
                 $State.HiddenNotifications.Remove($trackingKey) | Out-Null
-            } else {
-                # If it's still Died/False Alarm and was hidden, keep it hidden and don't re-notify
-                return
-            }
+			}
+            return
         }
 
         # Common variables for notification
@@ -493,7 +490,7 @@ function ProcessSpawnEvent {
                 -TimeoutSeconds 10 ` # Keep it open until manually dismissed
                 -Progress 0 `
                 -IgnoreCancellation `
-                -Buttons $activeButtons ` # Show only a "Hide" button
+                -Buttons $activeButtons ` 
                 -ImageUrl $bossImg
             $State.HiddenNotifications.Remove($trackingKey) | Out-Null # Ensure it's not hidden if it was
         }
@@ -506,7 +503,7 @@ function ProcessSpawnEvent {
                 -Key $notifKey `
                 -TimeoutSeconds 10 `
                 -Progress 0 `
-				-Buttons $activeButtons ` # Show only a "Hide" button
+				-Buttons $activeButtons ` 
 				-ImageUrl $bossImg `
                 -IgnoreCancellation
             $State.HiddenNotifications.Remove($trackingKey) | Out-Null # Ensure it's not hidden if it was
@@ -591,8 +588,8 @@ function Start-WorldBossListener
         }) | Out-Null
     }
 
-    $PollingIntervalSeconds = 60
-    $TimerTickInterval = 10000
+    $PollingIntervalSeconds = 30
+    $TimerTickInterval = 1000
 
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = $TimerTickInterval 
