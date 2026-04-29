@@ -10,7 +10,8 @@
 
   [![Homepage](https://img.shields.io/badge/Homepage-gray)](https://immortal-divine.github.io/Entropia_Dashboard/) 
   [![Download](https://img.shields.io/badge/Download-Now-blue)](https://github.com/Immortal-Divine/Entropia_Dashboard/raw/refs/heads/main/Entropia%20Dashboard.exe) 
-  [![Donate](https://shields.io/badge/ko--fi-donate-ff5f5f?logo=ko-fi)](https://ko-fi.com/U7U61S0EGT) 
+  [![Donate Ko-fi](https://shields.io/badge/ko--fi-donate-ff5f5f?logo=ko-fi)](https://ko-fi.com/U7U61S0EGT)
+  [![Donate PayPal](https://shields.io/badge/PayPal-donate-0070ba?logo=paypal)](https://www.paypal.com/donate) 
 
 </div>
 
@@ -196,6 +197,7 @@ And many more!
 
 
 <a href='https://ko-fi.com/U7U61S0EGT' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+<a href='https://www.paypal.me/immortaldivine' target='_blank'><img height='36' style='border:0px;height:36px;margin-left:10px;' src='https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif' border='0' alt='Donate with PayPal' /></a>
 
 
 # [Entropia Flyff](https://entropia.fun/)
