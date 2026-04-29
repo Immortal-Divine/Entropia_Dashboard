@@ -200,7 +200,7 @@ And many more!
 <a href='https://www.paypal.me/immortaldivine' target='_blank'><img height='36' style='border:0px;height:36px;margin-left:10px;' src='https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif' border='0' alt='Donate with PayPal' /></a>
 
 
-# [Entropia Flyff](https://entropia.fun/)
+# [Entropia](https://entropia.fun/)
 
 # [Divine Discord](https://discord.gg/zbcVRsC9uN)
 
