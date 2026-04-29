@@ -11,7 +11,7 @@
   [![Homepage](https://img.shields.io/badge/Homepage-gray)](https://immortal-divine.github.io/Entropia_Dashboard/) 
   [![Download](https://img.shields.io/badge/Download-Now-blue)](https://github.com/Immortal-Divine/Entropia_Dashboard/raw/refs/heads/main/Entropia%20Dashboard.exe) 
   [![Donate Ko-fi](https://shields.io/badge/ko--fi-donate-ff5f5f?logo=ko-fi)](https://ko-fi.com/U7U61S0EGT)
-  [![Donate PayPal](https://shields.io/badge/PayPal-donate-0070ba?logo=paypal)](https://www.paypal.com/donate) 
+  [![Donate PayPal](https://shields.io/badge/PayPal-donate-0070ba?logo=paypal)](https://www.paypal.me/immortaldivine) 
 
 </div>
 
