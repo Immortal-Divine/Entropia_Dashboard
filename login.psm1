@@ -812,14 +812,41 @@ function LoginSelectedRow
 						SleepWithCancel -Milliseconds 50; CheckCancel; EnsureWindowResponsive; CheckCancel
 					
 						
-						if ($config["Char${charSlot}Coords"] -and $config["Char${charSlot}Coords"] -ne '0,0')
+						$slotCoordKey = "Char${charSlot}Coords"
+						if ($config[$slotCoordKey] -and $config[$slotCoordKey] -ne '0,0')
 						{
-							$coords = ParseCoordinates $config["Char${charSlot}Coords"]
-							if ($coords)
+							$coordsSlot = ParseCoordinates $config[$slotCoordKey]
+							if ($coordsSlot)
 							{
-								$currentStep++; ReportLoginProgress -Action "Selecting Character in Slot $charSlot" -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
-								Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
-								SleepWithCancel -Milliseconds 50
+							if ($charSlot -ge 1 -and $charSlot -le 3)
+							{
+								if ($config["SwitchLeftCoords"] -and $config["SwitchLeftCoords"] -ne '0,0')
+								{
+									$coordsSwitch = ParseCoordinates $config["SwitchLeftCoords"]
+									if ($coordsSwitch)
+									{
+										$currentStep++; ReportLoginProgress -Action 'Switching to Page 1...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+										Invoke-MouseClick -X ($rect.Left + $coordsSwitch.X) -Y ($rect.Top + $coordsSwitch.Y)
+										SleepWithCancel -Milliseconds 200
+									}
+								}
+							}
+							elseif ($charSlot -ge 4 -and $charSlot -le 6)
+								{
+								if ($config["SwitchRightCoords"] -and $config["SwitchRightCoords"] -ne '0,0')
+									{
+									$coordsSwitch = ParseCoordinates $config["SwitchRightCoords"]
+										if ($coordsSwitch)
+										{
+										$currentStep++; ReportLoginProgress -Action 'Switching to Page 2...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+											Invoke-MouseClick -X ($rect.Left + $coordsSwitch.X) -Y ($rect.Top + $coordsSwitch.Y)
+											SleepWithCancel -Milliseconds 200
+										}
+									}
+								}
+								$currentStep++; ReportLoginProgress -Action "Selecting Character Slot $charSlot..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+								Invoke-MouseClick -X ($rect.Left + $coordsSlot.X) -Y ($rect.Top + $coordsSlot.Y)
+								SleepWithCancel -Milliseconds 100
 							}
 						}
 						CheckCancel; EnsureWindowResponsive; CheckCancel
