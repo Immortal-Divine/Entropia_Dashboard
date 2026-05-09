@@ -1514,7 +1514,7 @@ function SyncConfigToUI
 				{
 					if ($parts[0] -in @('1','2')) { $s = $parts[0] }
 					if ($parts[1] -in @('1','2')) { $c = $parts[1] }
-					if ($parts[2] -in @('1','2','3')) { $char = $parts[2] }
+					if ($parts[2] -in @('1','2','3','4','5','6')) { $char = $parts[2] }
 					if ($parts[3] -in @('Yes','No')) { $coll = $parts[3] }
 				}
 			}
@@ -1629,7 +1629,7 @@ function InitializeUI
 
 	$p = @{ type = 'Form'; visible = $false; width = 470; height = 440; bg = @(30, 30, 30); id = 'MainForm'; text = 'Entropia Dashboard'; startPosition = 'Manual'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None }
 	$mainForm = SetUIElement @p
-	$p = @{ type = 'Form'; width = 600; height = 665; bg = @(30, 30, 30); id = 'SettingsForm'; text = 'Settings'; startPosition = 'CenterScreen'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None; topMost = $false; opacity = 0.0 }
+	$p = @{ type = 'Form'; width = 600; height = 795; bg = @(30, 30, 30); id = 'SettingsForm'; text = 'Settings'; startPosition = 'CenterScreen'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None; topMost = $false; opacity = 0.0 }
 	$settingsForm = SetUIElement @p
 	$settingsForm.Owner = $mainForm
 	$p = @{ type = 'Form'; width = 400; height = 600; bg = @(30, 30, 30); id = 'ExtraForm'; text = 'Extra'; startPosition = 'CenterScreen'; formBorderStyle = [System.Windows.Forms.FormBorderStyle]::None; topMost = $false; opacity = 0.0 }
@@ -1712,7 +1712,7 @@ function InitializeUI
 	$topBar = SetUIElement @p
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; fg = @(240, 240, 240); id = 'TitleLabel'; text = 'Entropia Dashboard'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
 	$titleLabelForm = SetUIElement @p
-	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.6'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
+	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.7'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
 	$copyrightLabelForm = SetUIElement @p
 	$p = @{ type = 'Button'; width = 40; height = 30; left = 370; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'InfoForm'; text = 'Guide'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); tooltip = "Help / Info`nOpens the project website for documentation and support." }
 	$btnInfoForm = SetUIElement @p
@@ -1787,7 +1787,7 @@ function InitializeUI
 
 	$settingsTabs = New-Object Custom.DarkTabControl
 	$settingsTabs.Dock = 'Top'
-	$settingsTabs.Height = 610
+	$settingsTabs.Height = 740
 
 	$tabGeneral = New-Object System.Windows.Forms.TabPage 'General'
 	$tabGeneral.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
@@ -1973,32 +1973,50 @@ function InitializeUI
 		return @{ Label = $l; Text = $t; Button = $b }
 	}
 
-	$p = &$AddPickerRow 'Server 1:' 'Server1' ($rowY + 30) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the Server button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Server1'] = $p
-	$p = &$AddPickerRow 'Server 2:' 'Server2' ($rowY + 55) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the Server button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Server2'] = $p
-	$p = &$AddPickerRow 'Channel 1:' 'Channel1' ($rowY + 80) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the Channel button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Channel1'] = $p
-	$p = &$AddPickerRow 'Channel 2:' 'Channel2' ($rowY + 105) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the Channel button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Channel2'] = $p
-	$p = &$AddPickerRow 'First Nickname:' 'FirstNick' ($rowY + 130) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the 1st Nickname in the list.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['FirstNick'] = $p
-	$p = &$AddPickerRow 'Scroll Down Arrow' 'ScrollDown'($rowY + 155) 1 "Set Coordinate`n1. Click your game window.`n2. Hover slightly above the Scroll Down arrow.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['ScrollDown'] = $p
+	$p = @{ type = 'Label'; width = 300; height = 20; top = ($rowY + 20); left = 15; bg = @(30, 30, 30, 0); fg = @(160, 160, 160); text = 'BASIC SETTINGS'; font = (New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)) }
+	$tabLoginSettings.Controls.Add((SetUIElement @p))
 
-	$p = &$AddPickerRow 'Char Slot 1:' 'Char1' ($rowY + 30) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Character Slot.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Char1'] = $p
-	$p = &$AddPickerRow 'Char Slot 2:' 'Char2' ($rowY + 55) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Character Slot.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Char2'] = $p
-	$p = &$AddPickerRow 'Char Slot 3:' 'Char3' ($rowY + 80) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Character Slot.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Char3'] = $p
+	$p = &$AddPickerRow 'Launcher Play:' 'LauncherPlay' ($rowY + 40) 1 "Set Coordinate`n1. Click your Launcher window.`n2. Hover over the Play/Start button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['LauncherPlay'] = $p
+	$p = &$AddPickerRow 'First Nickname:' 'FirstNick' ($rowY + 40) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the 1st Nickname in the list.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['FirstNick'] = $p
 
-	$p = &$AddPickerRow 'Collector Start:' 'CollectorStart' ($rowY + 105) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Collector Start button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['CollectorStart'] = $p
-	$p = &$AddPickerRow 'Disconnect OK:' 'DisconnectOK' ($rowY + 130) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Disconnect 'OK' button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['DisconnectOK'] = $p
-	$p = &$AddPickerRow 'Login Wrong OK:' 'LoginDetailsOK' ($rowY + 155) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Wrong Password 'OK' button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['LoginDetailsOK'] = $p
+	# --- Advanced Group ---
+	$p = @{ type = 'Label'; width = 300; height = 20; top = ($rowY + 75); left = 15; bg = @(30, 30, 30, 0); fg = @(160, 160, 160); text = 'ADVANCED SETTINGS'; font = (New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)) }
+	$tabLoginSettings.Controls.Add((SetUIElement @p))
 
-	$p = &$AddPickerRow 'Launcher Play:' 'LauncherPlay' ($rowY + 180) 1 "Set Coordinate`n1. Click your Launcher window.`n2. Hover over the Play/Start button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['LauncherPlay'] = $p
+	$p = &$AddPickerRow 'Scroll Down:' 'ScrollDown' ($rowY + 95) 1 "Set Coordinate`n1. Click your game window.`n2. Hover slightly above the Scroll Down arrow.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['ScrollDown'] = $p
 
-	$p = @{ type = 'Label'; width = 150; height = 20; top = ($rowY + 205); left = 10
-		bg = @(30, 30, 30, 0); fg = @(240, 240, 240); text = 'Post-Login Delay (s):'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Post-Login Delay`nSeconds to wait after login before performing actions (e.g., Collector)." 
-	}
+	$p = &$AddPickerRow 'Server 1:' 'Server1' ($rowY + 120) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the Server button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Server1'] = $p
+	$p = &$AddPickerRow 'Server 2:' 'Server2' ($rowY + 120) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Server button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Server2'] = $p
+	
+	$p = &$AddPickerRow 'Channel 1:' 'Channel1' ($rowY + 145) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the Channel button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Channel1'] = $p
+	$p = &$AddPickerRow 'Channel 2:' 'Channel2' ($rowY + 145) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Channel button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Channel2'] = $p
+
+	$p = &$AddPickerRow 'Char Slot 1:' 'Char1' ($rowY + 170) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the Character Slot.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Char1'] = $p
+	$p = &$AddPickerRow 'Char Slot 2:' 'Char2' ($rowY + 170) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Character Slot.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Char2'] = $p
+	$p = &$AddPickerRow 'Char Slot 3:' 'Char3' ($rowY + 195) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the Character Slot.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Char3'] = $p
+	$p = &$AddPickerRow 'Char Slot 4:' 'Char4' ($rowY + 195) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Character Slot.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Char4'] = $p
+	$p = &$AddPickerRow 'Char Slot 5:' 'Char5' ($rowY + 220) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the Character Slot.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Char5'] = $p
+	$p = &$AddPickerRow 'Char Slot 6:' 'Char6' ($rowY + 220) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Character Slot.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['Char6'] = $p
+
+	$p = &$AddPickerRow 'Switch Left:' 'SwitchLeft' ($rowY + 245) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the left arrow in the character selection.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['SwitchLeft'] = $p
+	$p = &$AddPickerRow 'Switch Right:' 'SwitchRight' ($rowY + 245) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the right arrow in the character selection.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['SwitchRight'] = $p
+
+	$p = &$AddPickerRow 'Collector:' 'CollectorStart' ($rowY + 270) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the Collector Start button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['CollectorStart'] = $p
+
+	$p = @{ type = 'Label'; width = 100; height = 20; top = ($rowY + 270); left = 300; bg = @(30, 30, 30, 0); fg = @(240, 240, 240); text = 'Login Delay (s):'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Post-Login Delay`nSeconds to wait after login before performing actions (e.g., Collector)." }
 	$lblPostLoginDelay = SetUIElement @p
-	$p = @{ type = 'TextBox'; width = 80; height = 20; top = ($rowY + 205); left = 160; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'txtPostLoginDelayInput'; text = '5'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Post-Login Delay`nSeconds to wait after login before performing actions (e.g., Collector)." }
+	$p = @{ type = 'TextBox'; width = 80; height = 20; top = ($rowY + 270); left = 400; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'txtPostLoginDelayInput'; text = '5'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Post-Login Delay`nSeconds to wait after login before performing actions (e.g., Collector)." }
 	$txtPostLoginDelay = SetUIElement @p
 	$tabLoginSettings.Controls.AddRange(@($lblPostLoginDelay, $txtPostLoginDelay))
 
-	$gridTop = $rowY + 240
+	# --- Reconnect Group ---
+	$p = @{ type = 'Label'; width = 300; height = 20; top = ($rowY + 305); left = 15; bg = @(30, 30, 30, 0); fg = @(160, 160, 160); text = 'RECONNECT SETTINGS'; font = (New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)) }
+	$tabLoginSettings.Controls.Add((SetUIElement @p))
+
+	$p = &$AddPickerRow 'Login Wrong:' 'LoginDetailsOK' ($rowY + 325) 1 "Set Coordinate`n1. Click your game window.`n2. Hover over the Wrong Password 'OK' button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['LoginDetailsOK'] = $p
+	$p = &$AddPickerRow 'Disconnect:' 'DisconnectOK' ($rowY + 325) 2 "Set Coordinate`n1. Click your game window.`n2. Hover over the Disconnect 'OK' button.`n3. Wait 3 seconds."; $tabLoginSettings.Controls.AddRange(@($p.Label, $p.Text, $p.Button)); $Pickers['DisconnectOK'] = $p
+
+	$gridTop = $rowY + 370
 	$gridHeight = 285
 
 	$p = @{ type = 'DataGridView'; width = 560; height = $gridHeight; top = $gridTop; left = 10; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'LoginConfigGrid'; text = ''; font = (New-Object System.Drawing.Font('Segoe UI', 9)) }
@@ -2016,7 +2034,7 @@ function InitializeUI
 		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ HeaderText = 'Client #'; FillWeight = 15; ReadOnly = $true; ToolTipText = "Client #`nCorresponds to the row number in the main list and the nickname position." }),
 		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ HeaderText = 'Server'; FillWeight = 20; ReadOnly = $true; ToolTipText = "Server`nSelect the server index (1 or 2) for this client." }),
 		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ HeaderText = 'Channel'; FillWeight = 20; ReadOnly = $true; ToolTipText = "Channel`nSelect the channel index (1 or 2) for this client." }),
-		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ HeaderText = 'Character'; FillWeight = 25; ReadOnly = $true; ToolTipText = "Character`nSelect the character slot (1, 2, or 3) to login." }),
+		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ HeaderText = 'Character'; FillWeight = 25; ReadOnly = $true; ToolTipText = "Character`nSelect the character slot (1 to 6) to login." }),
 		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ HeaderText = 'Collecting?'; FillWeight = 20; ReadOnly = $true; ToolTipText = "Collector`nIf 'Yes', the bot will attempt to start the collector after login." })
 	)
 	$LoginConfigGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]$loginConfigCols)
@@ -2032,7 +2050,7 @@ function InitializeUI
 
 	#region Hotkeys
 
-	$p = @{ type = 'DataGridView'; width = 560; height = 450; top = 10; left = 10; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'HotkeysGrid'; text = ''; font = (New-Object System.Drawing.Font('Segoe UI', 9)) }
+	$p = @{ type = 'DataGridView'; width = 560; height = 580; top = 10; left = 10; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'HotkeysGrid'; text = ''; font = (New-Object System.Drawing.Font('Segoe UI', 9)) }
 	$HotkeysGrid = SetUIElement @p
 	$HotkeysGrid.AllowUserToAddRows = $false
 	$HotkeysGrid.RowHeadersVisible = $false
@@ -2050,17 +2068,18 @@ function InitializeUI
 	$HotkeysGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]$hotkeysGridCols)
 	$tabHotkeys.Controls.Add($HotkeysGrid)
 
-	$p = @{ type = 'Button'; width = 200; height = 40; top = 470; left = 195; bg = @(150, 50, 50); fg = @(240, 240, 240); id = 'UnregisterHotkey'; text = 'Unregister and delete selected Hotkeys permanently'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Unregister Hotkey`nDelete the selected hotkey assignment.`nDouble-click a row to edit the key instead." }
+	$p = @{ type = 'Button'; width = 200; height = 40; top = 600; left = 195; bg = @(150, 50, 50); fg = @(240, 240, 240); id = 'UnregisterHotkey'; text = 'Unregister and delete selected Hotkeys permanently'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Unregister Hotkey`nDelete the selected hotkey assignment.`nDouble-click a row to edit the key instead." }
 	$btnUnregisterHotkey = SetUIElement @p
 	$tabHotkeys.Controls.Add($btnUnregisterHotkey)
 
-	$p = @{ type = 'Button'; width = 120; height = 40; top = 605; left = 20; bg = @(35, 175, 75); fg = @(240, 240, 240); id = 'Save'; text = 'Save'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Save`nApply and save all changes to the configuration file." }
+	#endregion
+
+	$p = @{ type = 'Button'; width = 120; height = 40; top = 735; left = 20; bg = @(35, 175, 75); fg = @(240, 240, 240); id = 'Save'; text = 'Save'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Save`nApply and save all changes to the configuration file." }
 	$btnSave = SetUIElement @p
 
-	$p = @{ type = 'Button'; width = 120; height = 40; top = 605; left = 150; bg = @(210, 45, 45); fg = @(240, 240, 240); id = 'Cancel'; text = 'Cancel'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Cancel`nDiscard changes and close the settings window." }
+	$p = @{ type = 'Button'; width = 120; height = 40; top = 735; left = 150; bg = @(210, 45, 45); fg = @(240, 240, 240); id = 'Cancel'; text = 'Cancel'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Cancel`nDiscard changes and close the settings window." }
 	$btnCancel = SetUIElement @p
 
-	#endregion
 
 	$settingsForm.Controls.AddRange(@($btnSave, $btnCancel))
 
@@ -2747,6 +2766,21 @@ function RegisterUIEventHandlers
 					try { $itmKofi.Image = [System.Drawing.Image]::FromFile($kofiPath) } catch {}
 				}
 				$itmKofi.add_Click({ Start-Process "https://ko-fi.com/U7U61S0EGT" })
+				
+				$itmPayPal = $cms.Items.Add("Support me with PayPal")
+				$paypalPath = Join-Path $global:DashboardConfig.Paths.App 'paypal.png'
+				if (-not (Test-Path $paypalPath)) {
+					try {
+						[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+						$wc = New-Object System.Net.WebClient
+						$wc.DownloadFile('https://www.paypalobjects.com/webstatic/icon/pp258.png', $paypalPath)
+						$wc.Dispose()
+					} catch {}
+				}
+				if (Test-Path $paypalPath) {
+					try { $itmPayPal.Image = [System.Drawing.Image]::FromFile($paypalPath) } catch {}
+				}
+				$itmPayPal.add_Click({ Start-Process "https://www.paypal.me/immortaldivine" })
 				
 				$cms.Show($Sender, 0, $Sender.Height)
 			} 
@@ -4229,7 +4263,7 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
 
 				if ($colIndex -eq 1) { $row.Cells[1].Value = if ($row.Cells[1].Value -eq '1') { '2' } else { '1' } }
 				elseif ($colIndex -eq 2) { $row.Cells[2].Value = if ($row.Cells[2].Value -eq '1') { '2' } else { '1' } }
-				elseif ($colIndex -eq 3) { $row.Cells[3].Value = switch ($row.Cells[3].Value) { '1' {'2'}; '2' {'3'}; '3' {'1'}; default {'1'} } }
+				elseif ($colIndex -eq 3) { $row.Cells[3].Value = switch ($row.Cells[3].Value) { '1' {'2'}; '2' {'3'}; '3' {'4'}; '4' {'5'}; '5' {'6'};'6' {'1'}; default {'1'} } }
 				elseif ($colIndex -eq 4) { $row.Cells[4].Value = if ($row.Cells[4].Value -eq 'Yes') { 'No' } else { 'Yes' } }
 			}
 		}
