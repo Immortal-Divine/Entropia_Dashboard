@@ -679,18 +679,23 @@ function ToggleMacroInstance
     {
         if ($form.InvokeRequired)
         {
-            $form.BeginInvoke([System.Action]{ ToggleMacroInstance -InstanceId $InstanceId }) | Out-Null
-            return
+            try {
+                $form.BeginInvoke([System.Action]{ ToggleMacroInstance -InstanceId $InstanceId }) | Out-Null
+            } catch {}
         }
 
-        $data = $form.Tag
-        if ($data.RunningTimer)
-        {
-            StopMacroSequence $data
-        }
-        else
-        {
-            StartMacroSequence $data
+        try {
+            $data = $form.Tag
+            if ($data -and $data.RunningTimer)
+            {
+                StopMacroSequence $data
+            }
+            else
+            {
+                StartMacroSequence $data
+            }
+        } catch {
+            Write-Verbose "MACRO: Error in ToggleMacroInstance: $_"
         }
     }
 }
