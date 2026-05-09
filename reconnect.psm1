@@ -322,6 +322,42 @@ function ReportLoginProgress
 	Write-Information -MessageData @{ Text = $msg; Percent = $pct } -Tags 'LoginStatus'
 }
 
+function IsProfileAutoReconnectEnabled
+{
+	param(
+		[string]$ProfileName,
+		[int]$Pid
+	)
+
+	# If profile name provided, check reconnect config for that profile.
+	if ($ProfileName)
+	{
+		$pClean = $ProfileName
+		if ($pClean -match '\[(?<pName>.*?)\]') { $pClean = $Matches['pName'] }
+
+		$rp = if ($global:DashboardConfig.Config.Contains('ReconnectProfiles')) { $global:DashboardConfig.Config['ReconnectProfiles'] } else { $null }
+		if ($rp)
+		{
+			if ($rp -is [System.Collections.Hashtable]) { return ($rp.ContainsKey($ProfileName) -or $rp.ContainsKey($pClean)) }
+			return ($rp.Contains($ProfileName) -or $rp.Contains($pClean))
+		}
+		return $false
+	}
+
+	# Otherwise, try to resolve profile by PID
+	if ($Pid -and $Pid -ne 0)
+	{
+		$row = Find-RowByPid -Pid $Pid
+		if ($row -and $row.Cells -and $row.Cells.Count -gt 1)
+		{
+			$pn = [string]$row.Cells[1].Value
+			return IsProfileAutoReconnectEnabled -ProfileName $pn
+		}
+	}
+
+	return $false
+}
+
 #endregion
 
 #region Core Logic: Watcher & Worker
@@ -418,7 +454,9 @@ function StartDisconnectWatcher
 							$global:DashboardConfig.State.ReconnectQueue.Enqueue($sPid)
 						}
 						try {
-							ShowReconnectInteractiveNotification -Title 'Reconnecting...' -Message "Initiating reconnection sequence...`n$details" -Type 'Info' -RelatedPid $sPid -TimeoutSeconds 0
+							if (IsProfileAutoReconnectEnabled -Pid $sPid) {
+								ShowReconnectInteractiveNotification -Title 'Reconnecting...' -Message "Initiating reconnection sequence...`n$details" -Type 'Info' -RelatedPid $sPid -TimeoutSeconds 0
+							}
 							$global:DashboardConfig.State.ScheduledReconnects.Remove($sPid)
 						} catch { Write-Verbose "RECONNECT: Failed to transition notification: $_" }
 
@@ -608,7 +646,9 @@ function StartDisconnectWatcher
 							if ($isCooldown)
 							{
 								$row.DefaultCellStyle.BackColor = [System.Drawing.Color]::Orange
-								ShowReconnectInteractiveNotification -Title 'Cooldown Active' -Message "Disconnected again. Auto-reconnect paused.`n$details" -Type 'Warning' -RelatedPid $pidInt -TimeoutSeconds 15 -Buttons $btns
+								if (IsProfileAutoReconnectEnabled -Pid $pidInt) {
+									ShowReconnectInteractiveNotification -Title 'Cooldown Active' -Message "Disconnected again. Auto-reconnect paused.`n$details" -Type 'Warning' -RelatedPid $pidInt -TimeoutSeconds 15 -Buttons $btns
+								}
 							}
 							else
 							{
@@ -616,7 +656,9 @@ function StartDisconnectWatcher
 
 								$global:DashboardConfig.State.ScheduledReconnects[$pidInt] = (Get-Date).AddSeconds(15)
 
-								ShowReconnectInteractiveNotification -Title 'Connection Lost' -Message "Auto-reconnect in 15s...`n$details" -Type 'Warning' -RelatedPid $pidInt -TimeoutSeconds 15 -Buttons $btns
+								if (IsProfileAutoReconnectEnabled -Pid $pidInt) {
+									ShowReconnectInteractiveNotification -Title 'Connection Lost' -Message "Auto-reconnect in 15s...`n$details" -Type 'Warning' -RelatedPid $pidInt -TimeoutSeconds 15 -Buttons $btns
+								}
 							}
 						}
 						else
@@ -628,7 +670,9 @@ function StartDisconnectWatcher
 							}
 							else
 							{
-								ShowReconnectInteractiveNotification -Title 'Connection Lost' -Message "Disconnected.`n$details" -Type 'Warning' -RelatedPid $pidInt -TimeoutSeconds 15 -Buttons $btns
+								if (IsProfileAutoReconnectEnabled -Pid $pidInt) {
+									ShowReconnectInteractiveNotification -Title 'Connection Lost' -Message "Disconnected.`n$details" -Type 'Warning' -RelatedPid $pidInt -TimeoutSeconds 15 -Buttons $btns
+								}
 							}
 						}
 					}
@@ -693,7 +737,9 @@ function StartDisconnectWatcher
 							$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
 							$details = "Profile: $pName | Title: $wTitle`nPID: $cPid | Proc: $($proc.Name)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 						}
-						ShowReconnectInteractiveNotification -Title 'Reconnecting...' -Message "Initiating reconnection sequence...`n$details" -Type 'Info' -RelatedPid $cPid -TimeoutSeconds 0
+						if (IsProfileAutoReconnectEnabled -Pid $cPid) {
+							ShowReconnectInteractiveNotification -Title 'Reconnecting...' -Message "Initiating reconnection sequence...`n$details" -Type 'Info' -RelatedPid $cPid -TimeoutSeconds 0
+						}
 					}
 
 					'Dismiss'
@@ -740,7 +786,9 @@ function StartDisconnectWatcher
 							'Reconnect Now' = 'Reconnect'
 							'Dismiss All'   = 'DismissAll'
 						}
-						ShowReconnectInteractiveNotification -Title 'Reconnect Delayed' -Message "Auto-reconnect paused for 2 minutes.`n$details" -Type 'Info' -RelatedPid $cPid -TimeoutSeconds 120 -Buttons $btns
+						if (IsProfileAutoReconnectEnabled -Pid $cPid) {
+							ShowReconnectInteractiveNotification -Title 'Reconnect Delayed' -Message "Auto-reconnect paused for 2 minutes.`n$details" -Type 'Info' -RelatedPid $cPid -TimeoutSeconds 120 -Buttons $btns
+						}
 					}
 
 					'DismissAll'
@@ -902,7 +950,7 @@ try
 			if (-not ($global:DashboardConfig.Config['ReconnectProfiles'] -and $global:DashboardConfig.Config['ReconnectProfiles'].Contains($CachedProfileName)))
 			{
 				if ($null -ne $Row.Cells -and $Row.Cells.Count -gt 3) { $Row.Cells[3].Value = 'Disconnected' }
-				ShowReconnectInteractiveNotification -Title 'Reconnect Blocked' -Message "Profile '$CachedProfileName' not enabled for auto-reconnect." -Type 'Info' -RelatedPid $PidToReconnect -TimeoutSeconds 10
+				# Profile not enabled for auto-reconnect: do not show a toast per user preference
 				return
 			}
 		}
