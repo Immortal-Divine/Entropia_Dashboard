@@ -1,25 +1,19 @@
 Author: Immortal / Divine
-Version: 2.6
+Version: 2.7
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 [Changelogs]
    - Added:
 
-    - Auto Boss Update and Report (Live Update)
-	- You can set where notifications appear in the settings
-	- Hidden boss notifications do not retrigger on hp update anymore
-
+    - Login for character 4 to 6
+	 - New Coordinate pickers inside the settings
+    - Direct link to donate via paypal in the guide
 
    - Fixed:
 
-	- Auto Update (If the download saves the new version as .exe.new rename it to .exe)
-	- Auto Reconnect for new client version of Entropia
-	- Notifications cannot appear outside the screen and do not steal focus anymore
-	- Moving the mouse during reconnect does stop all reconnects now
-	- Global Toggle of Macro and Quickcommand can now unlock the hotkey for normal use again like in the Ftool
-	- Speed up multiple parts of the dashboard. UI, Ftool and Hotkeys are more responsive now
-	- Minimizing a client through the dashboard also resets the RAM usage of the client
-	- Terminate dialog box doesnt trigger after a manual disconnect anymore
+	- No Reconnect Notification anymore if not activated in settings
+	- Changed Hotkey Trigger to be more responsive (testing)
+	- Worldboss Notifications dont steal focus anymore (testing)
 
    Dont forget to request your Access Code in Discord for the Worldboss Feature!
 
