@@ -1025,11 +1025,7 @@ function Update-BossButtonImage
 		$btn.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 		$btn.Font = (New-Object System.Drawing.Font('Segoe UI Semibold', 9))
 		$btn.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
-		if ($type -eq 'Genesis') {
-			$btn.BackColor = [System.Drawing.Color]::FromArgb(56, 43, 32)
-		} else {
-			$btn.BackColor = [System.Drawing.Color]::FromArgb(70, 36, 36)
-		}
+		$btn.BackColor = [System.Drawing.Color]::FromArgb(70, 36, 36)
 	}
 }
 
@@ -1587,41 +1583,6 @@ function InitializeUI
 			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Grinch.png"
 			role = "1444911271978729616"
 		}
-		"Genesis Entropia King" = @{
-			name = "Genesis Entropia King"
-			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Entropia-King.png"
-			role = "1454470952506364005"
-		}
-		"Genesis Clockworks" = @{
-			name = "Genesis Clockworks"
-			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Clockworks.png"
-			role = "1454470955903488143"
-		}
-		"Genesis Royal Knight" = @{
-			name = "Genesis Royal Knight"
-			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Royal-Knight.png"
-			role = "1454470958818660412"
-		}
-		"Genesis Solarion" = @{
-			name = "Genesis Solarion"
-			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Solarion.png"
-			role = "1454470962324963571"
-		}
-		"Genesis C-A01" = @{
-			name = "Genesis C-A01"
-			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/C-A01.png"
-			role = "1454470965231620108"
-		}
-		"Genesis Great Venux Tree" = @{
-			name = "Genesis Great Venux Tree"
-			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Great-Venux-Tree.png"
-			role = "1454470968616681523"
-		}
-		"Genesis Grinch" = @{
-			name = "Genesis Grinch"
-			url  = "https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/Bosses/Grinch.png"
-			role = "1454470972173451408"
-		}
 	}
 
 	$uiPropertiesToAdd = @{}
@@ -1712,7 +1673,7 @@ function InitializeUI
 	$topBar = SetUIElement @p
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; fg = @(240, 240, 240); id = 'TitleLabel'; text = 'Entropia Dashboard'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
 	$titleLabelForm = SetUIElement @p
-	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.7'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
+	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.7.1'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
 	$copyrightLabelForm = SetUIElement @p
 	$p = @{ type = 'Button'; width = 40; height = 30; left = 370; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'InfoForm'; text = 'Guide'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); tooltip = "Help / Info`nOpens the project website for documentation and support." }
 	$btnInfoForm = SetUIElement @p
@@ -2112,7 +2073,6 @@ function InitializeUI
 		
 		
 		ButtonColor     = [System.Drawing.ColorTranslator]::FromHtml("#462424")
-		GenesisColor    = [System.Drawing.ColorTranslator]::FromHtml("#382b20")
 	}
 
 	$ExtraForm.BackColor = $Theme.Background
@@ -2217,11 +2177,6 @@ function InitializeUI
 	$lblNormalHeader.BackColor = $Theme.Background
 	$lblNormalHeader.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 
-	$p = @{ type = 'Label'; text = 'GENESIS'; font = (New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)); top = 85; left = 245; width = 140 }
-	$lblGenesisHeader = SetUIElement @p
-	$lblGenesisHeader.ForeColor = $Theme.TextColor
-	$lblGenesisHeader.BackColor = $Theme.Background
-	$lblGenesisHeader.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 
 	$p = @{ type = 'Label'; text = 'Listen'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); top = 105; left = 15; width = 44; tooltip = "Listen`nToggle notifications for this specific boss." }
 	$lblListenNormal = SetUIElement @p
@@ -2235,17 +2190,6 @@ function InitializeUI
 	$lblReportNormal.BackColor = $Theme.Background
 	$lblReportNormal.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 
-	$p = @{ type = 'Label'; text = 'Listen'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); top = 105; left = 200; width = 44; tooltip = "Listen`nToggle notifications for this specific boss." }
-	$lblListenGenesis = SetUIElement @p
-	$lblListenGenesis.ForeColor = $Theme.SubTextColor
-	$lblListenGenesis.BackColor = $Theme.Background
-	$lblListenGenesis.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-
-	$p = @{ type = 'Label'; text = 'CLICK TO REPORT'; font = (New-Object System.Drawing.Font('Segoe UI', 7, [System.Drawing.FontStyle]::Bold)); top = 105; left = 244; width = 140; tooltip = "Report`nClick the button below to report this boss as spawned (Notifies everyone!)." }
-	$lblReportGenesis = SetUIElement @p
-	$lblReportGenesis.ForeColor = $Theme.AccentColor
-	$lblReportGenesis.BackColor = $Theme.Background
-	$lblReportGenesis.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 
 	$ButtonPanel = New-Object System.Windows.Forms.TableLayoutPanel
 	$ButtonPanel.Location = New-Object System.Drawing.Point(15, 125) 
@@ -2309,51 +2253,8 @@ function InitializeUI
 		$btnNormal.Tag = @{ Type = 'Normal'; BossName = $bossNameNormal }
 		Update-BossButtonImage $btnNormal
 		
-		$bossNameGenesis = "Genesis $Boss"
-		$p = @{ type = 'Toggle'; width = 30; height = 17; bg = @(15, 18, 25); fg = @(255, 255, 255); cursor = 'Hand'; tooltip = "Toggle Listen`nEnable/Disable alerts for $bossNameGenesis." }
-		$tglGenesis = SetUIElement @p
-		$tglGenesis.Anchor = [System.Windows.Forms.AnchorStyles]::None
-		$tglGenesis.Checked = $true
-		if ($global:DashboardConfig.Config['BossFilter'] -and $global:DashboardConfig.Config['BossFilter'].Contains($bossNameGenesis)) {
-			$tglGenesis.Checked = [bool]::Parse($global:DashboardConfig.Config['BossFilter'][$bossNameGenesis])
-		}
-		$tglGenesis.Add_Click({
-			param($s, $e)
-			if (-not $global:DashboardConfig.Config.Contains('BossFilter')) { $global:DashboardConfig.Config['BossFilter'] = [ordered]@{} }
-			$global:DashboardConfig.Config['BossFilter'][$bossNameGenesis] = $s.Checked
-			if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
-		}.GetNewClosure())
-
-		$p = @{ type = 'Button'; text = "Genesis $Boss"; height = 50; bg = @(56, 43, 32); fg = @(255, 255, 255); fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI Semibold', 9)); cursor = 'Hand'; dock = 'Fill'; noCustomPaint = $true }
-		$btnGenesis = SetUIElement @p
-		$btnGenesis.Tag = 'Genesis'
-		$btnGenesis.Margin = New-Object System.Windows.Forms.Padding(2)
-		$btnGenesis.FlatAppearance.BorderSize = 0
-		$btnGenesis.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::Empty
-		$btnGenesis.FlatAppearance.MouseDownBackColor = [System.Drawing.Color]::Empty
-
-		$btnGenesis.Add_Click({
-			if ([string]::IsNullOrWhiteSpace($codeBox.Text)) {
-				Show-DarkMessageBox 'Access Code Required' 'Wrong Access Code' 'Ok' 'Error'
-				return
-			}
-			if ([string]::IsNullOrWhiteSpace($userBox.Text)) {
-				Show-DarkMessageBox 'Username Required' 'Missing Username' 'Ok' 'Error'
-				return
-			}
-			$bName = $this.Tag['BossName']
-			if ((Show-DarkMessageBox "Are you sure you want to report '$bName'?`nThis will notify everyone!" "Confirm Report" "YesNo" "Question") -eq 'Yes') {
-				Send-Message -code $codeBox.Text -bossName $bName
-			}
-		}.GetNewClosure())
-
-		$btnGenesis.Tag = @{ Type = 'Genesis'; BossName = $bossNameGenesis }
-		Update-BossButtonImage $btnGenesis
-		
 		$ButtonPanel.Controls.Add($tglNormal)
 		$ButtonPanel.Controls.Add($btnNormal)
-		$ButtonPanel.Controls.Add($tglGenesis)
-		$ButtonPanel.Controls.Add($btnGenesis)
 	}
 
 	if (-not $global:DashboardConfig.Resources.BossSchedule) {
@@ -2363,10 +2264,6 @@ function InitializeUI
 			"Clockworks"    = [TimeSpan]::Parse("20:00")
 			"Royal Knight"  = [TimeSpan]::Parse("20:15")
 		}
-		$global:DashboardConfig.Resources.BossSchedule["Genesis Entropia King"] = $global:DashboardConfig.Resources.BossSchedule["Entropia King"]
-		$global:DashboardConfig.Resources.BossSchedule["Genesis Solarion"]      = $global:DashboardConfig.Resources.BossSchedule["Solarion"]
-		$global:DashboardConfig.Resources.BossSchedule["Genesis Clockworks"]    = $global:DashboardConfig.Resources.BossSchedule["Clockworks"]
-		$global:DashboardConfig.Resources.BossSchedule["Genesis Royal Knight"]  = $global:DashboardConfig.Resources.BossSchedule["Royal Knight"]
 	}
 	$BossSchedule = $global:DashboardConfig.Resources.BossSchedule
 
@@ -2469,11 +2366,8 @@ function InitializeUI
 		$chkWorldBossListener,
 		$btnRefreshBosses,
 		$lblNormalHeader,
-		$lblGenesisHeader,
 		$lblListenNormal,
 		$lblReportNormal,
-		$lblListenGenesis,
-		$lblReportGenesis,
 		$ButtonPanel
 	))
 

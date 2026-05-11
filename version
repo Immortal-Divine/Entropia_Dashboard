@@ -1,19 +1,14 @@
 Author: Immortal / Divine
-Version: 2.7
+Version: 2.7.1
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 [Changelogs]
    - Added:
 
-    - Login for character 4 to 6
-	 - New Coordinate pickers inside the settings
-    - Direct link to donate via paypal in the guide
+    - Removed Genesis
 
    - Fixed:
 
-	- No Reconnect Notification anymore if not activated in settings
-	- Changed Hotkey Trigger to be more responsive (testing)
-	- Worldboss Notifications dont steal focus anymore (testing)
 
    Dont forget to request your Access Code in Discord for the Worldboss Feature!
 

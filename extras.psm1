@@ -149,12 +149,10 @@ function Invoke-TestButtonAction
 		}
 
 		$testButtons = @(
-			@{ Text = "Died"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "Died" -Percent 0 -Type "Info" -BossName $BossName -ImageUrl $ImageUrl -Key $Key }.GetNewClosure() },
-			@{ Text = "Hide"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "Hide" -Percent 0 -Type "Info" -BossName $BossName -ImageUrl $ImageUrl -Key $Key }.GetNewClosure() },
-			@{ Text = "False Alarm"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "False Alarm" -Percent 0 -Type "Error" -BossName $BossName -ImageUrl $ImageUrl -Key $Key }.GetNewClosure() },
-			@{ Text = "75%"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "75%" -Percent 75 -Type "Warning" -BossName $BossName -ImageUrl $ImageUrl -Key $Key }.GetNewClosure() },
-			@{ Text = "50%"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "50%" -Percent 50 -Type "Warning" -BossName $BossName -ImageUrl $ImageUrl -Key $Key }.GetNewClosure() },
-			@{ Text = "25%"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "25%" -Percent 25 -Type "Warning" -BossName $BossName -ImageUrl $ImageUrl -Key $Key }.GetNewClosure() }
+			@{ Text = "25%"; WidthPercent = 25; Action = { Invoke-TestButtonAction -Status "25%" -Percent 25 -Type "Warning" -BossName $BossName -ImageUrl $ImageUrl -Key $Key }.GetNewClosure() }
+			@{ Text = "Died"; WidthPercent = 25; Action = { Invoke-TestButtonAction -Status "Died" -Percent 0 -Type "Info" -BossName $BossName -ImageUrl $ImageUrl -Key $Key }.GetNewClosure() },
+			@{ Text = "False Alarm"; WidthPercent = 24; Action = { Invoke-TestButtonAction -Status "False Alarm" -Percent 0 -Type "Error" -BossName $BossName -ImageUrl $ImageUrl -Key $Key }.GetNewClosure() },
+			@{ Text = "Hide"; WidthPercent = 24; Action = { Invoke-TestButtonAction -Status "Hide" -Percent 0 -Type "Info" -BossName $BossName -ImageUrl $ImageUrl -Key $Key }.GetNewClosure() }
 		)
 
 		ShowInteractiveNotification -Title "World Boss Detected (TEST) ($Status)" -Message "$BossName has just spawned! [$([DateTime]::Now.ToString('HH:mm'))]`nLocal Update: $Status" -Type "Warning" -Key $Key -TimeoutSeconds 0 -Progress $Percent -IgnoreCancellation -Buttons $testButtons -ImageUrl $ImageUrl
@@ -295,12 +293,10 @@ function Send-Message
 		$testKey = $bossDisplay.GetHashCode()
 
 		$testButtons = @(
-			@{ Text = "Died"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "Died" -Percent 0 -Type "Info" -BossName $bossDisplay -ImageUrl $imgToUse -Key $testKey }.GetNewClosure() },
-			@{ Text = "Hide"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "Hide" -Percent 0 -Type "Info" -BossName $bossDisplay -ImageUrl $imgToUse -Key $testKey }.GetNewClosure() },
-			@{ Text = "False Alarm"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "False Alarm" -Percent 0 -Type "Error" -BossName $bossDisplay -ImageUrl $imgToUse -Key $testKey }.GetNewClosure() },
-			@{ Text = "75%"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "75%" -Percent 75 -Type "Warning" -BossName $bossDisplay -ImageUrl $imgToUse -Key $testKey }.GetNewClosure() },
-			@{ Text = "50%"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "50%" -Percent 50 -Type "Warning" -BossName $bossDisplay -ImageUrl $imgToUse -Key $testKey }.GetNewClosure() },
-			@{ Text = "25%"; WidthPercent = 33; Action = { Invoke-TestButtonAction -Status "25%" -Percent 25 -Type "Warning" -BossName $bossDisplay -ImageUrl $imgToUse -Key $testKey }.GetNewClosure() }
+			@{ Text = "25%"; WidthPercent = 25; Action = { Invoke-TestButtonAction -Status "25%" -Percent 25 -Type "Warning" -BossName $bossDisplay -ImageUrl $imgToUse -Key $testKey }.GetNewClosure() },
+			@{ Text = "Died"; WidthPercent = 25; Action = { Invoke-TestButtonAction -Status "Died" -Percent 0 -Type "Info" -BossName $bossDisplay -ImageUrl $imgToUse -Key $testKey }.GetNewClosure() },
+			@{ Text = "False Alarm"; WidthPercent = 24; Action = { Invoke-TestButtonAction -Status "False Alarm" -Percent 0 -Type "Error" -BossName $bossDisplay -ImageUrl $imgToUse -Key $testKey }.GetNewClosure() },
+			@{ Text = "Hide"; WidthPercent = 24; Action = { Invoke-TestButtonAction -Status "Hide" -Percent 0 -Type "Info" -BossName $bossDisplay -ImageUrl $imgToUse -Key $testKey }.GetNewClosure() }
 		)
 
 		ShowInteractiveNotification `
@@ -467,13 +463,11 @@ function ProcessSpawnEvent {
 
         # Define common buttons for active bosses
         $activeButtons = @(
-            @{ Text = 'Died'; WidthPercent = 33; Action = { Send-BossUpdate -BossName $bossName -Status 'Died' -Percent 0 -DiscordMessageId $Spawn.discordMessageId; CloseToast -Key $notifKey }.GetNewClosure() },
-            @{ Text = 'Hide'; WidthPercent = 33; Action = { CloseToast -Key $notifKey; if (-not $global:DashboardConfig.State.WorldBossListener.HiddenNotifications.Contains($trackingKey)) { $global:DashboardConfig.State.WorldBossListener.HiddenNotifications.Add($trackingKey) | Out-Null } }.GetNewClosure() },
-            @{ Text = 'False Alarm'; WidthPercent = 33; Action = { Send-BossUpdate -BossName $bossName -Status 'False Alarm' -Percent 0 -DiscordMessageId $Spawn.discordMessageId; CloseToast -Key $notifKey }.GetNewClosure() },
-            @{ Text = '75%'; WidthPercent = 33; Action = { Send-BossUpdate -BossName $bossName -Status '75%' -Percent 75 -DiscordMessageId $Spawn.discordMessageId; ShowToast -Title "$bossName (75%)" -Message "Spawned at $popTime$triggeredByText" -Type 'Warning' -Key $notifKey -TimeoutSeconds 0 -Progress 75 -IgnoreCancellation }.GetNewClosure() },
-            @{ Text = '50%'; WidthPercent = 33; Action = { Send-BossUpdate -BossName $bossName -Status '50%' -Percent 50 -DiscordMessageId $Spawn.discordMessageId; ShowToast -Title "$bossName (50%)" -Message "Spawned at $popTime$triggeredByText" -Type 'Warning' -Key $notifKey -TimeoutSeconds 0 -Progress 50 -IgnoreCancellation }.GetNewClosure() },
-            @{ Text = '25%'; WidthPercent = 33; Action = { Send-BossUpdate -BossName $bossName -Status '25%' -Percent 25 -DiscordMessageId $Spawn.discordMessageId; ShowToast -Title "$bossName (25%)" -Message "Spawned at $popTime$triggeredByText" -Type 'Warning' -Key $notifKey -TimeoutSeconds 0 -Progress 25 -IgnoreCancellation }.GetNewClosure() }
-        )
+            @{ Text = '25%'; WidthPercent = 25; Action = { Send-BossUpdate -BossName $bossName -Status '25%' -Percent 25 -DiscordMessageId $Spawn.discordMessageId; ShowToast -Title "$bossName (25%)" -Message "Spawned at $popTime$triggeredByText" -Type 'Warning' -Key $notifKey -TimeoutSeconds 0 -Progress 25 -IgnoreCancellation }.GetNewClosure() },
+            @{ Text = 'Died'; WidthPercent = 25; Action = { Send-BossUpdate -BossName $bossName -Status 'Died' -Percent 0 -DiscordMessageId $Spawn.discordMessageId; CloseToast -Key $notifKey }.GetNewClosure() },
+            @{ Text = 'False Alarm'; WidthPercent = 24; Action = { Send-BossUpdate -BossName $bossName -Status 'False Alarm' -Percent 0 -DiscordMessageId $Spawn.discordMessageId; CloseToast -Key $notifKey }.GetNewClosure() },
+            @{ Text = 'Hide'; WidthPercent = 24; Action = { CloseToast -Key $notifKey; if (-not $global:DashboardConfig.State.WorldBossListener.HiddenNotifications.Contains($trackingKey)) { $global:DashboardConfig.State.WorldBossListener.HiddenNotifications.Add($trackingKey) | Out-Null } }.GetNewClosure() }
+		)
 
         # Buttons for when a boss is confirmed dead or false alarm
         $finalStateButtons = @(
@@ -485,13 +479,13 @@ function ProcessSpawnEvent {
             ShowInteractiveNotification `
                 -Title "FALSE ALARM: $bossName" `
                 -Message "Marked as False Alarm by $($Spawn.lastUpdateBy)." `
-                -Type 'Error' `
+                -Type 'Info' `
                 -Key $notifKey `
-                -TimeoutSeconds 10 ` # Keep it open until manually dismissed
+                -TimeoutSeconds 10 `
                 -Progress 0 `
-                -IgnoreCancellation `
-                -Buttons $activeButtons ` 
-                -ImageUrl $bossImg
+				-Buttons $finalStateButtons `
+				-ImageUrl $bossImg `
+                -IgnoreCancellation
             $State.HiddenNotifications.Remove($trackingKey) | Out-Null # Ensure it's not hidden if it was
         }
         elseif ($hpStatus -eq 'Died') {
@@ -503,7 +497,7 @@ function ProcessSpawnEvent {
                 -Key $notifKey `
                 -TimeoutSeconds 10 `
                 -Progress 0 `
-				-Buttons $activeButtons ` 
+				-Buttons $finalStateButtons `
 				-ImageUrl $bossImg `
                 -IgnoreCancellation
             $State.HiddenNotifications.Remove($trackingKey) | Out-Null # Ensure it's not hidden if it was
@@ -639,8 +633,6 @@ function Start-WorldBossListener
 
                                 $hasContent = ($upcoming.Count -gt 0) -or ($randomRotation.Count -gt 0) -or ($activeSpawns.Count -gt 0)
                                 if ($hasContent) {
-                                    $output += "=== $ServerName SERVER ==="
-                                    $output += $dashLine
                                     
                                     # Split Active into "Alive" and "Died" for display
                                     $alive = @(); $dead = @()
@@ -648,15 +640,6 @@ function Start-WorldBossListener
                                         if ($b.hpStatus -eq 'Died') { $dead += $b } else { $alive += $b }
                                     }
 
-                                    if ($alive.Count -gt 0) {
-                                        $output += " [ ACTIVE ]"
-                                        foreach ($b in $alive) { 
-                                            $t = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$b.lastUpdateTime).LocalDateTime.ToString('HH:mm')
-                                            $n = $b.name -replace '\[RANDOM\] ', ''
-                                            $output += "  > $t | $n ($($b.hpStatus))" 
-                                        }
-                                        $output += ""
-                                    }
 
                                     if ($upcoming.Count -gt 0) {
                                         $output += " [ UPCOMING ]"
@@ -680,7 +663,6 @@ function Start-WorldBossListener
 
                             $lines += $BuildBlock.Invoke("KHELDOR", $response.kheldor)
                             if ($lines.Count -gt 0) { $lines += "`n" }
-                            $lines += $BuildBlock.Invoke("GENESIS", $response.genesis)
 
                             if ($lines.Count -gt 0) {
                                 $msg = $lines -join "`n"
@@ -702,12 +684,9 @@ function Start-WorldBossListener
 
                         # --- LIVE NOTIFICATIONS ---
                         $kheldorSpawns = @($response.kheldor.activeSpawns)
-                        $genesisSpawns = @($response.genesis.activeSpawns)
 
-                        # Enforce naming convention for Genesis to avoid collisions if API returns raw names
-                        foreach ($gSpawn in $genesisSpawns) { if ($gSpawn.name -notmatch '^Genesis ') { $gSpawn.name = "Genesis $($gSpawn.name)" } }
 
-                        $allActiveAndRelevantSpawns = $kheldorSpawns + $genesisSpawns
+                        $allActiveAndRelevantSpawns = $kheldorSpawns
                         $knownIds = $allActiveAndRelevantSpawns | ForEach-Object { if ($_.id) { $_.id } else { $_.name } }
                         $localIds = $state.BossStates.Keys
                         
