@@ -1,5 +1,5 @@
 Author: Immortal / Divine
-Version: 2.7.2
+Version: 2.7.3
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 [Changelogs]
@@ -15,6 +15,9 @@ Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypa
 	- Dead bosses hide after 10 seconds now instead of 5 minutes
 	- Some notification not being paused on mouse hover
 	- Hotkey un-/registration causes no errors anymore
+
+	- Hotfix 2.7.3:
+	- No Crash anymore, if no setup is selected for auto start
 
    Dont forget to request your Access Code in Discord for the Worldboss Feature!
 
