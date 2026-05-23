@@ -1193,9 +1193,26 @@ function SyncUIToConfig
 		$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin'] = if ($UI.NeverRestartingCollectorLogin.Checked) { '1' } else { '0' }
 		$global:DashboardConfig.Config['Options']['WorldBossListener']           = if ($UI.WorldBossListener.Checked) { '1' } else { '0' }
 		$global:DashboardConfig.Config['Options']['ShowBossImages']              = if ($UI.ShowBossImages.Checked) { '1' } else { '0' }
+		$global:DashboardConfig.Config['Options']['AutoStartWithWindows']        = if ($UI.AutoStartWithWindows.Checked) { '1' } else { '0' }
+		$global:DashboardConfig.Config['Options']['AutoStartSetup']              = if ($UI.AutoStartSetup.Checked) { '1' } else { '0' }
 		$global:DashboardConfig.Config['Options']['NotificationPosition']        = $UI.NotificationPositionSelector.SelectedItem
 
-		# --- END FIX ---
+		# Handle Auto Start Registration
+		$runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+		$appName = "EntropiaDashboard"
+		if ($UI.AutoStartWithWindows.Checked) {
+			if ($global:DashboardConfig.State.IsRunningAsExe) {
+				$exePath = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+				Set-ItemProperty -Path $runKey -Name $appName -Value "`"$exePath`""
+			} else {
+				$startPath = Join-Path $global:DashboardConfig.Paths.Source 'start.ps1'
+				Set-ItemProperty -Path $runKey -Name $appName -Value "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$startPath`""
+			}
+		} else {
+			if (Get-ItemProperty -Path $runKey -Name $appName -ErrorAction SilentlyContinue) {
+				Remove-ItemProperty -Path $runKey -Name $appName
+			}
+		}
 
 		$global:DashboardConfig.Config['Profiles'] = [ordered]@{}
 		$global:DashboardConfig.Config['ReconnectProfiles'] = [ordered]@{}
@@ -1238,6 +1255,15 @@ function SyncUIToConfig
 		{
 			$global:DashboardConfig.Config['Options']['LauncherTimeout'] = $UI.InputLauncherTimeout.Text
 			$global:DashboardConfig.Config['Options']['SelectedProfile'] = ''
+		}
+
+		if ($UI.SetupGrid.SelectedRows.Count -gt 0)
+		{
+			$row = $UI.SetupGrid.SelectedRows[0]
+			if ($null -ne $row.Cells -and $row.Cells.Count -gt 0 -and $null -ne $row.Cells[0].Value)
+			{
+				$global:DashboardConfig.Config['Options']['SelectedSetup'] = $row.Cells[0].Value.ToString()
+			}
 		}
 
 		$targetProfile = $ProfileToSave
@@ -1338,6 +1364,9 @@ function SyncConfigToUI
 		if ($global:DashboardConfig.Config.Contains('Login') -and $global:DashboardConfig.Config['Login'].Contains('NeverRestartingCollectorLogin')) { $UI.NeverRestartingCollectorLogin.Checked = ([int]$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin']) -eq 1 }
 		if ($global:DashboardConfig.Config.Contains('Options') -and $global:DashboardConfig.Config['Options'].Contains('WorldBossListener')) { $UI.WorldBossListener.Checked = ([int]$global:DashboardConfig.Config['Options']['WorldBossListener']) -eq 1 }
 		if ($global:DashboardConfig.Config.Contains('Options') -and $global:DashboardConfig.Config['Options'].Contains('ShowBossImages')) { $UI.ShowBossImages.Checked = ([int]$global:DashboardConfig.Config['Options']['ShowBossImages']) -eq 1 } else { $UI.ShowBossImages.Checked = $true }
+		
+		if ($global:DashboardConfig.Config.Contains('Options') -and $global:DashboardConfig.Config['Options'].Contains('AutoStartWithWindows')) { $UI.AutoStartWithWindows.Checked = ([int]$global:DashboardConfig.Config['Options']['AutoStartWithWindows']) -eq 1 }
+		if ($global:DashboardConfig.Config.Contains('Options') -and $global:DashboardConfig.Config['Options'].Contains('AutoStartSetup')) { $UI.AutoStartSetup.Checked = ([int]$global:DashboardConfig.Config['Options']['AutoStartSetup']) -eq 1 }
 		if ($global:DashboardConfig.Config.Contains('Options') -and $global:DashboardConfig.Config['Options'].Contains('NotificationPosition')) { 
 			$pos = $global:DashboardConfig.Config['Options']['NotificationPosition']
 			if ($UI.NotificationPositionSelector.Items.Contains($pos)) { $UI.NotificationPositionSelector.SelectedItem = $pos }
@@ -1418,6 +1447,25 @@ function SyncConfigToUI
 		{
 			$UI.ProfileGrid.ClearSelection()
 			$UI.ProfileGrid.Tag = -1
+		}
+
+		$selectedSetupName = $null
+		if ($global:DashboardConfig.Config['Options'] -and $global:DashboardConfig.Config['Options']['SelectedSetup'])
+		{
+			$selectedSetupName = $global:DashboardConfig.Config['Options']['SelectedSetup'].ToString()
+		}
+
+		if (-not [string]::IsNullOrEmpty($selectedSetupName))
+		{
+			$UI.SetupGrid.ClearSelection()
+			foreach ($row in $UI.SetupGrid.Rows)
+			{
+				if ($row.Cells[0].Value -eq $selectedSetupName)
+				{
+					$row.Selected = $true
+					break
+				}
+			}
 		}
 
 		$selectedLoginProfile = $null
@@ -1673,7 +1721,7 @@ function InitializeUI
 	$topBar = SetUIElement @p
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; fg = @(240, 240, 240); id = 'TitleLabel'; text = 'Entropia Dashboard'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
 	$titleLabelForm = SetUIElement @p
-	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.7.1'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
+	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.7.2'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
 	$copyrightLabelForm = SetUIElement @p
 	$p = @{ type = 'Button'; width = 40; height = 30; left = 370; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'InfoForm'; text = 'Guide'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); tooltip = "Help / Info`nOpens the project website for documentation and support." }
 	$btnInfoForm = SetUIElement @p
@@ -1805,7 +1853,13 @@ function InitializeUI
 	$p = @{ type = 'Button'; width = 120; height = 25; top = 365; left = 20; bg = @(60, 60, 100); fg = @(240, 240, 240); id = 'CopyNeuz'; text = 'Copy Neuz.exe'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Copy Neuz.exe`nCopies 'neuz.exe' from the main folder to all profiles.`nUse this after patching the main client to update profiles." }
 	$btnCopyNeuz = SetUIElement @p
 
-	$p = @{ type = 'CheckBox'; width = 200; height = 20; top = 430; left = 0; bg = @(30, 30, 30); fg = @(240, 240, 240); id = 'NeverRestartingCollectorLogin'; text = 'Collector Double Click'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Collector Fix`nEnable if the Collector start button needs a double-click to work." }
+	$p = @{ type = 'CheckBox'; width = 200; height = 20; top = 395; left = 0; bg = @(30, 30, 30); fg = @(240, 240, 240); id = 'AutoStartWithWindows'; text = 'Auto Start with Windows'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Auto Start`nEnable this to have the Entropia Dashboard start automatically when you log into Windows." }
+	$chkAutoStartWindows = SetUIElement @p
+
+	$p = @{ type = 'CheckBox'; width = 250; height = 20; top = 415; left = 0; bg = @(30, 30, 30); fg = @(240, 240, 240); id = 'AutoStartSetup'; text = 'Auto Start Selected Setup'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Auto Setup`nAutomatically launch the currently selected setup when the Dashboard starts." }
+	$chkAutoStartSetup = SetUIElement @p
+
+	$p = @{ type = 'CheckBox'; width = 200; height = 20; top = 435; left = 0; bg = @(30, 30, 30); fg = @(240, 240, 240); id = 'NeverRestartingCollectorLogin'; text = 'Collector Double Click'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Collector Fix`nEnable if the Collector start button needs a double-click to work." }
 	$chkNeverRestartingLogin = SetUIElement @p
 	
 	$p = @{ type = 'Label'; width = 120; height = 20; top = 460; left = 20; bg = @(30, 30, 30, 0); fg = @(240, 240, 240); id = 'LabelNotificationPosition'; text = 'Notification Position:'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Notification Position`nSets the corner of the screen where notifications will appear." }
@@ -1875,7 +1929,7 @@ function InitializeUI
 	$p = @{ type = 'Button'; width = 60; height = 25; top = 480; left = 495; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'DeleteSetup'; text = 'Delete'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Delete`nRemove the selected setup configuration." }
 	$btnDeleteSetup = SetUIElement @p
 
-	$tabGeneral.Controls.AddRange(@($lblLauncher, $txtLauncher, $btnBrowseLauncher, $lblProcessName, $txtProcessName, $lblMaxClients, $txtMaxClients, $lblLauncherTimeout, $txtLauncherTimeout, $lblJunction, $txtJunction, $btnBrowseJunction, $btnStartJunction, $btnCopyNeuz, $chkNeverRestartingLogin, $lblNotificationPosition, $ddlNotificationPosition, $lblProfiles, $ProfileGrid, $btnAddProfile, $btnRenameProfile, $btnRemoveProfile, $btnDeleteProfile, $lblSetups, $SetupGrid, $btnAddSetup, $btnEditSetup, $btnRenameSetup, $btnDeleteSetup))
+	$tabGeneral.Controls.AddRange(@($lblLauncher, $txtLauncher, $btnBrowseLauncher, $lblProcessName, $txtProcessName, $lblMaxClients, $txtMaxClients, $lblLauncherTimeout, $txtLauncherTimeout, $lblJunction, $txtJunction, $btnBrowseJunction, $btnStartJunction, $btnCopyNeuz, $chkAutoStartWindows, $chkAutoStartSetup, $chkNeverRestartingLogin, $lblNotificationPosition, $ddlNotificationPosition, $lblProfiles, $ProfileGrid, $btnAddProfile, $btnRenameProfile, $btnRemoveProfile, $btnDeleteProfile, $lblSetups, $SetupGrid, $btnAddSetup, $btnEditSetup, $btnRenameSetup, $btnDeleteSetup))
 
 	$uiPropertiesToAdd.NotificationPositionSelector = $ddlNotificationPosition
 	#endregion
@@ -2482,6 +2536,8 @@ function InitializeUI
 		InputLauncherTimeout               = $txtLauncherTimeout
 		BrowseJunction                     = $btnBrowseJunction
 		NeverRestartingCollectorLogin      = $chkNeverRestartingLogin
+		AutoStartWithWindows               = $chkAutoStartWindows
+		AutoStartSetup                     = $chkAutoStartSetup
 		WorldBossListener                  = $chkWorldBossListener
 		RefreshBosses                      = $btnRefreshBosses
 		ShowBossImages                     = $chkShowImages

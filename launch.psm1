@@ -1073,7 +1073,8 @@ function InvokeSavedLaunchSequence
 
 	foreach ($row in $grid.Rows)
 	{
-		if ($null -eq $row.Cells -or $row.Cells.Count -lt 2) { continue }
+		if ($null -eq $row -or $null -eq $row.Cells) { continue }
+		if ($row.Cells.Count -lt 2) { continue }
 		$cellValue = $row.Cells[1].Value
 		if ($null -eq $cellValue) { continue }
 		$title = $cellValue.ToString()
@@ -1265,7 +1266,8 @@ function InvokeSavedLaunchSequence
 						$rowsWithInfo = [System.Collections.Generic.List[Object]]::new()
 
 						foreach ($row in $allRows) {
-							if ($null -eq $row.Cells -or $row.Cells.Count -lt 2) { continue }
+							if ($null -eq $row -or $null -eq $row.Cells) { continue }
+							if ($row.Cells.Count -lt 2) { continue }
 							$cellValue = $row.Cells[1].Value
 							if ($null -eq $cellValue) { continue }
 							$rt = $cellValue.ToString()
@@ -1342,7 +1344,9 @@ function InvokeSavedLaunchSequence
 								$row = $slot.AssignedRow
 								$pName = $slot.Profile
 							
-								if ($null -eq $row.Cells -or $row.Cells.Count -lt 2 -or $null -eq $row.Cells[1].Value) { continue }
+								if ($null -eq $row -or $null -eq $row.Cells) { continue }
+								if ($row.Cells.Count -lt 2) { continue }
+								if ($null -eq $row.Cells[1].Value) { continue }
 								$rowTitle = $row.Cells[1].Value.ToString()
 								$cleanTitle = $rowTitle
 								if ($rowTitle -match '^\[(?<pName>[^\]]+)\](?<rest>.*)') { 

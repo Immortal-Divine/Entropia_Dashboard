@@ -229,25 +229,35 @@ function CreateMacroPositionTimer
                     try
                     {
                         if (-not $timerData.FormData -or -not $timerData.FormData.PositionSliderX -or -not $timerData.FormData.PositionSliderY) { return }
-
-                        $sliderValueX = $timerData.FormData.PositionSliderX.Value
-                        $maxLeft = $rect.Right - $timerData['Form'].Width - 8
-                        $targetLeft = $rect.Left + 8 + (($maxLeft - ($rect.Left + 8)) * $sliderValueX / 100)
-                            
-                        $sliderValueY = 100 - $timerData.FormData.PositionSliderY.Value
-                        $maxTop = $rect.Bottom - $timerData['Form'].Height - 8
-                        $targetTop = $rect.Top + 8 + (($maxTop - ($rect.Top + 8)) * $sliderValueY / 100)
-
-                        # Use and update a high-precision 'Real' position to prevent snapping
-                        $newRealLeft = $timerData.RealLeft + ($targetLeft - $timerData.RealLeft) * 0.2
-                        $newRealTop = $timerData.RealTop + ($targetTop - $timerData.RealTop) * 0.2
                         
-                        $timerData.RealLeft = $newRealLeft
-                        $timerData.RealTop = $newRealTop
+                        # Skip anchoring logic if the user is currently dragging the window
+                        if (-not ($timerData.FormData.PSObject.Properties['IsDragging'] -and $timerData.FormData.IsDragging))
+                        {
+                            $sliderValueX = $timerData.FormData.PositionSliderX.Value
+                            $maxLeft = $rect.Right - $timerData['Form'].Width - 8
+                            $targetLeft = $rect.Left + 8 + (($maxLeft - ($rect.Left + 8)) * $sliderValueX / 100)
+                                
+                            $sliderValueY = 100 - $timerData.FormData.PositionSliderY.Value
+                            $maxTop = $rect.Bottom - $timerData['Form'].Height - 8
+                            $targetTop = $rect.Top + 8 + (($maxTop - ($rect.Top + 8)) * $sliderValueY / 100)
 
-                        # Set the form's integer position for display
-                        $timerData['Form'].Left = [int]$newRealLeft
-                        $timerData['Form'].Top = [int]$newRealTop
+                            # Use and update a high-precision 'Real' position to prevent snapping
+                            $newRealLeft = $timerData.RealLeft + ($targetLeft - $timerData.RealLeft) * 0.2
+                            $newRealTop = $timerData.RealTop + ($targetTop - $timerData.RealTop) * 0.2
+                            
+                            $timerData.RealLeft = $newRealLeft
+                            $timerData.RealTop = $newRealTop
+
+                            # Set the form's integer position for display
+                            $timerData['Form'].Left = [int]$newRealLeft
+                            $timerData['Form'].Top = [int]$newRealTop
+                        }
+                        else
+                        {
+                            # While dragging, sync the 'Real' coordinates with the actual window position
+                            $timerData.RealLeft = $timerData['Form'].Left
+                            $timerData.RealTop = $timerData['Form'].Top
+                        }
                                                 
                         $formHandle = $timerData['Form'].Handle
                         $linkedHandle = $timerData['WindowHandle']
@@ -744,6 +754,10 @@ function ToggleMacroHotkeys
         {
             UpdateMacroSettings -formData $form.Tag -forceWrite
         }
+		if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)
+		{
+			try { RefreshHotkeysList } catch {}
+		}
     }
 }
 
@@ -779,6 +793,21 @@ function CleanupMacroResources
             {
                 $form.Tag.ToolTipFtool.Dispose()
             }
+            
+            # REQUIREMENT #2: When closing with active global toggle, pause the inner hotkey first to release the key
+            if ($form.Tag.BtnHotkeyToggle -and $form.Tag.BtnHotkeyToggle.Checked)
+            {
+                try
+                {
+                    Write-Verbose "MACRO: Pausing hotkeys for instance $instanceId before cleanup (global toggle was active)"
+                    PauseHotkeysForOwner -OwnerKey "macroinst_$instanceId"
+                }
+                catch
+                {
+                    Write-Warning "MACRO: Failed to pause hotkeys for instance $instanceId during cleanup. Error: $_"
+                }
+            }
+            
             if ($form.Tag.ActiveJobs)
             {
                 foreach ($job in $form.Tag.ActiveJobs) {
@@ -808,6 +837,7 @@ function CleanupMacroResources
                 $form.Tag.RunspacePool = $null
             }
 
+            # REQUIREMENT #3: Unregister all hotkeys on form close (not just pause)
             if ($form.Tag.HotkeyId) {
                 try { UnregisterHotkeyInstance -Id $form.Tag.HotkeyId -OwnerKey "macroinst_$($form.Tag.InstanceId)" } catch {}
             }
@@ -1227,6 +1257,8 @@ function CreateMacroForm
     $formData = [PSCustomObject]@{
         Type            = 'Macro'
         InstanceId      = $instanceId
+        HeaderPanel     = $headerPanel
+        LabelWinTitle   = $labelWinTitle
         SelectedWindow  = $row.Tag.MainWindowHandle
         BtnKeySelect    = $btnKeySelect
         Interval        = $interval
@@ -1290,7 +1322,8 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.Instance
 }
 "@
             $scriptBlock = [scriptblock]::Create($script)
-            $formData.GlobalHotkeyId = SetHotkey -KeyCombinationString $formData.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey
+            $ownerLabel = "Macro: $($formData.InstanceId)"
+            $formData.GlobalHotkeyId = SetHotkey -KeyCombinationString $formData.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel -OldHotkeyId $null
         }
         catch
         {
@@ -1299,6 +1332,7 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.Instance
     }
 
     AddMacroEventHandlers $formData | Out-Null
+    AddMacroDragHandlers $formData | Out-Null
     
     return $macroForm
 }
@@ -1408,6 +1442,203 @@ function CreateSequencePanel
     $txtHoldKeyInterval.Add_TextChanged({ UpdateMacroSettings $this.FindForm().Tag -forceWrite })
 
     return $seqData
+}
+
+function UpdateMacroSliderValuesFromFormPosition
+{
+	param($formData, $windowRect)
+	
+	if (-not $formData -or -not $formData.PSObject.Properties['PositionSliderX'] -or -not $formData.PSObject.Properties['PositionSliderY'])
+	{
+		return
+	}
+	
+	if (-not $windowRect)
+	{
+		return
+	}
+	
+	try
+	{
+		$form = $formData.Form
+		if (-not $form -or $form.IsDisposed)
+		{
+			return
+		}
+		
+		# Calculate slider values based on current form position relative to window
+		$formLeft = $form.Left
+		$formTop = $form.Top
+		$formWidth = $form.Width
+		$formHeight = $form.Height
+		
+		# Calculate X slider (0-100 based on left position)
+		$minLeft = $windowRect.Left + 8
+		$maxLeft = $windowRect.Right - $formWidth - 8
+		if ($maxLeft -gt $minLeft)
+		{
+			$sliderX = [Math]::Round(($formLeft - $minLeft) / ($maxLeft - $minLeft) * 100)
+			$sliderX = [Math]::Max(-25, [Math]::Min(125, $sliderX))
+			$formData.PositionSliderX.Value = $sliderX
+		}
+		
+		# Calculate Y slider (0-100 based on top position, inverted)
+		$minTop = $windowRect.Top + 8
+		$maxTop = $windowRect.Bottom - $formHeight - 8
+		if ($maxTop -gt $minTop)
+		{
+			$sliderY = [Math]::Round(($formTop - $minTop) / ($maxTop - $minTop) * 100)
+			$sliderY = [Math]::Max(-18, [Math]::Min(118, $sliderY))
+			$formData.PositionSliderY.Value = 100 - $sliderY
+		}
+	}
+	catch
+	{
+		Write-Verbose ('MACRO: Error updating slider values from form position: {0}' -f $_.Exception.Message)
+	}
+}
+
+function AddMacroDragHandlers
+{
+	param($formData)
+	
+	if (-not $formData -or -not $formData.PSObject.Properties['Form'])
+	{
+		return
+	}
+	
+	$form = $formData.Form
+	if ($form.IsDisposed)
+	{
+		return
+	}
+	
+	# Initialize drag tracking data
+	if (-not $formData.PSObject.Properties['IsDragging'])
+	{
+		$formData | Add-Member -MemberType NoteProperty -Name 'IsDragging' -Value $false
+	}
+	if (-not $formData.PSObject.Properties['DragStart'])
+	{
+		$formData | Add-Member -MemberType NoteProperty -Name 'DragStart' -Value @{ X = 0; Y = 0; FormX = 0; FormY = 0 }
+	}
+	if (-not $formData.PSObject.Properties['LastUpdateTime'])
+	{
+		$formData | Add-Member -MemberType NoteProperty -Name 'LastUpdateTime' -Value ([DateTime]::MinValue)
+	}
+	
+	$mouseDown = {
+		$f = $this.FindForm()
+		if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left)
+		{
+			if ($f.Tag -and -not $f.Tag.IsDragging)
+			{
+				$f.Tag.IsDragging = $true
+				$f.Tag.DragStart.X = [System.Windows.Forms.Cursor]::Position.X
+				$f.Tag.DragStart.Y = [System.Windows.Forms.Cursor]::Position.Y
+				$f.Tag.DragStart.FormX = $f.Left
+				$f.Tag.DragStart.FormY = $f.Top
+			}
+		}
+	}
+	
+	$mouseMove = {
+		$f = $this.FindForm()
+		if ($f.Tag -and $f.Tag.IsDragging)
+		{
+			try
+			{
+				$currentTime = [DateTime]::Now
+				# Rate limit updates to avoid excessive slider changes
+				if (($currentTime - $f.Tag.LastUpdateTime).TotalMilliseconds -lt 20)
+				{
+					return
+				}
+				$f.Tag.LastUpdateTime = $currentTime
+				
+				$cursorX = [System.Windows.Forms.Cursor]::Position.X
+				$cursorY = [System.Windows.Forms.Cursor]::Position.Y
+				
+				$deltaX = $cursorX - $f.Tag.DragStart.X
+				$deltaY = $cursorY - $f.Tag.DragStart.Y
+				
+				$newLeft = $f.Tag.DragStart.FormX + $deltaX
+				$newTop = $f.Tag.DragStart.FormY + $deltaY
+				
+				$f.Left = $newLeft
+				$f.Top = $newTop
+				
+				# Update timer data's real position to match
+				if ($f.Tag)
+				{
+					$timerKey = "macroPosition_$($f.Tag.InstanceId)"
+					if ($global:DashboardConfig.Resources.Timers.Contains($timerKey))
+					{
+						$timer = $global:DashboardConfig.Resources.Timers[$timerKey]
+						if ($timer -and $timer.Tag)
+						{
+							$timer.Tag.RealLeft = $newLeft
+							$timer.Tag.RealTop = $newTop
+						}
+					}
+				}
+				
+				# Update sliders based on new position
+				if ($f.Tag.SelectedWindow -and $f.Tag.SelectedWindow -ne [IntPtr]::Zero)
+				{
+					$rect = New-Object Custom.Native+RECT
+					if ([Custom.Native]::GetWindowRect($f.Tag.SelectedWindow, [ref]$rect))
+					{
+						UpdateMacroSliderValuesFromFormPosition $f.Tag $rect
+					}
+				}
+			}
+			catch
+			{
+				Write-Verbose ('MACRO: Error during mouse move: {0}' -f $_.Exception.Message)
+			}
+		}
+	}
+	
+	$mouseUp = {
+		$f = $this.FindForm()
+		if ($f.Tag)
+		{
+			$f.Tag.IsDragging = $false
+			# Final slider update to ensure consistency
+			if ($f.Tag.SelectedWindow -and $f.Tag.SelectedWindow -ne [IntPtr]::Zero)
+			{
+				try
+				{
+					$rect = New-Object Custom.Native+RECT
+					if ([Custom.Native]::GetWindowRect($f.Tag.SelectedWindow, [ref]$rect))
+					{
+						UpdateMacroSliderValuesFromFormPosition $f.Tag $rect
+					}
+				}
+				catch {}
+			}
+		}
+	}
+
+	# Apply handlers to both the form and the header panel
+	$form.Add_MouseDown($mouseDown)
+	$form.Add_MouseMove($mouseMove)
+	$form.Add_MouseUp($mouseUp)
+
+	if ($formData.HeaderPanel)
+	{
+		$formData.HeaderPanel.Add_MouseDown($mouseDown)
+		$formData.HeaderPanel.Add_MouseMove($mouseMove)
+		$formData.HeaderPanel.Add_MouseUp($mouseUp)
+	}
+
+	if ($formData.LabelWinTitle)
+	{
+		$formData.LabelWinTitle.Add_MouseDown($mouseDown)
+		$formData.LabelWinTitle.Add_MouseMove($mouseMove)
+		$formData.LabelWinTitle.Add_MouseUp($mouseUp)
+	}
 }
 
 function AddMacroEventHandlers
@@ -1750,13 +1981,23 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
     $formData.PositionSliderX.Add_ValueChanged({
         $form = $this.FindForm()
         if (-not $form -or -not $form.Tag) { return }
-        UpdateMacroSettings $form.Tag -forceWrite
+        $data = $form.Tag
+        # Only update settings if not currently dragging (to avoid conflicts)
+        if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging)
+        {
+            UpdateMacroSettings $data -forceWrite
+        }
     })
 
     $formData.PositionSliderY.Add_ValueChanged({
         $form = $this.FindForm()
         if (-not $form -or -not $form.Tag) { return }
-        UpdateMacroSettings $form.Tag -forceWrite
+        $data = $form.Tag
+        # Only update settings if not currently dragging (to avoid conflicts)
+        if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging)
+        {
+            UpdateMacroSettings $data -forceWrite
+        }
     })
 }
 

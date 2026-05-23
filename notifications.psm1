@@ -211,10 +211,15 @@ function ShowToast
             
             if ($existingForm.Tag.Timer) {
                 $tTag = $existingForm.Tag.Timer.Tag
-                # Reset timer to full duration starting now
+                # Update duration if a new timeout is specified
+                if ($PSBoundParameters.ContainsKey('TimeoutSeconds')) {
+                    $tTag.TotalDuration = [TimeSpan]::FromSeconds($TimeoutSeconds)
+                }
+
+                # Reset timer to updated/original duration starting now
                 $tTag.EndTime = [DateTime]::Now.Add($tTag.TotalDuration)
 
-                $tTag.WaitForHover = $false
+                $tTag.Wait3ForHover = $WaitForHover
 
                 if ($tTag.Strip.Parent) { $tTag.Strip.Height = $tTag.Strip.Parent.Height }
             }
@@ -244,6 +249,17 @@ function ShowToast
 				$map = $global:DashboardConfig.State.LoginNotificationMap.GetEnumerator() | Where-Object { $_.Value -eq $s } | Select-Object -First 1
 				if ($map) { $global:DashboardConfig.State.LoginNotificationMap.Remove($map.Key) } 
 			} 
+			# Update timer if present
+            if ($existingForm.Tag.Timer) {
+                $tTag = $existingForm.Tag.Timer.Tag
+                
+                # Update duration if a new timeout is specified
+                if ($PSBoundParameters.ContainsKey('TimeoutSeconds')) {
+                    $tTag.TotalDuration = [TimeSpan]::FromSeconds($TimeoutSeconds)
+                }
+                $tTag.EndTime = [DateTime]::Now.Add($tTag.TotalDuration)
+                $tTag.Wait3ForHover = $Wait3ForHover
+            }
 			if ($global:DashboardConfig.UI.MainForm -and $global:DashboardConfig.UI.MainForm.InvokeRequired) {
 				$global:DashboardConfig.UI.MainForm.BeginInvoke([Action] { UpdateNotificationPositions })
 			} else { UpdateNotificationPositions }
@@ -396,7 +412,7 @@ function ShowInteractiveNotification
 	$extraData = @{ Buttons = $Buttons; IsInteractive = $true }
     if (-not [string]::IsNullOrEmpty($ImageUrl)) { $extraData['ImageUrl'] = $ImageUrl }
 
-	ShowToast -Title $Title -Message $Message -Type $Type -Key $Key -TimeoutSeconds $TimeoutSeconds -Height 0 -Progress $Progress -IgnoreCancellation $IgnoreCancellation -ExtraData $extraData -WaitForHover:$WaitForHover
+	ShowToast -Title $Title -Message $Message -Type $Type -Key $Key -TimeoutSeconds $TimeoutSeconds -Height 0 -Progress $Progress -IgnoreCancellation $IgnoreCancellation -ExtraData $extraData -WaitForHover:$Wait3ForHover
 
 	
 	$form = $null

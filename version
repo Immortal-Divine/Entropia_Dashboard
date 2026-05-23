@@ -1,14 +1,20 @@
 Author: Immortal / Divine
-Version: 2.7.1
+Version: 2.7.2
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 [Changelogs]
    - Added:
 
-    - Removed Genesis
+	- Setting for Auto Start with Windows
+	- Setting for Auto Start of selected Saved Setup on dashboard launch
+    - List for all hotkeys in the settings page auto updates now
+	- Ftool and Macro window is now dragable with the mouse (slider functionality remains active too)
 
    - Fixed:
 
+	- Dead bosses hide after 10 seconds now instead of 5 minutes
+	- Some notification not being paused on mouse hover
+	- Hotkey un-/registration causes no errors anymore
 
    Dont forget to request your Access Code in Discord for the Worldboss Feature!
 

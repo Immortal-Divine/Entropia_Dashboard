@@ -40,6 +40,74 @@ if (-not $global:LoginNotificationStack) { $global:LoginNotificationStack = [Sys
 
 #region Helper Functions
 
+function ValidateAndRefreshProcessReference
+{
+	param(
+		[Parameter(Mandatory = $true)]
+		[System.Windows.Forms.DataGridViewRow]$Row,
+		[Parameter(Mandatory = $false)]
+		[int]$MaxRetries = 3,
+		[Parameter(Mandatory = $false)]
+		[int]$RetryDelayMs = 100
+	)
+	
+	$process = $Row.Tag
+	
+	# If process reference exists and is valid, return it
+	if ($null -ne $process -and $process.Id -gt 0)
+	{
+		try
+		{
+			$testProc = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+			if ($null -ne $testProc -and -not $testProc.HasExited)
+			{
+				return $process
+			}
+		}
+		catch {}
+	}
+	
+	# Process reference is stale/NULL - try to find fresh process by looking at running processes
+	# This handles the race condition when login is called immediately after launch
+	for ($attempt = 0; $attempt -lt $MaxRetries; $attempt++)
+	{
+		try
+		{
+			# Get the window title to extract profile and entry number
+			if ($Row.Cells -and $Row.Cells.Count -gt 1)
+			{
+				$cellTitle = $Row.Cells[1].Value
+				if ($null -ne $cellTitle)
+				{
+					$titleStr = [string]$cellTitle
+					$entryNum = $Row.Cells[0].Value
+					
+					# Try to find process by window title match
+					$allProcesses = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -and $_.MainWindowHandle -ne 0 }
+					foreach ($proc in $allProcesses)
+					{
+						if ($proc.MainWindowTitle -like "*$titleStr*")
+						{
+							$Row.Tag = $proc
+							return $proc
+						}
+					}
+				}
+			}
+		}
+		catch {}
+		
+		# If not found, wait and retry
+		if ($attempt -lt ($MaxRetries - 1))
+		{
+			Start-Sleep -Milliseconds $RetryDelayMs
+		}
+	}
+	
+	# Return NULL if process cannot be found - caller will handle with error
+	return $null
+}
+
 function GetClientLogPath
 {
 	param(
@@ -47,7 +115,7 @@ function GetClientLogPath
 		[System.Windows.Forms.DataGridViewRow]$Row
 	)
 	$determinedLogBaseFolder = ''
-	$process = $Row.Tag
+	$process = ValidateAndRefreshProcessReference -Row $Row -MaxRetries 2 -RetryDelayMs 50
 	$profileName = ''
 	$processExeBaseFolder = ''
 	if ($null -eq $Row.Cells) { return '' }
@@ -161,7 +229,20 @@ function LoginSelectedRow
 
 		if ($RowInput)
 		{
-			$rawSelection += $RowInput
+			# Handle both single objects and arrays - properly collect them
+			if ($RowInput -is [System.Collections.IEnumerable] -and $RowInput -isnot [string] -and $RowInput -isnot [System.Windows.Forms.DataGridViewRow])
+			{
+				# It's an array or collection - add each item
+				foreach ($item in $RowInput)
+				{
+					$rawSelection += $item
+				}
+			}
+			else
+			{
+				# It's a single object
+				$rawSelection += $RowInput
+			}
 		}
 		elseif ($global:DashboardConfig.UI.DataGridMain.SelectedRows.Count -gt 0)
 		{
@@ -178,6 +259,11 @@ function LoginSelectedRow
 			$actualRow = $null
 			$entryNum = 0
 
+			if ($null -eq $item)
+			{
+				# Skip null items
+				return
+			}
 			
 			if ($item.PSTypeNames -contains 'LoginOverrideWrapper')
 			{
@@ -190,7 +276,7 @@ function LoginSelectedRow
 				$entryNum = $actualRow.Cells[0].Value -as [int]
 			}
 
-			if ($null -ne $actualRow -and $actualRow.Cells -and $actualRow.Cells.Count -gt 1)
+			if ($null -ne $actualRow -and $null -ne $actualRow.Cells -and $actualRow.Cells.Count -gt 1)
 			{
 				$title = [string]$actualRow.Cells[1].Value
 				$profileName = 'Default'
@@ -220,10 +306,17 @@ function LoginSelectedRow
 			$row = $dataItem.OriginalRow
 			$entryNum = [int]$dataItem.EntryNum 
             
-			$process = $row.Tag
 			if ($null -eq $row.Cells -or $null -eq $row.Cells[1].Value) { continue }
 			$processTitle = $row.Cells[1].Value.ToString()
 			$profileName = if ($processTitle -match '^\[(?<pName>[^\]]+)\]') { $Matches['pName'] } else { 'Default' }
+
+			# Validate and refresh process reference - critical for handling auto-launch race condition
+			$process = ValidateAndRefreshProcessReference -Row $row -MaxRetries 5 -RetryDelayMs 200
+			if ($null -eq $process)
+			{
+				Write-Verbose "LOGIN: Skipping entry $entryNum ($profileName) - process reference could not be established"
+				continue
+			}
 
 			$actualLogPath = $LogFilePath
 			if ([string]::IsNullOrEmpty($actualLogPath))
@@ -234,7 +327,7 @@ function LoginSelectedRow
 
 			$jobData = [PSCustomObject]@{
 				EntryNumber    = $entryNum
-				ProcessId      = if ($process) { $process.Id } else { 0 }
+				ProcessId      = $process.Id
 				ExplicitHandle = if (($WindowHandle -ne [IntPtr]::Zero) -and ($RowInput -eq $row -or ($RowInput.Row -eq $row))) { $WindowHandle } else { [IntPtr]::Zero }
 				LogPath        = $actualLogPath
 				Config         = if ($global:DashboardConfig.Config -and $global:DashboardConfig.Config['LoginConfig'] -and $global:DashboardConfig.Config['LoginConfig'][$profileName]) { $global:DashboardConfig.Config['LoginConfig'][$profileName] } else { @{} }

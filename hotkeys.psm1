@@ -331,7 +331,9 @@ function SetHotkey
 				if (-not $global:RegisteredHotkeys[$existingId] -or -not $global:RegisteredHotkeys[$existingId].Owners) { if (-not $global:RegisteredHotkeys[$existingId]) { $global:RegisteredHotkeys[$existingId] = @{} }; $global:RegisteredHotkeys[$existingId].Owners = @{} }
 				if ($global:RegisteredHotkeys[$existingId].Owners.ContainsKey($OwnerKey)) {
 					$staleAction = $global:RegisteredHotkeys[$existingId].Owners[$OwnerKey]
-					try { [Custom.HotkeyManager]::UnregisterAction($existingId, $staleAction.ActionDelegate) } catch {}
+					if ($staleAction -and $staleAction.ActionDelegate) {
+						try { [Custom.HotkeyManager]::UnregisterAction($existingId, $staleAction.ActionDelegate) } catch {}
+					}
 					$global:RegisteredHotkeys[$existingId].Owners.Remove($OwnerKey)
 				}
 			}
@@ -399,23 +401,43 @@ function SetHotkey
 			{
 				if (-not $global:PausedRegisteredHotkeys.ContainsKey($k)) { continue }
 				$meta = $global:PausedRegisteredHotkeys[$k]
-				if ($meta -and $meta.KeyString -and $meta.KeyString -eq $normalizedKeyString)
+				if ($meta)
 				{
-					if ($meta.Owners -and $meta.Owners.ContainsKey($OwnerKey))
+					# Safely extract KeyString
+					$ks = if ($meta.PSObject.Properties['KeyString']) { $meta.KeyString } else { $null }
+					
+					if (-not [string]::IsNullOrEmpty($ks) -and $ks -eq $normalizedKeyString)
 					{
-						$meta.Owners.Remove($OwnerKey)
-						if ($meta.Owners.Count -eq 0)
+						if ($meta.Owners -and $meta.Owners.ContainsKey($OwnerKey))
 						{
-							$global:PausedRegisteredHotkeys.Remove($k)
+							$meta.Owners.Remove($OwnerKey)
+							if ($meta.Owners.Count -eq 0)
+							{
+								$global:PausedRegisteredHotkeys.Remove($k)
+								# Clean up string lookup
+								if ($ks -and $global:RegisteredHotkeyByString.Contains($ks) -and $global:RegisteredHotkeyByString[$ks] -eq $k)
+								{
+									$global:RegisteredHotkeyByString.Remove($ks)
+								}
+							}
+							break 
 						}
-						break 
+					}
+					elseif ([string]::IsNullOrEmpty($ks))
+					{
+						# Clean up orphaned paused entry with null KeyString
+						Write-Verbose "HOTKEYS: Removing orphaned paused hotkey with null KeyString (fakeId $k)"
+						$global:PausedRegisteredHotkeys.Remove($k)
 					}
 				}
 			}
 		}
 	}
-	catch {}
-	RefreshHotkeysList
+	catch { Write-Verbose "HOTKEYS: Error during paused hotkey cleanup: $_" }
+	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)
+	{
+		try { RefreshHotkeysList } catch {}
+	}
 	return $id
 }
 
@@ -505,6 +527,10 @@ function ResumeAllHotkeys
 		}
 		catch {}
 	}
+	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)
+	{
+		try { RefreshHotkeysList } catch {}
+	}
 }
 
 function ResumePausedKeys
@@ -580,6 +606,10 @@ function ResumePausedKeys
 		}
 		catch {}
 	}
+	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)
+	{
+		try { RefreshHotkeysList } catch {}
+	}
 }
 
 function ResumeHotkeysForOwner
@@ -646,6 +676,12 @@ function ResumeHotkeysForOwner
 		}
 		catch {}
 	}
+	
+	# REQUIREMENT #1: Auto-refresh settings to show correct hotkey state
+	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)
+	{
+		try { RefreshHotkeysList } catch {}
+	}
 }
 
 function RemoveAllHotkeys
@@ -653,6 +689,10 @@ function RemoveAllHotkeys
 	[Custom.HotkeyManager]::UnregisterAll()
 	$global:RegisteredHotkeys.Clear()
 	$global:RegisteredHotkeyByString.Clear()
+	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)
+	{
+		try { RefreshHotkeysList } catch {}
+	}
 	Write-Verbose 'HOTKEYS: All hotkeys unregistered.'
 }
 
@@ -814,6 +854,10 @@ function PauseAllHotkeys
 		}
 		catch {}
 	}
+	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)
+	{
+		try { RefreshHotkeysList } catch {}
+	}
 }
 
 function PauseHotkeysForOwner
@@ -885,6 +929,10 @@ function PauseHotkeysForOwner
 		}
 		catch {}
 	}
+	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)
+	{
+		try { RefreshHotkeysList } catch {}
+	}
 }
 
 function UnregisterHotkeyInstance
@@ -893,7 +941,8 @@ function UnregisterHotkeyInstance
 		[Parameter(Mandatory = $true)][int]$Id,
 		[Parameter(Mandatory = $false)][string]$OwnerKey
 	)
-	if (-not $Id) { return }
+	if (-not $Id -or $Id -eq 0) { return }
+	
 	try
 	{
 		$didUnregister = $false
@@ -903,6 +952,12 @@ function UnregisterHotkeyInstance
 			$translateTarget = $global:PausedIdMap[$Id]
 		}
 		if ($translateTarget) { $IdToUse = $translateTarget } else { $IdToUse = $Id }
+		
+		# CRITICAL: Validate the ID after translation
+		if (-not $IdToUse -or $IdToUse -eq 0) {
+			Write-Verbose "HOTKEYS: UnregisterHotkeyInstance called with invalid translated ID (original: $Id). Skipping."
+			return
+		}
        
 		if (-not $global:RegisteredHotkeys.ContainsKey($IdToUse) -and $global:PausedRegisteredHotkeys -and $global:PausedRegisteredHotkeys.ContainsKey($IdToUse))
 		{
@@ -1560,6 +1615,10 @@ function UnregisterHotkeysByOwnerPattern
             }
         }
     }
+	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)
+	{
+		try { RefreshHotkeysList } catch {}
+	}
 }
 
 Export-ModuleMember -Function *

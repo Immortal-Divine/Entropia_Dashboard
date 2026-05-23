@@ -340,29 +340,44 @@ function Send-Message
 		username       = $userToSend
 	} | ConvertTo-Json -Depth 10
 
-	try
-	{
-		[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-		Invoke-RestMethod -Uri $ProxyUrl -Method Post -Body $finalBody -ContentType 'application/json' -ErrorAction Stop
-        
-		ShowToast -Title 'Success' -Message "$bossDisplay reported!" -Type 'Info' -IgnoreCancellation
-	}
-	catch
-	{
-		$errorMsg = $_.Exception.Message
-        
-		if ($_.Exception.Response)
-		{
-			$reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-			$serverText = $reader.ReadToEnd()
-			if (-not [string]::IsNullOrWhiteSpace($serverText))
-			{
-				$errorMsg = $serverText
+	[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+	$mainForm = $global:DashboardConfig.UI.MainForm
+
+	[System.Threading.Tasks.Task]::Run([Action]{
+		$client = New-Object System.Net.Http.HttpClient
+		$client.Timeout = [TimeSpan]::FromSeconds(5)
+		try {
+			$content = New-Object System.Net.Http.StringContent($finalBody, [System.Text.Encoding]::UTF8, "application/json")
+			$responseTask = $client.PostAsync($script:ProxyUrl, $content)
+			$response = $responseTask.GetAwaiter().GetResult()
+			
+			if ($response.IsSuccessStatusCode) {
+				$mainForm.BeginInvoke([Action]{
+					ShowToast -Title 'Success' -Message "$bossDisplay reported!" -Type 'Info' -IgnoreCancellation
+				}) | Out-Null
+			} else {
+				$errorMsg = "Server error ($([int]$response.StatusCode)): $($response.ReasonPhrase)"
+				$bodyTask = $response.Content.ReadAsStringAsync()
+				$serverText = $bodyTask.GetAwaiter().GetResult()
+				if (-not [string]::IsNullOrWhiteSpace($serverText)) { $errorMsg = $serverText }
+
+				$mainForm.BeginInvoke([Action]{
+					Show-DarkMessageBox "$errorMsg" 'Send Failed' 'Ok' 'Error'
+				}) | Out-Null
 			}
+		} catch {
+			$errorMsg = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
+			if ($errorMsg -match "task was canceled") { $errorMsg = "Connection timed out (Server unreachable)" }
+			
+			if ($mainForm -and -not $mainForm.IsDisposed) {
+				$mainForm.BeginInvoke([Action]{
+					Show-DarkMessageBox "$errorMsg" 'Send Failed' 'Ok' 'Error'
+				}) | Out-Null
+			}
+		} finally {
+			$client.Dispose()
 		}
-        
-		Show-DarkMessageBox "$errorMsg" 'Send Failed' 'Ok' 'Error'
-	}
+	}) | Out-Null
 }
 
 function ProcessSpawnEvent {
@@ -490,7 +505,7 @@ function ProcessSpawnEvent {
         }
         elseif ($hpStatus -eq 'Died') {
             # Update the existing interactive notification to reflect Died
-            ShowToast `
+            ShowInteractiveNotification `
                 -Title "$bossName Defeated!" `
                 -Message "Boss marked as Died by $($Spawn.lastUpdateBy)." `
                 -Type 'Info' `
