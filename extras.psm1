@@ -340,44 +340,27 @@ function Send-Message
 		username       = $userToSend
 	} | ConvertTo-Json -Depth 10
 
-	[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-	$mainForm = $global:DashboardConfig.UI.MainForm
-
-	[System.Threading.Tasks.Task]::Run([Action]{
-		$client = New-Object System.Net.Http.HttpClient
-		$client.Timeout = [TimeSpan]::FromSeconds(5)
-		try {
-			$content = New-Object System.Net.Http.StringContent($finalBody, [System.Text.Encoding]::UTF8, "application/json")
-			$responseTask = $client.PostAsync($script:ProxyUrl, $content)
-			$response = $responseTask.GetAwaiter().GetResult()
-			
-			if ($response.IsSuccessStatusCode) {
-				$mainForm.BeginInvoke([Action]{
-					ShowToast -Title 'Success' -Message "$bossDisplay reported!" -Type 'Info' -IgnoreCancellation
-				}) | Out-Null
-			} else {
-				$errorMsg = "Server error ($([int]$response.StatusCode)): $($response.ReasonPhrase)"
-				$bodyTask = $response.Content.ReadAsStringAsync()
-				$serverText = $bodyTask.GetAwaiter().GetResult()
-				if (-not [string]::IsNullOrWhiteSpace($serverText)) { $errorMsg = $serverText }
-
-				$mainForm.BeginInvoke([Action]{
-					Show-DarkMessageBox "$errorMsg" 'Send Failed' 'Ok' 'Error'
-				}) | Out-Null
+	try
+	{
+		[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+		Invoke-RestMethod -Uri $ProxyUrl -Method Post -Body $finalBody -ContentType 'application/json' -ErrorAction Stop
+        
+		ShowToast -Title 'Success' -Message "$bossDisplay reported!" -Type 'Info' -IgnoreCancellation
+	}
+	catch
+	{
+		$errorMsg = $_.Exception.Message
+        
+		if ($_.Exception.Response)
+		{
+			$reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+			$serverText = $reader.ReadToEnd()
+			if (-not [string]::IsNullOrWhiteSpace($serverText))
+			{
+				$errorMsg = $serverText
 			}
-		} catch {
-			$errorMsg = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
-			if ($errorMsg -match "task was canceled") { $errorMsg = "Connection timed out (Server unreachable)" }
-			
-			if ($mainForm -and -not $mainForm.IsDisposed) {
-				$mainForm.BeginInvoke([Action]{
-					Show-DarkMessageBox "$errorMsg" 'Send Failed' 'Ok' 'Error'
-				}) | Out-Null
-			}
-		} finally {
-			$client.Dispose()
 		}
-	}) | Out-Null
+	}
 }
 
 function ProcessSpawnEvent {
@@ -395,43 +378,32 @@ function ProcessSpawnEvent {
 
     $shouldNotify = $false
 
-    # --- LOGIC FIX: PREVENT SPAM & STARTUP NOTIFICATIONS ---
 
     if ($State.BossStates.ContainsKey($trackingKey)) {
-        # CASE A: We have history of this boss.
         $cached = $State.BossStates[$trackingKey]
 
-        # Only notify if something actually changed
         if ("$($cached.hpStatus)" -ne "$hpStatus" -or [int]$cached.hpPercent -ne $hpPercent) {
             $shouldNotify = $true
         }
     }
     else {
-        # CASE B: First time seeing this boss (Startup or New Spawn).
 
-        # RULE: If we discover a boss and it is ALREADY Dead or False Alarm,
-        # we do NOT notify. We assume it happened while we were offline.
-        # We only notify for "Active" bosses on startup, or if an Active boss turns to Dead later.
         if ($hpStatus -eq 'Died' -or $hpStatus -eq 'False Alarm') {
             $shouldNotify = $false
         }
         else {
-            # It's a new Active spawn. Notify!
             $shouldNotify = $true
         }
     }
 
-    # UPDATE CACHE (Always save the state so we don't process it again)
     $State.BossStates[$trackingKey] = @{
         hpPercent = $hpPercent;
         hpStatus = $hpStatus;
         lastUpdateTime = $updateTime
     }
 
-    # -------------------------------------------------------
 
     if ($shouldNotify) {
-        # Ensure we have the notification key
         $notifKey = $trackingKey.GetHashCode()
 
         if ($State.HiddenNotifications.Contains($trackingKey)) {
@@ -441,7 +413,6 @@ function ProcessSpawnEvent {
             return
         }
 
-        # Common variables for notification
         $bossImg = $null
         $showImages = $true
         if ($global:DashboardConfig.Config['Options'] -and $global:DashboardConfig.Config['Options'].Contains('ShowBossImages')) {
@@ -476,7 +447,6 @@ function ProcessSpawnEvent {
 
         $popTime = [DateTimeOffset]::FromUnixTimeMilliseconds($serverTime).LocalDateTime.ToString('HH:mm')
 
-        # Define common buttons for active bosses
         $activeButtons = @(
             @{ Text = '25%'; WidthPercent = 25; Action = { Send-BossUpdate -BossName $bossName -Status '25%' -Percent 25 -DiscordMessageId $Spawn.discordMessageId; ShowToast -Title "$bossName (25%)" -Message "Spawned at $popTime$triggeredByText" -Type 'Warning' -Key $notifKey -TimeoutSeconds 0 -Progress 25 -IgnoreCancellation }.GetNewClosure() },
             @{ Text = 'Died'; WidthPercent = 25; Action = { Send-BossUpdate -BossName $bossName -Status 'Died' -Percent 0 -DiscordMessageId $Spawn.discordMessageId; CloseToast -Key $notifKey }.GetNewClosure() },
@@ -484,13 +454,11 @@ function ProcessSpawnEvent {
             @{ Text = 'Hide'; WidthPercent = 24; Action = { CloseToast -Key $notifKey; if (-not $global:DashboardConfig.State.WorldBossListener.HiddenNotifications.Contains($trackingKey)) { $global:DashboardConfig.State.WorldBossListener.HiddenNotifications.Add($trackingKey) | Out-Null } }.GetNewClosure() }
 		)
 
-        # Buttons for when a boss is confirmed dead or false alarm
         $finalStateButtons = @(
             @{ Text = 'Hide'; WidthPercent = 100; Action = { CloseToast -Key $notifKey; if (-not $global:DashboardConfig.State.WorldBossListener.HiddenNotifications.Contains($trackingKey)) { $global:DashboardConfig.State.WorldBossListener.HiddenNotifications.Add($trackingKey) | Out-Null } }.GetNewClosure() }
         )
 
         if ($hpStatus -eq 'False Alarm') {
-            # Update the existing interactive notification to reflect False Alarm
             ShowInteractiveNotification `
                 -Title "FALSE ALARM: $bossName" `
                 -Message "Marked as False Alarm by $($Spawn.lastUpdateBy)." `
@@ -501,10 +469,9 @@ function ProcessSpawnEvent {
 				-Buttons $finalStateButtons `
 				-ImageUrl $bossImg `
                 -IgnoreCancellation
-            $State.HiddenNotifications.Remove($trackingKey) | Out-Null # Ensure it's not hidden if it was
+            $State.HiddenNotifications.Remove($trackingKey) | Out-Null 
         }
         elseif ($hpStatus -eq 'Died') {
-            # Update the existing interactive notification to reflect Died
             ShowInteractiveNotification `
                 -Title "$bossName Defeated!" `
                 -Message "Boss marked as Died by $($Spawn.lastUpdateBy)." `
@@ -515,7 +482,7 @@ function ProcessSpawnEvent {
 				-Buttons $finalStateButtons `
 				-ImageUrl $bossImg `
                 -IgnoreCancellation
-            $State.HiddenNotifications.Remove($trackingKey) | Out-Null # Ensure it's not hidden if it was
+            $State.HiddenNotifications.Remove($trackingKey) | Out-Null 
         }
         else {
             $notifyFilter = $true
@@ -566,7 +533,6 @@ function Start-WorldBossListener
         } else { return }
     }
 
-    # Image caching (unchanged)
     if ($global:DashboardConfig.Resources.BossData) {
         $bossData = $global:DashboardConfig.Resources.BossData
         $appPath = $global:DashboardConfig.Paths.Bosses
@@ -624,12 +590,9 @@ function Start-WorldBossListener
                     $state.CurrentJob = $null
 
                    if ($response) { 
-                        # --- SCHEDULE NOTIFICATION (FIRST RUN ONLY) ---
                         if ($state.IsFirstRun) {
                             $lines = @() 
-    						$dashLine = "------------------------------"
 
-                            # Helper closure to build server block
                             $BuildBlock = {
                                 param($ServerName, $Data)
                                 $output = @()
@@ -649,7 +612,6 @@ function Start-WorldBossListener
                                 $hasContent = ($upcoming.Count -gt 0) -or ($randomRotation.Count -gt 0) -or ($activeSpawns.Count -gt 0)
                                 if ($hasContent) {
                                     
-                                    # Split Active into "Alive" and "Died" for display
                                     $alive = @(); $dead = @()
                                     foreach ($b in $activeSpawns) {
                                         if ($b.hpStatus -eq 'Died') { $dead += $b } else { $alive += $b }
@@ -697,7 +659,6 @@ function Start-WorldBossListener
                             $state.IsFirstRun = $false 
                         }
 
-                        # --- LIVE NOTIFICATIONS ---
                         $kheldorSpawns = @($response.kheldor.activeSpawns)
 
 
@@ -705,20 +666,12 @@ function Start-WorldBossListener
                         $knownIds = $allActiveAndRelevantSpawns | ForEach-Object { if ($_.id) { $_.id } else { $_.name } }
                         $localIds = $state.BossStates.Keys
                         
-                        # Bosses that were in our memory but are now gone from the API
                         $recentlyFinishedIds = $localIds | Where-Object { $_ -notin $knownIds }
 
                         foreach ($rId in $recentlyFinishedIds) {
-                            # FIX: Do NOT remove from BossStates immediately. This caused the loop/spam.
-                            # Instead, just update internal state to ensure we know it's gone/dead, 
-                            # or just leave it until restart.
-                            
-                            # We can mark it as 'Died' in cache so we don't alert on it again if it momentarily reappears
                             $state.BossStates[$rId].hpStatus = "Died"
                             $state.BossStates[$rId].hpPercent = 0
                             
-                            # Optional: remove from cache only if it's been gone for a long time?
-                            # For now, it's safer to keep it in memory to prevent the "New Discovery" spam logic.
                         }
 
                         foreach ($spawn in $allActiveAndRelevantSpawns) {
@@ -747,18 +700,15 @@ function Start-WorldBossListener
                 param($Url, $Code, $IsMinimal)
                 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
                 
-                # We store the ETag in a global variable inside the Runspace so it persists between ticks
                 if (-not $global:RunspaceETag) { $global:RunspaceETag = $null }
 
                 $minParam = if ($IsMinimal) { "&minimal=true" } else { "" }
-                # We do NOT add a random GUID cb= parameter anymore, because that busts the cache!
                 $runspacePollUrl = "$($Url)?code=$Code$minParam"
                 
                 try {
                     $wc = New-Object System.Net.WebClient
                     $wc.Headers.Add('User-Agent', 'EntropiaDashboardClient/1.0 (PowerShell)')
                     
-                    # If we have a previous hash, send it to the server
                     if ($global:RunspaceETag -and $IsMinimal) {
                         $wc.Headers.Add('If-None-Match', $global:RunspaceETag)
                     }
@@ -766,8 +716,6 @@ function Start-WorldBossListener
                     try {
                         $runspaceRawResponse = $wc.DownloadString($runspacePollUrl)
                         
-                        # If we get here, it was a 200 OK (New Data)
-                        # Save the new ETag for next time
                         $newETag = $wc.ResponseHeaders['ETag']
                         if ($newETag) { $global:RunspaceETag = $newETag }
 
@@ -776,18 +724,14 @@ function Start-WorldBossListener
                         return $runspaceParsedObject
                     }
                     catch [System.Net.WebException] {
-                        # Check if this was a 304 Not Modified
                         $resp = $_.Exception.Response
                         if ($resp -and [int]$resp.StatusCode -eq 304) {
-                            # 304 means "No Change". Return $null so the main loop does nothing.
                             return $null
                         }
-                        # If it was a real error (401, 500), throw it so the outer catch handles it
                         throw $_
                     }
                 } 
                 catch { 
-                    # General error handling
                     return $null 
                 }
                 finally {
@@ -1534,6 +1478,424 @@ if (-not $global:DashboardConfig.State.NoteTimer)
 		})
 	$noteTimer.Start()
 	$global:DashboardConfig.State.NoteTimer = $noteTimer
+}
+function UpdateUpgradeItemSelection
+{
+	try
+	{
+		$UI = $global:DashboardConfig.UI
+
+		if ($null -eq $UI -or $null -eq $UI.UpgradeItemSelector -or $null -eq $UI.UpgradeTypeSelector ) { return }
+
+		$data = if ($global:DashboardConfig.Resources) { $global:DashboardConfig.Resources.UpgradeData } else { $null }
+		if ($null -eq $data -or $null -eq $UI.UpgradeItemSelector.SelectedItem) { return }
+
+		$sel = $UI.UpgradeItemSelector.SelectedItem.ToString()
+		$max = 0
+
+		$categoryObject = if ($data -is [System.Collections.IDictionary]) { $data[$sel] } else { $data.$sel }
+
+		if ($null -ne $categoryObject)
+		{
+			$firstPropName = $categoryObject.psobject.Properties.Name | Select-Object -First 1
+
+			if ($firstPropName)
+			{
+				$firstPropValue = if ($categoryObject -is [System.Collections.IDictionary])
+				{
+					$categoryObject[$firstPropName]
+				}
+				else
+				{
+					$categoryObject.$firstPropName
+				}
+
+				if ($firstPropValue -is [System.Collections.ICollection])
+				{
+					$max = $firstPropValue.Count
+				}
+			}
+		}
+
+		$UI.UpgradeLvlStart.Items.Clear()
+		$UI.UpgradeLvlEnd.Items.Clear()
+
+		for ($i = 0; $i -lt $max; $i++)
+		{
+			$UI.UpgradeLvlStart.Items.Add($i) | Out-Null
+			$UI.UpgradeLvlEnd.Items.Add($i + 1) | Out-Null
+		}
+
+		$UI.UpgradeLvlStart.SelectedIndex = if ($UI.UpgradeLvlStart.Items.Count) { 0 } else { -1 }
+		$UI.UpgradeLvlEnd.SelectedIndex   = if ($UI.UpgradeLvlEnd.Items.Count)   { $max - 1 } else { -1 }
+
+		$UI.UpgradeTypeSelector.Enabled = ($sel -eq "Weapon")
+
+		if ($sel -eq "Weapon")
+		{
+			if ($UI.UpgradeTypeSelector.SelectedIndex -lt 0)
+			{
+				$UI.UpgradeTypeSelector.SelectedIndex = 0
+			}
+		}
+		else
+		{
+			$UI.UpgradeTypeSelector.SelectedIndex = -1
+		}
+
+	}
+	catch
+	{
+		Write-Verbose "Error in Update-UpgradeItemSelection: $_"
+	}
+}
+
+function UpdateUpgradeTypeSelection
+{
+	try
+	{
+		$UI = $global:DashboardConfig.UI
+		if ($null -eq $UI -or $null -eq $UI.UpgradeItemSelector -or $null -eq $UI.UpgradeTypeSelector) { return }
+		if ($null -eq $UI.UpgradeItemSelector.SelectedItem -or $null -eq $UI.UpgradeTypeSelector.SelectedItem) { return }
+		if ($UI.UpgradeItemSelector.SelectedItem.ToString() -ne "Weapon" -or $UI.UpgradeTypeSelector.SelectedItem.ToString() -ne "2H") { return }
+		
+	}
+	catch
+	{
+		Write-Verbose "Error in Update-UpgradeTypeSelection: $_"
+	}
+}
+
+function CalculateUpgradeTotalMaterials
+{
+	try
+	{
+		$UI = $global:DashboardConfig.UI
+
+		if (
+			$null -eq $UI -or
+			$null -eq $UI.UpgradeResultsGrid -or
+			$null -eq $UI.UpgradeTotalPerin -or
+			$null -eq $UI.UpgradeTotalEcp
+		) { return }
+
+		$cart = if ($global:DashboardConfig.Resources) { $global:DashboardConfig.Resources.UpgradeCart } else { $null }
+		$data = if ($global:DashboardConfig.Resources) { $global:DashboardConfig.Resources.UpgradeData } else { $null }
+
+		$UI.UpgradeResultsGrid.Rows.Clear()
+
+		if ($null -eq $cart -or $cart.Count -eq 0 -or $null -eq $data)
+		{
+			$UI.UpgradeTotalPerin.Text = "Total Perin: 0"
+			$UI.UpgradeTotalEcp.Text = "Total ECP: 0"
+			return
+		}
+
+		$materialTotals = [ordered]@{}
+		$perinTotal = 0
+		$ecpTotal = 0
+
+		foreach ($item in $cart)
+		{
+			if ($null -eq $item -or -not $item.Category) { continue }
+
+			$catData = if ($data -is [System.Collections.IDictionary])
+			{
+				$data[$item.Category]
+			}
+			else
+			{
+				$data.$($item.Category)
+			}
+
+			if ($null -eq $catData) { continue }
+
+			foreach ($prop in $catData.psobject.Properties)
+			{
+				$mName = $prop.Name
+				$costs = $prop.Value
+
+				if ($null -eq $costs) { continue }
+
+				$sum = 0
+
+				for ($i = $item.CurrentLevel; $i -lt $item.TargetLevel; $i++)
+				{
+					if ($i -ge 0 -and $i -lt $costs.Count)
+					{
+						$sum += $costs[$i]
+					}
+				}
+
+				$q = 1
+				try {
+					if ($item -and $item.PSObject -and $item.PSObject.Properties['Quantity']) {
+						$q = [int]$item.Quantity
+					}
+				} catch {
+					$q = 1
+				}
+				$total = $sum * $q * $item.Multiplier
+
+				if (-not $materialTotals.Contains($mName))
+				{
+					$materialTotals[$mName] = 0
+				}
+
+				$materialTotals[$mName] += $total
+
+				switch ($mName)
+				{
+					"Perin" { $perinTotal += $total }
+					"ECP"   { $ecpTotal += $total }
+				}
+			}
+		}
+
+		$hideZero = $UI.UpgradeHideZero -and $UI.UpgradeHideZero.Checked
+
+		foreach ($m in $materialTotals.Keys)
+		{
+			$amt = $materialTotals[$m]
+
+			if ($hideZero -and $amt -eq 0) { continue }
+
+			$UI.UpgradeResultsGrid.Rows.Add(
+				$m,
+				("{0:N0}" -f $amt)
+			) | Out-Null
+		}
+
+		$UI.UpgradeTotalPerin.Text = "Total Perin: {0:N0}" -f $perinTotal
+		$UI.UpgradeTotalEcp.Text = "Total ECP: {0:N0}" -f $ecpTotal
+	}
+	catch
+	{
+		Write-Verbose "Error in Calculate-UpgradeTotalMaterials: $_"
+	}
+}
+
+function AddUpgradeItem
+{
+	try
+	{
+		$UI = $global:DashboardConfig.UI
+
+		if (
+			$null -eq $UI -or
+			$null -eq $UI.UpgradeLvlStart -or
+			$null -eq $UI.UpgradeLvlEnd -or
+			$null -eq $UI.UpgradeItemSelector -or
+			$null -eq $UI.UpgradeCartGrid
+		) { return }
+
+
+		if ($null -eq $UI.UpgradeLvlStart.SelectedItem -or $null -eq $UI.UpgradeLvlEnd.SelectedItem)
+		{
+			return
+		}
+
+		$cur = [int]$UI.UpgradeLvlStart.SelectedItem
+		$tar = [int]$UI.UpgradeLvlEnd.SelectedItem
+
+		if ($tar -le $cur)
+		{
+			return
+		}
+
+		if ($null -eq $UI.UpgradeItemSelector.SelectedItem) { return }
+
+		$cat = $UI.UpgradeItemSelector.SelectedItem.ToString()
+
+		$type = $null
+
+		if (
+			$cat -eq "Weapon" -and
+			$null -ne $UI.UpgradeTypeSelector -and
+			$null -ne $UI.UpgradeTypeSelector.SelectedItem
+		)
+		{
+			$type = $UI.UpgradeTypeSelector.SelectedItem.ToString()
+		}
+
+		$mult = 1
+		$dispName = $cat
+
+		if ($cat -eq "Weapon" -and $type)
+		{
+			$dispName = "Weapon ($type)"
+
+			if ($type -eq "2H")
+			{
+				$mult = 2
+			}
+		}
+
+		$qty = 1
+
+		$newItem = [PSCustomObject]@{
+			Category     = $cat
+			Display      = $dispName
+			CurrentLevel = $cur
+			TargetLevel  = $tar
+			Multiplier   = $mult
+			Quantity     = $qty
+		}
+
+		if ($null -eq $global:DashboardConfig.Resources)
+		{
+			$global:DashboardConfig | Add-Member -MemberType NoteProperty -Name Resources -Value @{} -Force
+		}
+
+		$cartRef = $global:DashboardConfig.Resources.UpgradeCart
+		if ($null -eq $cartRef -or -not ($cartRef -is [System.Collections.IList])) {
+			$newCart = [System.Collections.ArrayList]::new()
+			if ($cartRef -ne $null) {
+				try {
+					if ($cartRef -is [System.Collections.IEnumerable]) {
+						foreach ($el in $cartRef) { $newCart.Add($el) | Out-Null }
+					} else {
+						$newCart.Add($cartRef) | Out-Null
+					}
+				} catch { }
+			}
+			$global:DashboardConfig.Resources.UpgradeCart = $newCart
+			$cartRef = $newCart
+		}
+
+		$global:DashboardConfig.Resources.UpgradeCart.Add($newItem) | Out-Null
+
+		$UI.UpgradeCartGrid.Rows.Add(
+			$newItem.Quantity,
+			$dispName,
+			"+$cur -> +$tar"
+		) | Out-Null
+
+		CalculateUpgradeTotalMaterials
+	}
+	catch
+	{
+		Write-Verbose "Error in Add-UpgradeItem: $_"
+	}
+}
+
+function RemoveUpgradeItem
+{
+	try
+	{
+		$UI = $global:DashboardConfig.UI
+
+		if ($null -eq $UI -or $null -eq $UI.UpgradeCartGrid) { return }
+		if ($UI.UpgradeCartGrid.SelectedRows.Count -eq 0) { return }
+
+		$selRow = $UI.UpgradeCartGrid.SelectedRows[0]
+
+		try { $dispVal = $selRow.Cells[1].Value.ToString() } catch { $dispVal = $null }
+		try { $levelsVal = $selRow.Cells[2].Value.ToString() } catch { $levelsVal = $null }
+
+		$cart = if ($global:DashboardConfig.Resources) { $global:DashboardConfig.Resources.UpgradeCart } else { $null }
+
+		function GetRebuiltCart
+		{
+			param($Collection, $ItemToRemove)
+
+			$new = [System.Collections.ArrayList]::new()
+			$removed = $false
+
+			foreach ($el in $Collection)
+			{
+				if (-not $removed -and $el -eq $ItemToRemove)
+				{
+					$removed = $true
+					continue
+				}
+
+				$new.Add($el) | Out-Null
+			}
+
+			$new
+		}
+
+		if ($null -ne $cart -and $null -ne $dispVal -and $null -ne $levelsVal)
+		{
+			$cur = $null
+			$tar = $null
+
+			if ($levelsVal -match '\+(\d+)\s*->\s*\+(\d+)')
+			{
+				$cur = [int]$matches[1]
+				$tar = [int]$matches[2]
+			}
+
+			$toRemove = $cart | Where-Object {
+				($null -eq $dispVal -or $_.Display -eq $dispVal) -and
+				($null -eq $cur -or $_.CurrentLevel -eq $cur) -and
+				($null -eq $tar -or $_.TargetLevel -eq $tar)
+			} | Select-Object -First 1
+
+			if ($null -ne $toRemove)
+			{
+				try
+				{
+					if ($cart -is [System.Collections.ArrayList]) {
+						$cart.Remove($toRemove) | Out-Null
+					} elseif ($cart -is [System.Management.Automation.PSCustomObject] -and $cart -eq $toRemove) {
+						$global:DashboardConfig.Resources.UpgradeCart = [System.Collections.ArrayList]::new()
+					} else {
+						try {
+							if ($cart -is [System.Collections.IList]) { $cart.Remove($toRemove) | Out-Null }
+							else { $global:DashboardConfig.Resources.UpgradeCart = GetRebuiltCart $cart $toRemove }
+						} catch {
+							$global:DashboardConfig.Resources.UpgradeCart = GetRebuiltCart $cart $toRemove
+						}
+					}
+				}
+				catch
+				{
+					$global:DashboardConfig.Resources.UpgradeCart = [System.Collections.ArrayList]::new()
+				}
+			}
+		}
+
+		foreach ($r in $UI.UpgradeCartGrid.SelectedRows)
+		{
+			$UI.UpgradeCartGrid.Rows.Remove($r)
+		}
+
+		CalculateUpgradeTotalMaterials
+	}
+	catch
+	{
+		Write-Verbose "Error in Remove-UpgradeItem: $_"
+	}
+}
+
+function ResetUpgradeCalculator
+{
+	try
+	{
+		$UI = $global:DashboardConfig.UI
+		if ($null -eq $UI) { return }
+		if ($null -eq $global:DashboardConfig.Resources) { $global:DashboardConfig | Add-Member -MemberType NoteProperty -Name Resources -Value @{} -Force }
+		$global:DashboardConfig.Resources.UpgradeCart = [System.Collections.ArrayList]::new()
+		if ($null -ne $UI.UpgradeCartGrid) { $UI.UpgradeCartGrid.Rows.Clear() }
+		if ($null -ne $UI.UpgradeItemSelector -and $UI.UpgradeItemSelector.Items.Count -gt 0) {
+			$UI.UpgradeItemSelector.SelectedIndex = 0
+			try { Update-UpgradeItemSelection } catch { }
+		}
+		CalculateUpgradeTotalMaterials
+	}
+	catch
+	{
+		Write-Verbose "Error in Reset-UpgradeCalculator: $_"
+	}
+}
+
+function HandleUpgradeCartRowsAdded
+{
+	$UI = $global:DashboardConfig.UI
+	if ($null -eq $UI -or $null -eq $UI.UpgradeCartGrid -or $UI.UpgradeCartGrid.Rows.Count -eq 0) { return }
+	$UI.UpgradeCartGrid.FirstDisplayedScrollingRowIndex = $UI.UpgradeCartGrid.Rows.Count - 1
 }
 
 Export-ModuleMember -Function *

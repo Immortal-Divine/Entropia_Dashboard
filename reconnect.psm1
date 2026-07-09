@@ -329,7 +329,6 @@ function IsProfileAutoReconnectEnabled
 		[int]$Pid
 	)
 
-	# If profile name provided, check reconnect config for that profile.
 	if ($ProfileName)
 	{
 		$pClean = $ProfileName
@@ -344,7 +343,6 @@ function IsProfileAutoReconnectEnabled
 		return $false
 	}
 
-	# Otherwise, try to resolve profile by PID
 	if ($Pid -and $Pid -ne 0)
 	{
 		$row = Find-RowByPid -Pid $Pid
@@ -384,7 +382,6 @@ function StartDisconnectWatcher
 
 	Write-Verbose 'Starting Disconnect Supervisor (Separated Logic Mode)...'
     
-    # Prevent system sleep while watcher is active
     [DashboardPower]::SetThreadExecutionState([DashboardPower]::ES_CONTINUOUS -bor [DashboardPower]::ES_SYSTEM_REQUIRED -bor [DashboardPower]::ES_DISPLAY_REQUIRED) | Out-Null
 
 	$TimerWatcher = New-Object System.Windows.Forms.Timer
@@ -415,7 +412,6 @@ function StartDisconnectWatcher
 
 					if ($now -ge $triggerTime)
 					{
-						# Check for stale reconnects (e.g. after sleep/hibernate)
 						if (($now - $triggerTime).TotalMinutes -gt 5)
 						{
 							Write-Verbose "RECONNECT: Discarding stale reconnect for PID $sPid (Scheduled: $triggerTime)"
@@ -470,7 +466,6 @@ function StartDisconnectWatcher
 			$CheckFailed = $false
 			try
 			{
-				# The C# helper now returns pre-calculated PID -> Established Connection Count map
 				$PidConnectionCounts = [Custom.Native]::GetTcpConnectionCounts()
 				if ($null -eq $PidConnectionCounts) { 
 					$PidConnectionCounts = @{} 
@@ -537,7 +532,6 @@ function StartDisconnectWatcher
 						$CurrentCount = $PidConnectionCounts[$pidInt]
 					}
 
-					# Stability check: Only mark as in-game if count >= threshold for a few consecutive checks
 					if (-not (Get-Variable -Name 'ReconnectConnectionThreshold' -Scope Script -ErrorAction SilentlyContinue -Verbose:$False)) { Set-Variable -Scope Script -Name ReconnectConnectionThreshold -Value 2 -Option ReadOnly }
 
 					if ($CurrentCount -ge $script:ReconnectConnectionThreshold)
@@ -557,7 +551,6 @@ function StartDisconnectWatcher
 								$global:DashboardConfig.State.ScheduledReconnects.Remove($pidInt)
 							}
 							
-							# Reset row color to normal if it was highlighted
 							if ($row.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::DarkRed -or $row.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::Orange)
 							{
 								$row.DefaultCellStyle.BackColor = [System.Drawing.Color]::Empty
@@ -829,7 +822,6 @@ function StopDisconnectWatcher
 	param()
 	Write-Verbose 'Stopping Disconnect Supervisor...'
 
-    # Allow system sleep again
     [DashboardPower]::SetThreadExecutionState([DashboardPower]::ES_CONTINUOUS) | Out-Null
 
 	if ($global:DashboardConfig.State.Timers)
@@ -950,7 +942,6 @@ try
 			if (-not ($global:DashboardConfig.Config['ReconnectProfiles'] -and $global:DashboardConfig.Config['ReconnectProfiles'].Contains($CachedProfileName)))
 			{
 				if ($null -ne $Row.Cells -and $Row.Cells.Count -gt 3) { $Row.Cells[3].Value = 'Disconnected' }
-				# Profile not enabled for auto-reconnect: do not show a toast per user preference
 				return
 			}
 		}
@@ -1127,7 +1118,6 @@ try
 				$mainForm.Invoke([Action]({
 							try
 							{
-								# Safety checks to prevent "Index into null array" errors
 								if (-not $rowRef -or -not $rowRef.Cells) { Write-Verbose 'RECONNECT: Row or Cells invalid in UI thread. Aborting.'; return }
 								if (-not $global:DashboardConfig -or -not $global:DashboardConfig.Config) { Write-Verbose 'RECONNECT: Global Config invalid in UI thread. Aborting.'; return }
 								if (-not $global:DashboardConfig.Config['LoginConfig']) { Write-Verbose 'RECONNECT: LoginConfig missing in UI thread. Aborting.'; return }

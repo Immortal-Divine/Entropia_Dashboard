@@ -429,14 +429,12 @@ function UpdateDataGrid
 			$pidVal = $process.Id
 			if (-not $script:ProcessCache.ContainsKey($pidVal)) { $script:ProcessCache[$pidVal] = @{} }
 
-			# Profile index (already sorted by C#)
 			$processProfile = $process.Profile
 			if ([string]::IsNullOrEmpty($processProfile)) { $processProfile = 'NoProfile' }
 			if (-not $profileCounters.ContainsKey($processProfile)) { $profileCounters[$processProfile] = 0 }
 			$profileCounters[$processProfile]++
 			$perProfileIndex = $profileCounters[$processProfile]
 
-			# Final Title with Profile
 			$processTitle = $process.Title
 			if ($process.Profile) { $processTitle = "[$($process.Profile)]$processTitle" }
 			if ($script:ProcessCache.ContainsKey($process.Id)) { $script:ProcessCache[$process.Id].LastSeen = [DateTime]::Now }
@@ -466,10 +464,8 @@ function UpdateDataGrid
 				$cachedHWnd = $process.MainWindowHandle
 				if (-not $isDisconnected -and $cachedHWnd -ne [IntPtr]::Zero -and ('Custom.SafeWindowCore' -as [Type]))
 				{
-					# Window flashing is fast enough for UI thread
 					$isWindowFlashing = [Custom.SafeWindowCore]::IsWindowFlashing($cachedHWnd)
 
-					# Smoothing: Keep flashing state for 2.5s to avoid intermittency
 					if ($isWindowFlashing) { $script:ProcessCache[$process.Id].LastFlashSeen = [DateTime]::Now }
 					elseif ($script:ProcessCache[$process.Id].LastFlashSeen -and ([DateTime]::Now - $script:ProcessCache[$process.Id].LastFlashSeen).TotalSeconds -lt 2.5) {
 						$isWindowFlashing = $true
@@ -498,7 +494,6 @@ function UpdateDataGrid
 				}
 				else
 				{
-					# Only clear if we were previously highlighted to avoid constant style resets
 					$isHighlighted = ($existingRow.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::DarkRed -or 
 									  $existingRow.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::Orange -or
 									  $existingRow.DefaultCellStyle.SelectionBackColor -eq [System.Drawing.Color]::DarkRed -or
@@ -554,7 +549,6 @@ function StartDataGridUpdateTimer
     $prop = $grid.GetType().GetProperty('DoubleBuffered', [System.Reflection.BindingFlags]'Instance, NonPublic')
     if ($prop) { $prop.SetValue($grid, $true, $null) }
 
-    # UI update action that accepts collected data
     $updateAction = [System.Action[System.Object]]{
         param($data)
         if ($global:DashboardConfig.UI.DataGridMain -and -not $global:DashboardConfig.UI.DataGridMain.IsDisposed) {
@@ -587,7 +581,6 @@ function StartDataGridUpdateTimer
             try {
                 $data = [Custom.ProcessHelper]::GetProcessDataList($ProcessName, $ProfileMap)
                 
-                # INVOKE UI UPDATE WITH PRE-FETCHED DATA
                 $TargetGrid.BeginInvoke($UpdateAction, $data) | Out-Null
             }
             catch { break }

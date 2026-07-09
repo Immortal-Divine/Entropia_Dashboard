@@ -53,7 +53,6 @@ function ValidateAndRefreshProcessReference
 	
 	$process = $Row.Tag
 	
-	# If process reference exists and is valid, return it
 	if ($null -ne $process -and $process.Id -gt 0)
 	{
 		try
@@ -67,13 +66,10 @@ function ValidateAndRefreshProcessReference
 		catch {}
 	}
 	
-	# Process reference is stale/NULL - try to find fresh process by looking at running processes
-	# This handles the race condition when login is called immediately after launch
 	for ($attempt = 0; $attempt -lt $MaxRetries; $attempt++)
 	{
 		try
 		{
-			# Get the window title to extract profile and entry number
 			if ($Row.Cells -and $Row.Cells.Count -gt 1)
 			{
 				$cellTitle = $Row.Cells[1].Value
@@ -82,7 +78,6 @@ function ValidateAndRefreshProcessReference
 					$titleStr = [string]$cellTitle
 					$entryNum = $Row.Cells[0].Value
 					
-					# Try to find process by window title match
 					$allProcesses = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -and $_.MainWindowHandle -ne 0 }
 					foreach ($proc in $allProcesses)
 					{
@@ -97,14 +92,12 @@ function ValidateAndRefreshProcessReference
 		}
 		catch {}
 		
-		# If not found, wait and retry
 		if ($attempt -lt ($MaxRetries - 1))
 		{
 			Start-Sleep -Milliseconds $RetryDelayMs
 		}
 	}
 	
-	# Return NULL if process cannot be found - caller will handle with error
 	return $null
 }
 
@@ -229,10 +222,8 @@ function LoginSelectedRow
 
 		if ($RowInput)
 		{
-			# Handle both single objects and arrays - properly collect them
 			if ($RowInput -is [System.Collections.IEnumerable] -and $RowInput -isnot [string] -and $RowInput -isnot [System.Windows.Forms.DataGridViewRow])
 			{
-				# It's an array or collection - add each item
 				foreach ($item in $RowInput)
 				{
 					$rawSelection += $item
@@ -240,7 +231,6 @@ function LoginSelectedRow
 			}
 			else
 			{
-				# It's a single object
 				$rawSelection += $RowInput
 			}
 		}
@@ -261,7 +251,6 @@ function LoginSelectedRow
 
 			if ($null -eq $item)
 			{
-				# Skip null items
 				return
 			}
 			
@@ -310,7 +299,6 @@ function LoginSelectedRow
 			$processTitle = $row.Cells[1].Value.ToString()
 			$profileName = if ($processTitle -match '^\[(?<pName>[^\]]+)\]') { $Matches['pName'] } else { 'Default' }
 
-			# Validate and refresh process reference - critical for handling auto-launch race condition
 			$process = ValidateAndRefreshProcessReference -Row $row -MaxRetries 5 -RetryDelayMs 200
 			if ($null -eq $process)
 			{

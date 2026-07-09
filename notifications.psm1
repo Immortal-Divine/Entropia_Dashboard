@@ -20,7 +20,6 @@ function UpdateNotificationPositions
     $notificationWidth = 320
     $notificationSpacing = 10
 
-    # Get notification position from config, default to 'Bottom Right'
     $position = 'Bottom Right'
     if ($global:DashboardConfig.Config.Options -and $global:DashboardConfig.Config.Options.Contains('NotificationPosition')) {
         $position = $global:DashboardConfig.Config.Options.NotificationPosition
@@ -40,14 +39,14 @@ function UpdateNotificationPositions
         if ($form -and -not $form.IsDisposed -and $form.Visible) {
             $formHeight = $form.Height
 
-            if ($yDirection -eq 1) { # Top positions
+            if ($yDirection -eq 1) { 
                 if ($currentY + $formHeight -gt $screen.Bottom) {
                     $currentY = $baseY
                     $currentX += ($notificationWidth + $notificationSpacing) * $xDirection
                 }
                 $form.Location = New-Object System.Drawing.Point($currentX, $currentY)
                 $currentY += $formHeight + $notificationSpacing
-            } else { # Bottom positions
+            } else { 
                 $newY = $currentY - $formHeight
                 if ($newY -lt $screen.Top) {
                     $currentY = $baseY
@@ -211,12 +210,10 @@ function ShowToast
             
             if ($existingForm.Tag.Timer) {
                 $tTag = $existingForm.Tag.Timer.Tag
-                # Update duration if a new timeout is specified
                 if ($PSBoundParameters.ContainsKey('TimeoutSeconds')) {
                     $tTag.TotalDuration = [TimeSpan]::FromSeconds($TimeoutSeconds)
                 }
 
-                # Reset timer to updated/original duration starting now
                 $tTag.EndTime = [DateTime]::Now.Add($tTag.TotalDuration)
 
                 $tTag.Wait3ForHover = $WaitForHover
@@ -249,11 +246,9 @@ function ShowToast
 				$map = $global:DashboardConfig.State.LoginNotificationMap.GetEnumerator() | Where-Object { $_.Value -eq $s } | Select-Object -First 1
 				if ($map) { $global:DashboardConfig.State.LoginNotificationMap.Remove($map.Key) } 
 			} 
-			# Update timer if present
             if ($existingForm.Tag.Timer) {
                 $tTag = $existingForm.Tag.Timer.Tag
                 
-                # Update duration if a new timeout is specified
                 if ($PSBoundParameters.ContainsKey('TimeoutSeconds')) {
                     $tTag.TotalDuration = [TimeSpan]::FromSeconds($TimeoutSeconds)
                 }
@@ -361,18 +356,15 @@ function ShowToast
 				if ($tag.WaitForHover) {
 					if ($tag.Form.Bounds.Contains($mousePos)) {
 						$tag.WaitForHover = $false
-						# Reset end time starting from now
 						$tag.EndTime = [DateTime]::Now.Add($tag.TotalDuration)
 					}
 					else {
-						# Keep pushing end time forward while waiting
 						$tag.EndTime = [DateTime]::Now.Add($tag.TotalDuration)
 					}
 					return
 				}
 
 				if ($anyHover) {
-					# Extend EndTime while hovering to pause countdown
 					$tag.EndTime = $tag.EndTime.AddMilliseconds($s.Interval)
 					return 
 				}
@@ -557,7 +549,6 @@ function ShowInteractiveNotification
 		if ($form.Tag.Timer)
 		{
 			$tTag = $form.Tag.Timer.Tag
-			# Check if timer essentially hasn't started (full duration left)
 			if (($tTag.EndTime - [DateTime]::Now).TotalSeconds -ge ($tTag.TotalDuration.TotalSeconds - 1))
 			{
 				if ($tTag.Strip.Parent) { $tTag.Strip.Height = $tTag.Strip.Parent.Height }

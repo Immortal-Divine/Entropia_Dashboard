@@ -120,7 +120,7 @@ function ToggleInstanceHotkeys
 		$form = $global:DashboardConfig.Resources.FtoolForms[$InstanceId]
 		if ($form -and -not $form.IsDisposed)
 		{
-			UpdateSettings -formData $form.Tag -forceWrite
+			UpdateSettings -formData $form.Tag -forceWrite | Out-Null
 		}
 	}
 }
@@ -141,7 +141,6 @@ function Invoke-FtoolSpamAction
             return 0
         }
 
-        # Optimization: Parse key once and store in timerData if not present
         if (-not $timerData.ContainsKey('ParsedKey')) {
             $keyCombinationString = $timerData['Key']
             if ([string]::IsNullOrWhiteSpace($keyCombinationString)) { return 0 }
@@ -194,8 +193,7 @@ function Invoke-FtoolSpamAction
 
 				$wDown = 0
 
-				if ($modifierNames -contains 'Ctrl') { $wDown = $wDown -bor $MK_CONTROL }
-				if ($modifierNames -contains 'Shift') { $wDown = $wDown -bor $MK_SHIFT }
+
 
 				    $targetButtonFlag = 0; $xButtonData = 0
 				    $msgDown = 0; 
@@ -216,9 +214,22 @@ function Invoke-FtoolSpamAction
 					$wDown = $wDown -bor $xButtonData
 				}
 
+				if ($modifierNames -contains 'Ctrl')
+				{
+					$wDown = $wDown -bor $MK_CONTROL
+				}
+
 				if ($modifierNames -contains 'Alt')
 				{
-					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, 0x12, 0)
+					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, 0x12, 1)
+				}
+				if ($modifierNames -contains 'Ctrl')
+				{
+					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, 0x11, 1)
+				}
+				if ($modifierNames -contains 'Shift')
+				{
+					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, 0x10, 1)
 				}
 
 				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $msgDown, [IntPtr]$wDown, $lParam)
@@ -238,15 +249,20 @@ function Invoke-FtoolSpamAction
 
 				foreach ($modVk in $modifierVks)
 				{
-					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $modVk, 0)
+					[Custom.Native]::keybd_event([byte]$modVk, 0, 0, [IntPtr]::Zero)
 				}
 
-				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $virtualKeyCode, 0)
+				foreach ($modVk in $modifierVks)
+				{
+					[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $modVk, 1)
+				}
+
+				[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYDOWN, $virtualKeyCode, 1)
 			    }
                 
                 if ($Action -eq 'Down') { return $dwellTime }
                 
-                # If Full, we sleep here (legacy behavior, though we are trying to avoid it)
+                
                 Start-Sleep -Milliseconds $dwellTime
             }
 
@@ -259,8 +275,9 @@ function Invoke-FtoolSpamAction
 				    $MK_XBUTTON2 = 0x0040
                     
                     $wDown = 0
-				    if ($modifierNames -contains 'Ctrl') { $wDown = $wDown -bor $MK_CONTROL }
+
 				    if ($modifierNames -contains 'Shift') { $wDown = $wDown -bor $MK_SHIFT }
+					if ($modifierNames -contains 'Ctrl') { $wDown = $wDown -bor $MK_CONTROL }
                     
                     $msgUp = 0; $xButtonData = 0
                     
@@ -278,16 +295,24 @@ function Invoke-FtoolSpamAction
                     
                     [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $msgUp, [IntPtr]$wUp, $lParam)
 
-				    if ($modifierNames -contains 'Alt')
-				    {
-					    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, 0x12, 0xC0000000)
-				    }
+					if ($modifierNames -contains 'Ctrl')
+					{
+						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, 0x11, 0xC0000000)
+					}
+					if ($modifierNames -contains 'Alt')
+					{
+						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, 0x12, 0xC0000000)
+					}
+					if ($modifierNames -contains 'Shift')
+					{
+						[Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, 0x10, 0xC0000000)
+					}
                 }
                 else
                 {
 				    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $virtualKeyCode, 0xC0000000)
 
-                    # Re-calculate modifiers if not done in Down block (for Up-only calls)
+                    
                     if ($null -eq $modifierVks) {
                         $modifierVks = @()
 				        foreach ($modName in $modifierNames)
@@ -301,11 +326,11 @@ function Invoke-FtoolSpamAction
 				        }
                     }
 
-				    $reversedMods = $modifierVks | Sort-Object -Descending
-				    foreach ($modVk in $reversedMods)
-				    {
-					    [Custom.Ftool]::fnPostMessage($timerData['WindowHandle'], $WM_KEYUP, $modVk, 0xC0000000)
-				    }
+					$reversedMods = $modifierVks | Sort-Object -Descending
+					foreach ($modVk in $reversedMods)
+					{
+						[Custom.Native]::keybd_event([byte]$modVk, 0, 2, [IntPtr]::Zero)
+					}
                 }
             }
 		}
@@ -332,6 +357,7 @@ function LoadFtoolSettings
 		$hotkeyName = "Hotkey_$profilePrefix"
 		if ($global:DashboardConfig.Config['Ftool'].Contains($hotkeyName))
 		{
+			[Custom.Native]::keybd_event([byte]$modVk, 0, 2, [IntPtr]::Zero)
 			$formData.Hotkey = $global:DashboardConfig.Config['Ftool'][$hotkeyName]
 			$formData.BtnHotKey.Text = $formData.Hotkey 
 		}
@@ -351,6 +377,11 @@ function LoadFtoolSettings
 		{
 			$formData.BtnHotkeyToggle.Checked = $true
 		}
+
+		
+		if (-not $global:DashboardConfig.Resources.InstanceHotkeysPaused) { $global:DashboardConfig.Resources.InstanceHotkeysPaused = @{} }
+		$global:DashboardConfig.Resources.InstanceHotkeysPaused[$formData.InstanceId] = (-not $formData.BtnHotkeyToggle.Checked)
+        Write-Verbose "FTOOL: LoadFtoolSettings for $($formData.InstanceId), ToggleChecked: $($formData.BtnHotkeyToggle.Checked), Paused: $($global:DashboardConfig.Resources.InstanceHotkeysPaused[$formData.InstanceId])"
 
 		$keyName = "key1_$profilePrefix"
 		$intervalName = "inpt1_$profilePrefix"
@@ -394,21 +425,53 @@ function LoadFtoolSettings
 		if ($global:DashboardConfig.Config['Ftool'].Contains($positionXName))
 		{
 			$positionValue = [int]$global:DashboardConfig.Config['Ftool'][$positionXName]
-			$formData.PositionSliderX.Value = $positionValue
+			$min = $formData.PositionSliderX.Minimum
+			$max = $formData.PositionSliderX.Maximum
+			if ($min -gt $max) { $tmp = $min; $min = $max; $max = $tmp }
+			$formData.PositionSliderX.Value = [Math]::Max($min, [Math]::Min($max, $positionValue))
 		}
 		else
 		{
-			$formData.PositionSliderX.Value = 0
+			
+			$min = $formData.PositionSliderX.Minimum
+			$max = $formData.PositionSliderX.Maximum
+			$formData.PositionSliderX.Value = [Math]::Max($min, [Math]::Min($max, $formData.Form.Left))
 		}
 
 		if ($global:DashboardConfig.Config['Ftool'].Contains($positionYName))
 		{
 			$positionValue = [int]$global:DashboardConfig.Config['Ftool'][$positionYName]
-			$formData.PositionSliderY.Value = $positionValue
+			$min = $formData.PositionSliderY.Minimum
+			$max = $formData.PositionSliderY.Maximum
+			if ($min -gt $max) { $tmp = $min; $min = $max; $max = $tmp }
+			$formData.PositionSliderY.Value = [Math]::Max($min, [Math]::Min($max, $positionValue))
 		}
 		else
 		{
-			$formData.PositionSliderY.Value = 100
+			
+			$min = $formData.PositionSliderY.Minimum
+			$max = $formData.PositionSliderY.Maximum
+			$formData.PositionSliderY.Value = [Math]::Max($min, [Math]::Min($max, $formData.Form.Top))
+		}
+		
+		$collapsedName = "collapsed_$profilePrefix"
+		if ($global:DashboardConfig.Config['Ftool'].Contains($collapsedName))
+		{
+			$formData.IsCollapsed = [bool]::Parse($global:DashboardConfig.Config['Ftool'][$collapsedName])
+		}
+		else
+		{
+			$formData.IsCollapsed = $false
+		}
+
+		$origHeightName = "origHeight_$profilePrefix"
+		if ($global:DashboardConfig.Config['Ftool'].Contains($origHeightName))
+		{
+			$formData.OriginalHeight = [int]$global:DashboardConfig.Config['Ftool'][$origHeightName]
+		}
+		else
+		{
+			$formData.OriginalHeight = $formData.Form.Height
 		}
 	}
 	else
@@ -513,6 +576,8 @@ function GetNextExtensionNumber
     
 	$instanceKey = "instance_$instanceId"
     
+	InitializeExtensionTracking $instanceId
+
 	if ($global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].RemovedExtNums.Count -gt 0)
 	{
 		$sortedNums = @()
@@ -719,6 +784,8 @@ function UpdateSettings
 			$global:DashboardConfig.Config['Ftool']["name1_$profilePrefix"] = $formData.Name.Text
 			$global:DashboardConfig.Config['Ftool']["pos1X_$profilePrefix"] = $formData.PositionSliderX.Value
 			$global:DashboardConfig.Config['Ftool']["pos1Y_$profilePrefix"] = $formData.PositionSliderY.Value
+			$global:DashboardConfig.Config['Ftool']["collapsed_$profilePrefix"] = $formData.IsCollapsed
+			$global:DashboardConfig.Config['Ftool']["origHeight_$profilePrefix"] = $formData.OriginalHeight
 		}
         
 		if ($forceWrite)
@@ -778,6 +845,8 @@ function CreatePositionTimer
 		FtoolZState  = 'unknown' 
 		RealLeft     = $formData.Form.Left
 		RealTop      = $formData.Form.Top
+		
+		ClientRect   = (New-Object Custom.Native+RECT)
 	}
         
 	$positionTimer.Add_Tick({
@@ -786,127 +855,154 @@ function CreatePositionTimer
 			{
 				if (-not $s -or -not $s.Tag) { return }
 				$timerData = $s.Tag
-				if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
-				if (-not $timerData['FtoolForm'] -or $timerData['FtoolForm'].IsDisposed) { return }
-            
-				$rect = New-Object Custom.Native+RECT
+				if (-not $timerData -or -not $timerData['FtoolForm'] -or $timerData['FtoolForm'].IsDisposed) { return }
+
+				$form = $timerData['FtoolForm']
+				$formData = $timerData.FormData
+				if (-not $formData -or -not $formData.PositionSliderX -or -not $formData.PositionSliderY) { return }
+
+                
+                $isMinimized = $false
+                if ($timerData.ContainsKey('WindowHandle') -and $timerData.WindowHandle -ne [IntPtr]::Zero) {
+                    $isMinimized = [Custom.Native]::IsWindowMinimized($timerData.WindowHandle)
+                }
+
+                if ($isMinimized) {
                     
-				if ([Custom.Native]::IsWindow($timerData['WindowHandle']) -and [Custom.Native]::GetWindowRect($timerData['WindowHandle'], [ref]$rect))
-				{
-					try
-					{
+                    
+                    
+                    
+                    $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+                    $sliderValueX = $formData.PositionSliderX.Value
+                    $sliderValueY = $formData.PositionSliderY.Value
 
-							if (-not ($timerData.FormData.PSObject.Properties['IsDragging'] -and $timerData.FormData.IsDragging))
+                    $minLeft = $virtual.Left + 8
+                    $maxLeft = $virtual.Right - $form.Width - 8
+                    $timerData.RealLeft = [Math]::Max($minLeft, [Math]::Min($maxLeft, $sliderValueX))
+
+                    $minTop = $virtual.Top + 8
+                    $maxTop = $virtual.Bottom - $form.Height - 8
+                    $timerData.RealTop = [Math]::Max($minTop, [Math]::Min($maxTop, $sliderValueY))
+
+                    
+                    if ($form.Visible) { $form.Hide() }
+                    return
+                } else {
+                    
+                    if (-not $form.Visible) { $form.Show() }
+                }
+
+				
+				try {
+					if ($timerData.ContainsKey('WindowHandle') -and $timerData.WindowHandle -and $timerData.WindowHandle -ne [IntPtr]::Zero)
+					{
+						$currRect = New-Object Custom.Native+RECT
+						if ([Custom.Native]::GetWindowRect($timerData.WindowHandle, [ref]$currRect))
+						{
+							
+							if ($timerData.ClientRect -and ($timerData.ClientRect.Left -ne 0 -or $timerData.ClientRect.Top -ne 0 -or $timerData.ClientRect.Right -ne 0 -or $timerData.ClientRect.Bottom -ne 0))
 							{
-								$sliderValueX = $timerData.FormData.PositionSliderX.Value
-								$maxLeft = $rect.Right - $timerData['FtoolForm'].Width - 8
-								$targetLeft = $rect.Left + 8 + (($maxLeft - ($rect.Left + 8)) * $sliderValueX / 100)
+								$dx = $currRect.Left - $timerData.ClientRect.Left
+								$dy = $currRect.Top - $timerData.ClientRect.Top
+								if (($dx -ne 0 -or $dy -ne 0) -and -not ($formData.IsDragging))
+								{
 									
-								$sliderValueY = 100 - $timerData.FormData.PositionSliderY.Value
-								$maxTop = $rect.Bottom - $timerData['FtoolForm'].Height - 8
-								$targetTop = $rect.Top + 8 + (($maxTop - ($rect.Top + 8)) * $sliderValueY / 100)
-		
-								# Use and update a high-precision 'Real' position to prevent snapping
-								$newRealLeft = $timerData.RealLeft + ($targetLeft - $timerData.RealLeft) * 0.2
-								$newRealTop = $timerData.RealTop + ($targetTop - $timerData.RealTop) * 0.2
-								
-								$timerData.RealLeft = $newRealLeft
-								$timerData.RealTop = $newRealTop
-
-								# Set the form's integer position for display
-								$timerData['FtoolForm'].Left = [int]$newRealLeft
-								$timerData['FtoolForm'].Top = [int]$newRealTop
-							}
-							else
-							{
-								# Update tracking variables to current position during drag
-								$timerData.RealLeft = $timerData['FtoolForm'].Left
-								$timerData.RealTop = $timerData['FtoolForm'].Top
-							}
-                                                        
-							$ftoolHandle = $timerData['FtoolForm'].Handle
-							$linkedHandle = $timerData['WindowHandle']
-							$foregroundWindow = [Custom.Native]::GetForegroundWindow()
-							$flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
-
-							$shouldBeTopMost = $false
-							if ($foregroundWindow -eq $linkedHandle) {
-								$shouldBeTopMost = $true
-							} else {
-								$activeCtrl = [System.Windows.Forms.Control]::FromHandle($foregroundWindow)
-								if ($activeCtrl -and -not $activeCtrl.IsDisposed -and $activeCtrl.Tag) {
-									if ($activeCtrl.Tag.PSObject.Properties['SelectedWindow'] -and $activeCtrl.Tag.SelectedWindow -eq $linkedHandle) {
-										$shouldBeTopMost = $true
-									}
+									try {
+										$minX = $formData.PositionSliderX.Minimum
+										$maxX = $formData.PositionSliderX.Maximum
+										if ($minX -gt $maxX) { $tmp = $minX; $minX = $maxX; $maxX = $tmp }
+										$newX = [int]([Math]::Max($minX, [Math]::Min($maxX, $formData.PositionSliderX.Value + $dx)))
+										$formData.PositionSliderX.Value = $newX
+										$minY = $formData.PositionSliderY.Minimum
+										$maxY = $formData.PositionSliderY.Maximum
+										if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
+										$newY = [int]([Math]::Max($minY, [Math]::Min($maxY, $formData.PositionSliderY.Value + $dy)))
+										$formData.PositionSliderY.Value = $newY
+										
+										$timerData.RealLeft = $timerData.RealLeft + $dx
+										$timerData.RealTop = $timerData.RealTop + $dy
+									} catch { }
 								}
 							}
-
-							if ($shouldBeTopMost)
-							{
-								$forceUpdate = $false
-								if ($foregroundWindow -eq $linkedHandle) {
-									$testPrev = [Custom.Native]::GetWindow($ftoolHandle, 3)
-									$checkCount = 0
-									while ($testPrev -ne [IntPtr]::Zero -and $checkCount -lt 50) {
-										if ($testPrev -eq $linkedHandle) { $forceUpdate = $true; break }
-										$testPrev = [Custom.Native]::GetWindow($testPrev, 3)
-										$checkCount++
-									}
-								}
-
-								if ($timerData.FtoolZState -ne 'topmost' -or $forceUpdate)
-								{
-									if ($forceUpdate) {
-										[Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-									}
-									[Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-									$timerData.FtoolZState = 'topmost'
-								}
-							}
-							else
-							{
-								if ($timerData.FtoolZState -ne 'standard')
-								{
-									[Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-									$timerData.FtoolZState = 'standard'
-								}
-
-								$next = [Custom.Native]::GetWindow($ftoolHandle, 2) 
-								$amIAboveGame = $false
-								$loopCount = 0
-								
-								while ($next -ne [IntPtr]::Zero -and $loopCount -lt 50)
-								{
-								if ([Custom.Native]::IsWindowVisible($next)) {
-									if ($next -eq $linkedHandle) { $amIAboveGame = $true; break }
-									$loopCount++
-								}
-								$next = [Custom.Native]::GetWindow($next, 2)
-							}
-
-								if (-not $amIAboveGame)
-								{
-									$bottomOfCluster = [Custom.Native]::GetWindow($linkedHandle, 3)
-									if ($bottomOfCluster -ne [IntPtr]::Zero) { [Custom.Native]::PositionWindow($ftoolHandle, $bottomOfCluster, 0, 0, 0, 0, $flags) | Out-Null }
-									else { [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::TopWindowHandle, 0, 0, 0, 0, $flags) | Out-Null }
-								}
-							}
-							$timerData.LastForegroundWindow = $foregroundWindow
+							
+							$timerData.ClientRect = $currRect
+						}
 					}
-					catch
+				} catch { }
+
+				
+				$virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+				$sliderValueX = $formData.PositionSliderX.Value
+				$sliderValueY = $formData.PositionSliderY.Value
+
+				$minLeft = $virtual.Left + 8
+				$maxLeft = $virtual.Right - $form.Width - 8
+				$targetLeft = [Math]::Max($minLeft, [Math]::Min($maxLeft, $sliderValueX))
+
+				$minTop = $virtual.Top + 8
+				$maxTop = $virtual.Bottom - $form.Height - 8
+				$targetTop = [Math]::Max($minTop, [Math]::Min($maxTop, $sliderValueY))
+
+				
+				$newRealLeft = $timerData.RealLeft + ($targetLeft - $timerData.RealLeft) * 0.2
+				$newRealTop = $timerData.RealTop + ($targetTop - $timerData.RealTop) * 0.2
+				$timerData.RealLeft = $newRealLeft
+				$timerData.RealTop = $newRealTop
+
+				$form.Left = [int]$newRealLeft
+				$form.Top = [int]$newRealTop
+
+				
+				$ftoolHandle = $form.Handle
+				$flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
+				if ($timerData.ContainsKey('WindowHandle') -and $timerData.WindowHandle -and $timerData.WindowHandle -ne [IntPtr]::Zero)
+				{
+					$linkedHandle = $timerData.WindowHandle
+					$foregroundWindow = [Custom.Native]::GetForegroundWindow()
+
+					$shouldBeTopMost = $false
+					if ($foregroundWindow -eq $linkedHandle) { $shouldBeTopMost = $true }
+					else {
+						$activeCtrl = [System.Windows.Forms.Control]::FromHandle($foregroundWindow)
+						if ($activeCtrl -and -not $activeCtrl.IsDisposed -and $activeCtrl.Tag) {
+							if ($activeCtrl.Tag.PSObject.Properties['SelectedWindow'] -and $activeCtrl.Tag.SelectedWindow -eq $linkedHandle) { $shouldBeTopMost = $true }
+						}
+					}
+
+					if ($shouldBeTopMost)
 					{
-						Write-Verbose ('FTOOL: Position timer error: {0} for {1}' -f $_.Exception.Message, $($timerData['InstanceId']))
+						$forceUpdate = $false
+						if ($foregroundWindow -eq $linkedHandle) {
+							$testPrev = [Custom.Native]::GetWindow($ftoolHandle, 3)
+							$checkCount = 0
+							while ($testPrev -ne [IntPtr]::Zero -and $checkCount -lt 50) {
+								if ($testPrev -eq $linkedHandle) { $forceUpdate = $true; break }
+								$testPrev = [Custom.Native]::GetWindow($testPrev, 3)
+								$checkCount++
+							}
+						}
+
+						if ($timerData.FtoolZState -ne 'topmost' -or $forceUpdate)
+						{
+							if ($forceUpdate) { [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null }
+							[Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
+							$timerData.FtoolZState = 'topmost'
+						}
+					}
+					else
+					{
+						if ($timerData.FtoolZState -ne 'standard') { [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null; $timerData.FtoolZState = 'standard' }
+						$next = [Custom.Native]::GetWindow($ftoolHandle, 2)
+						$amIAboveGame = $false; $loopCount = 0
+						while ($next -ne [IntPtr]::Zero -and $loopCount -lt 50) { if ($next -eq $linkedHandle) { $amIAboveGame = $true; break }; $next = [Custom.Native]::GetWindow($next, 2); $loopCount++ }
+						if (-not $amIAboveGame) { $bottomOfCluster = [Custom.Native]::GetWindow($linkedHandle, 3); if ($bottomOfCluster -ne [IntPtr]::Zero) { [Custom.Native]::PositionWindow($ftoolHandle, $bottomOfCluster, 0, 0, 0, 0, $flags) | Out-Null } else { [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::TopWindowHandle, 0, 0, 0, 0, $flags) | Out-Null } }
 					}
 				}
 				else
 				{
-                    
-					Write-Verbose ('FTOOL: Parent window handle no longer valid. Closing ftool {0}.' -f $timerData['InstanceId'])
-					$timerData['FtoolForm'].Close()
-					$s.Stop()
-					$s.Dispose()
-					$global:DashboardConfig.Resources.Timers.Remove("ftoolPosition_$($timerData.InstanceId)")
+					if ($timerData.FtoolZState -ne 'standard') { [Custom.Native]::PositionWindow($ftoolHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null; $timerData.FtoolZState = 'standard' }
 				}
+
 			}
 			catch
 			{
@@ -1017,7 +1113,7 @@ function CreateSpammerTimer
     }
 
 	$spamTimer = New-Object System.Windows.Forms.Timer
-	$spamTimer.Interval = $interval # Initial interval
+	$spamTimer.Interval = $interval 
     
 	$timerTag = @{
 		WindowHandle = $windowHandle
@@ -1070,7 +1166,7 @@ function CreateSpammerTimer
 			}
 		})
     
-    # Start immediately with Down
+    
     $dwell = Invoke-FtoolSpamAction -timerData $timerTag -Action 'Down'
     if ($dwell -gt 0) {
         $timerTag.State = 'Dwell'
@@ -1190,14 +1286,14 @@ function CleanupInstanceResources
 		$global:DashboardConfig.Resources.ExtensionData.Remove($key)
 	}
 
-	# Defensive cleanup: some extension hotkey owners may remain in the global registry
-	# (for example if HotkeyId was missing, translated, or ownerKey variants were used).
-	# Use the pattern matcher to clean up everything related to this instance
+	
+	
+	
 	try
 	{
 		if (Get-Command UnregisterHotkeysByOwnerPattern -ErrorAction SilentlyContinue)
 		{
-			# Matches instanceId, global_toggle_instanceId, ext_instanceId_*, etc.
+			
 			UnregisterHotkeysByOwnerPattern -OwnerPattern "ext_${instanceId}_*"
 		}
 	}
@@ -1234,7 +1330,7 @@ function CleanupInstanceResources
 				$form.Tag.ToolTipFtool.Dispose()
 			}
 			
-			# REQUIREMENT #2: When closing with active global toggle, pause the inner hotkey first to release the key
+			
 			if ($form.Tag.BtnHotkeyToggle -and $form.Tag.BtnHotkeyToggle.Checked)
 			{
 				try
@@ -1248,7 +1344,7 @@ function CleanupInstanceResources
 				}
 			}
 			
-			# REQUIREMENT #3: Unregister all hotkeys on form close (not just pause)
+			
 			if ($form.Tag.HotkeyId)
 			{
 				try
@@ -1275,7 +1371,7 @@ function CleanupInstanceResources
 		}
 	}
 
-	# Ensure the Hotkeys UI reflects any removals performed during cleanup
+	
 	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
 
 	if ($global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
@@ -1405,7 +1501,7 @@ function RemoveExtension
 				Write-Warning "FTOOL: Failed to unregister hotkey ID $($extData.HotkeyId) for extension $($extKey). Error: $_"
 			}
 		}
-        # Ensure the Hotkeys UI reflects the extension hotkey removal immediately
+        
         if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
         
 		RepositionExtensions $form $instanceId
@@ -1425,34 +1521,47 @@ function RemoveExtension
 
 function FtoolSelectedRow
 {
-	param($row)
+	param($row, [switch]$ForceNew, $Config = $null)
     
-	if (-not $row -or -not $row.Cells -or $row.Cells.Count -lt 3)
+	if (-not $row -or -not $row.Cells -or $row.Cells.Count -lt 3 -or -not $row.Cells[2].Value)
 	{
-		Write-Verbose 'FTOOL: Invalid row data, skipping'
+		Write-Verbose 'FTOOL: Invalid row data passed to FtoolSelectedRow.'
 		return
 	}
     
-	$instanceId = $row.Cells[2].Value.ToString()
-	if (-not $row.Tag -or -not $row.Tag.MainWindowHandle)
+	$pid = $row.Cells[2].Value.ToString()
+    $instanceId = $pid
+    
+    if ($ForceNew) {
+        $index = 1
+        while ($global:DashboardConfig.Resources.FtoolForms.Contains("${pid}_${index}")) {
+            $index++
+        }
+        $instanceId = "${pid}_${index}"
+        Write-Verbose "Ftool Debug: Generated unique instance ID $instanceId for restoration."
+    }
+
+	if (-not $row.Tag -or -not $row.Tag.PSObject.Properties['MainWindowHandle'] -or -not $row.Tag.MainWindowHandle)
 	{
-		Write-Verbose "FTOOL: Missing window handle for instance $instanceId, skipping"
+		Write-Verbose "FTOOL: Row is missing a valid MainWindowHandle for instance $instanceId."
 		return
 	}
     
 	$windowHandle = $row.Tag.MainWindowHandle
-	if (-not $instanceId)
-	{
-		Write-Verbose 'FTOOL: Missing instance ID, skipping'
-		return
-	}
     
-	if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+	if (-not $ForceNew -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
 	{
+        Write-Verbose "Ftool Debug: Instance $instanceId already exists, bringing to front."
 		$existingForm = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
-		if (-not $existingForm.IsDisposed)
+		if ($existingForm -and -not $existingForm.IsDisposed)
 		{
-			$existingForm.BringToFront()
+			try {
+				if ($existingForm.InvokeRequired) {
+					$existingForm.Invoke([System.Action]{ $existingForm.BringToFront() })
+				} else {
+					$existingForm.BringToFront()
+				}
+			} catch {}
 			return
 		}
 		else
@@ -1464,22 +1573,24 @@ function FtoolSelectedRow
 	$targetWindowRect = New-Object Custom.Native+RECT
 	[Custom.Native]::GetWindowRect($windowHandle, [ref]$targetWindowRect)
     
-	$windowTitle = if ($row.Tag.PSObject.Properties['MainWindowTitle']) { $row.Tag.MainWindowTitle }
-	elseif ($row.Tag.PSObject.Properties['Title']) { $row.Tag.Title }
-	elseif ($row.Cells[1].Value) { $row.Cells[1].Value.ToString() }
-	else { "Window_$instanceId" }
+	$windowTitle = "FTool: $instanceId"
+	if ($row.Tag.PSObject.Properties['MainWindowTitle'] -and -not [string]::IsNullOrEmpty($row.Tag.MainWindowTitle)) {
+		$windowTitle = $row.Tag.MainWindowTitle
+	} elseif ($row.Cells.Count -gt 1 -and $row.Cells[1].Value) {
+		$windowTitle = $row.Cells[1].Value.ToString()
+	}
     
-	$ftoolForm = CreateFtoolForm $instanceId $targetWindowRect $windowTitle $row
+	$ftoolForm = CreateFtoolForm $instanceId $targetWindowRect $windowTitle $row $Config
     
-	$global:DashboardConfig.Resources.FtoolForms[$instanceId] = $ftoolForm
-    
-	$ftoolForm.Show()
-	$ftoolForm.BringToFront()
+	if ($ftoolForm -and $ftoolForm -is [System.Windows.Forms.Form]) {
+		$ftoolForm.Show()
+		$ftoolForm.BringToFront()
+	}
 }
 
 function CreateFtoolForm
 {
-	param($instanceId, $targetWindowRect, $windowTitle, $row)
+	param($instanceId, $targetWindowRect, $windowTitle, $row, $Config = $null)
     
 	
 	$ftoolForm = New-Object Custom.FtoolFormWindow
@@ -1560,11 +1671,11 @@ function CreateFtoolForm
 		$btnAdd = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 165 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Sequence`nAdds a new key sequence step to the macro list."
 		$headerPanel.Controls.Add($btnAdd)
 		
-		# MOVED: Show/Hide button slightly right
+		
 		$btnShowHide = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 180 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Minimize/Expand`nCollapse or expand the macro window to save screen space."
 		$headerPanel.Controls.Add($btnShowHide)
 			
-		# ADDED: Reset button
+		
 		$btnReset = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 195 -bg @(100, 100, 100) -fg @(255, 255, 255) -text ([char]0x21BB) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Reset`nReset all settings for this instance to default."
 		$headerPanel.Controls.Add($btnReset)
 
@@ -1594,21 +1705,53 @@ function CreateFtoolForm
 		$btnHotKey = SetUIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip "Global Hotkey`nAssign a global hotkey to toggle this specific spammer on/off."
 		$panelSettings.Controls.Add($btnHotKey)
         
+		
+		
+		try {
+			if ($targetWindowRect -and $targetWindowRect -is [Custom.Native+RECT]) {
+				$rectForScreen = [System.Drawing.Rectangle]::FromLTRB($targetWindowRect.Left, $targetWindowRect.Top, $targetWindowRect.Right, $targetWindowRect.Bottom)
+				$screen = [System.Windows.Forms.Screen]::FromRectangle($rectForScreen)
+			} elseif ($row -and $row.Tag -and $row.Tag.MainWindowHandle) {
+				$screen = [System.Windows.Forms.Screen]::FromHandle([IntPtr]$row.Tag.MainWindowHandle)
+			} else {
+				$screen = [System.Windows.Forms.Screen]::PrimaryScreen
+			}
+		}
+		catch { $screen = [System.Windows.Forms.Screen]::PrimaryScreen }
+		
+		$virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+		$maxX = $virtual.Right
+		$maxY = $virtual.Bottom
+		$minX = $virtual.Left
+		
+		$minX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $minX))
+		$maxX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $maxX))
+		if ($minX -gt $maxX) { $tmp = $minX; $minX = $maxX; $maxX = $tmp }
+		$minY = $virtual.Top
+		$minY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $minY))
+		$maxY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $maxY))
+		if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
+
 		$positionSliderY = New-Object System.Windows.Forms.TrackBar
 		$positionSliderY.Orientation = 'Vertical'
-		$positionSliderY.Minimum = -18
-		$positionSliderY.Maximum = 118
+		$positionSliderY.Minimum = $minY
+		$positionSliderY.Maximum = $maxY
 		$positionSliderY.TickFrequency = 300
-		$positionSliderY.Value = 0
+		
+		
+		$initialY = [Math]::Max($minY, [Math]::Min($maxY, $ftoolForm.Top))
+		$positionSliderY.Value = $initialY
 		$positionSliderY.Size = New-Object System.Drawing.Size(15, 110)
 		$positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
 		$ftoolForm.Controls.Add($positionSliderY)
-            
+		
 		$positionSliderX = New-Object System.Windows.Forms.TrackBar
-		$positionSliderX.Minimum = -25
-		$positionSliderX.Maximum = 125
+		$positionSliderX.Minimum = $minX
+		$positionSliderX.Maximum = $maxX
 		$positionSliderX.TickFrequency = 300
-		$positionSliderX.Value = 0
+		
+		$initialX = [Math]::Max($minX, [Math]::Min($maxX, $ftoolForm.Left))
+		$positionSliderX.Value = $initialX
 		$positionSliderX.Size = New-Object System.Drawing.Size(200, 15)
 		$positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
 		$ftoolForm.Controls.Add($positionSliderX)
@@ -1639,6 +1782,7 @@ function CreateFtoolForm
 		PositionSliderX         = $positionSliderX
 		PositionSliderY         = $positionSliderY
 		Form                    = $ftoolForm
+		DebugLabel              = $labelDebug
 		ToolTipFtool            = $ftoolToolTip 
 		RunningSpammer          = $null
 		WindowTitle             = $windowTitle
@@ -1658,15 +1802,52 @@ function CreateFtoolForm
     
 	$ftoolForm.Tag = $formData
     
-	LoadFtoolSettings $formData
-	ToggleInstanceHotkeys -InstanceId $formData.InstanceId -ToggleState $formData.BtnHotkeyToggle.Checked
     
+    $global:DashboardConfig.Resources.FtoolForms[$instanceId] = $ftoolForm
+    
+	LoadFtoolSettings $formData
+    
+	if ($null -ne $Config -and $Config.ExtCount -gt 0) {
+	    for ($j = 0; $j -lt $Config.ExtCount; $j++) {
+	        $extKeyName = "Ext_$j"
+	        $extSavedData = $Config.$extKeyName
+	        
+	        if ($extSavedData) {
+	            
+	            $newExt = CreateExtensionPanel -form $ftoolForm `
+	                                         -currentHeight $formData.OriginalHeight `
+	                                         -extNum (GetNextExtensionNumber $instanceId) `
+	                                         -instanceId $instanceId `
+	                                         -windowHandle $formData.SelectedWindow
+	            
+	            
+	            $newExt.BtnKeySelect.Text = $extSavedData.key
+	            $newExt.Interval.Text     = $extSavedData.interval
+	            $newExt.Name.Text         = $extSavedData.name
+	            $newExt.Hotkey           = $extSavedData.hotkey
+	            $newExt.BtnHotKey.Text    = if ($extSavedData.hotkey) { $extSavedData.hotkey } else { "Hotkey" }
+	            
+	            
+	            if ($extSavedData.hotkey) {
+	                $extKey = "ext_$($instanceId)_$($newExt.ExtNum)"
+	                $scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$instanceId' -ExtKey '$extKey'")
+	                $newExt.HotkeyId = SetHotkey -KeyCombinationString $extSavedData.hotkey -Action $scriptBlock -OwnerKey $extKey
+	            }
+	            
+	            
+	            AddExtensionEventHandlers $newExt $formData
+	        }
+	    }
+	    
+	    RepositionExtensions $ftoolForm $instanceId
+	}
+	
 	if (-not [string]::IsNullOrEmpty($formData.Hotkey))
 	{
 		try
 		{
 			$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($formData.InstanceId)' -ExtKey `$null")
-			# Friendly label for UI
+			
 			$ownerLabel = $null
 					if ($formData.Name -and -not [string]::IsNullOrEmpty($formData.Name.Text)) { $ownerLabel = $formData.Name.Text }
 			elseif ($formData.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($formData.WindowTitle)) { $ownerLabel = $formData.WindowTitle }
@@ -1712,7 +1893,7 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.Instance
 }
 "@
 			$scriptBlock = [scriptblock]::Create($script)
-			# Friendly label for UI
+			
 			$ownerLabel = $null
 			if ($formData.Name -and -not [string]::IsNullOrEmpty($formData.Name.Text)) { $ownerLabel = $formData.Name.Text }
 			elseif ($formData.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($formData.WindowTitle)) { $ownerLabel = $formData.WindowTitle }
@@ -1726,10 +1907,23 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.Instance
 			$formData.GlobalHotkeyId = $null
 		}
 	}
+    
+	ToggleInstanceHotkeys -InstanceId $formData.InstanceId -ToggleState $formData.BtnHotkeyToggle.Checked
 
 	CreatePositionTimer $formData
 	AddFtoolEventHandlers $formData
 	AddFtoolDragHandlers $formData
+
+	if ($formData.IsCollapsed)
+	{
+		$ftoolForm.Height = 25
+		$formData.BtnShowHide.Text = [char]0x25BC
+	}
+	else
+	{
+		$ftoolForm.Height = $formData.OriginalHeight
+		$formData.BtnShowHide.Text = [char]0x25B2
+	}
     
 	return $ftoolForm
 }
@@ -1756,31 +1950,39 @@ function UpdateSliderValuesFromFormPosition
 			return
 		}
 		
-		# Calculate slider values based on current form position relative to window
+		
 		$formLeft = $form.Left
 		$formTop = $form.Top
-		$formWidth = $form.Width
-		$formHeight = $form.Height
 		
-		# Calculate X slider (0-100 based on left position)
-		$minLeft = $windowRect.Left + 8
-		$maxLeft = $windowRect.Right - $formWidth - 8
-		if ($maxLeft -gt $minLeft)
-		{
-			$sliderX = [Math]::Round(($formLeft - $minLeft) / ($maxLeft - $minLeft) * 100)
-			$sliderX = [Math]::Max(-25, [Math]::Min(125, $sliderX))
-			$formData.PositionSliderX.Value = $sliderX
-		}
 		
-		# Calculate Y slider (0-100 based on top position, inverted)
-		$minTop = $windowRect.Top + 8
-		$maxTop = $windowRect.Bottom - $formHeight - 8
-		if ($maxTop -gt $minTop)
-		{
-			$sliderY = [Math]::Round(($formTop - $minTop) / ($maxTop - $minTop) * 100)
-			$sliderY = [Math]::Max(-18, [Math]::Min(118, $sliderY))
-			$formData.PositionSliderY.Value = 100 - $sliderY
+		
+		try {
+			if ($windowRect -and $windowRect -is [Custom.Native+RECT]) {
+				$rectForScreen = [System.Drawing.Rectangle]::FromLTRB($windowRect.Left, $windowRect.Top, $windowRect.Right, $windowRect.Bottom)
+				$screen = [System.Windows.Forms.Screen]::FromRectangle($rectForScreen)
+			} elseif ($formData.SelectedWindow -and $formData.SelectedWindow -ne [IntPtr]::Zero) {
+				$screen = [System.Windows.Forms.Screen]::FromHandle([IntPtr]$formData.SelectedWindow)
+			} else {
+				$screen = [System.Windows.Forms.Screen]::PrimaryScreen
+			}
 		}
+		catch { $screen = [System.Windows.Forms.Screen]::PrimaryScreen }
+		
+		$virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+		$maxX = $virtual.Right
+		$maxY = $virtual.Bottom
+
+		$minX = $virtual.Left
+		
+		$sliderX = [Math]::Max($minX, [Math]::Min($maxX, $formLeft))
+		$formData.PositionSliderX.Value = $sliderX
+
+		$minY = $virtual.Top
+		
+		$sliderY = [Math]::Max($minY, [Math]::Min($maxY, $formTop))
+		$formData.PositionSliderY.Value = $sliderY
+
+		
 	}
 	catch
 	{
@@ -1803,7 +2005,7 @@ function AddFtoolDragHandlers
 		return
 	}
 	
-	# Initialize drag tracking data
+	
 	if (-not $formData.PSObject.Properties['IsDragging'])
 	{
 		$formData | Add-Member -MemberType NoteProperty -Name 'IsDragging' -Value $false
@@ -1839,7 +2041,7 @@ function AddFtoolDragHandlers
 			try
 			{
 				$currentTime = [DateTime]::Now
-				# Rate limit updates to avoid excessive slider changes
+				
 				if (($currentTime - $f.Tag.LastUpdateTime).TotalMilliseconds -lt 20)
 				{
 					return
@@ -1872,7 +2074,7 @@ function AddFtoolDragHandlers
 					}
 				}
 				
-				# Update sliders based on new position
+				
 				if ($f.Tag.SelectedWindow -and $f.Tag.SelectedWindow -ne [IntPtr]::Zero)
 				{
 					$rect = New-Object Custom.Native+RECT
@@ -1889,13 +2091,13 @@ function AddFtoolDragHandlers
 		}
 	}
 	
-	# Mouse up - stop tracking drag
+	
 	$mouseUp = {
 		$f = $this.FindForm()
 		if ($f.Tag)
 		{
 			$f.Tag.IsDragging = $false
-			# Final slider update to ensure consistency
+			
 			if ($f.Tag.SelectedWindow -and $f.Tag.SelectedWindow -ne [IntPtr]::Zero)
 			{
 				try
@@ -1911,7 +2113,7 @@ function AddFtoolDragHandlers
 		}
 	}
 
-	# Apply handlers to both the form and the header panel
+	
 	$form.Add_MouseDown($mouseDown)
 	$form.Add_MouseMove($mouseMove)
 	$form.Add_MouseUp($mouseUp)
@@ -1970,7 +2172,7 @@ function AddFtoolEventHandlers
 				return
 			}
 			$data = $form.Tag
-			# Only update settings if not currently dragging (to avoid conflicts)
+			
 			if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging)
 			{
 				UpdateSettings $data -forceWrite
@@ -1984,7 +2186,7 @@ function AddFtoolEventHandlers
 				return
 			}
 			$data = $form.Tag
-			# Only update settings if not currently dragging (to avoid conflicts)
+			
 			if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging)
 			{
 				UpdateSettings $data -forceWrite
@@ -2026,6 +2228,19 @@ function AddFtoolEventHandlers
 			}
 			$data = $form.Tag
         
+			
+			$profilePrefix = FindOrCreateProfile $data.WindowTitle
+			$templateKey = "Template_$profilePrefix"
+			if ($global:DashboardConfig.Config['Ftool'].Contains($templateKey)) {
+				$template = $global:DashboardConfig.Config['Ftool'][$templateKey]
+				if ((Show-DarkMessageBox "A template exists for this instance. Do you want to load it?" "Load Template" "YesNo" "Question") -eq 'Yes') {
+					$data.BtnKeySelect.Text = $template['key1']
+					$data.Interval.Text = $template['inpt1']
+					$data.Name.Text = $template['name1']
+					UpdateSettings $data -forceWrite
+				}
+			}
+
 			$keyValue = $data.BtnKeySelect.Text
 			if (-not $keyValue -or $keyValue.Trim() -eq '')
 			{
@@ -2093,7 +2308,7 @@ function AddFtoolEventHandlers
 				try
 				{
 					$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($data.InstanceId)' -ExtKey `$null")
-					# Friendly label for UI
+					
 					$ownerLabel = $null
 					if ($data.Name -and -not [string]::IsNullOrEmpty($data.Name.Text)) { $ownerLabel = $data.Name.Text }
 					elseif ($data.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($data.WindowTitle)) { $ownerLabel = $data.WindowTitle }
@@ -2186,7 +2401,7 @@ function AddFtoolEventHandlers
         }
 "@
 					$scriptBlock = [scriptblock]::Create($script)
-					# Friendly label for UI
+					
 					$ownerLabel = $null
 					if ($data.Name -and -not [string]::IsNullOrEmpty($data.Name.Text)) { $ownerLabel = $data.Name.Text }
 					elseif ($data.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($data.WindowTitle)) { $ownerLabel = $data.WindowTitle }
@@ -2256,13 +2471,13 @@ function AddFtoolEventHandlers
         
         if ((Show-DarkMessageBox "Are you sure you want to reset this Ftool instance to default settings? This will remove all extensions and clear keys." "Reset Defaults" "YesNo" "Warning") -eq 'Yes')
         {
-            # Stop main spammer
+            
             if ($data.RunningSpammer)
             {
                 $data.BtnStop.PerformClick()
             }
             
-            # Remove all extensions
+            
             $extKeysToRemove = [System.Collections.ArrayList]@()
             foreach ($k in $global:DashboardConfig.Resources.ExtensionData.Keys) {
                 if ($k -like "ext_$($data.InstanceId)_*") {
@@ -2274,7 +2489,7 @@ function AddFtoolEventHandlers
             }
             $data.ExtensionCount = 0
 
-            # Unregister Global Hotkeys if any
+            
             if ($data.GlobalHotkeyId) {
                  $ownerKey = "global_toggle_$($data.InstanceId)"
                  try { UnregisterHotkeyInstance -Id $data.GlobalHotkeyId -OwnerKey $ownerKey } catch {}
@@ -2282,23 +2497,28 @@ function AddFtoolEventHandlers
                  $data.GlobalHotkey = $null
             }
 
-            # Unregister Hotkey if any
+            
             if ($data.HotkeyId) {
                  try { UnregisterHotkeyInstance -Id $data.HotkeyId -OwnerKey $data.InstanceId } catch {}
                  $data.HotkeyId = $null
                  $data.Hotkey = $null
             }
 
-            # Reset Controls
+            
             $data.BtnKeySelect.Text = ""
             $data.Interval.Text = "1000"
             $data.Name.Text = "Main"
             $data.BtnHotKey.Text = "Hotkey"
             $data.BtnHotkeyToggle.Checked = $true
-            $data.PositionSliderX.Value = 0
-            $data.PositionSliderY.Value = 100
+			
+			$minX = $data.PositionSliderX.Minimum
+			$maxX = $data.PositionSliderX.Maximum
+			$minY = $data.PositionSliderY.Minimum
+			$maxY = $data.PositionSliderY.Maximum
+			$data.PositionSliderX.Value = [Math]::Max($minX, [Math]::Min($maxX, $data.Form.Left))
+			$data.PositionSliderY.Value = [Math]::Max($minY, [Math]::Min($maxY, $data.Form.Top))
 
-            # Clear Config specific to this profile
+            
             $profilePrefix = $data.ProfilePrefix
             if ($profilePrefix) {
                 $keysToClear = [System.Collections.ArrayList]@()
@@ -2312,7 +2532,7 @@ function AddFtoolEventHandlers
                 }
             }
 
-            # Save clean state
+            
             UpdateSettings $data -forceWrite
             $form.Height = 130
             $data.OriginalHeight = 130
@@ -2356,7 +2576,7 @@ function AddFtoolEventHandlers
 				try
 				{
 					$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($extData.InstanceId)' -ExtKey '$($extKeyForScriptBlock)'")
-					# Friendly label for UI
+					
 					$ownerLabel = $null
 					$mainName = if ($formData.Name -and $formData.Name.Text) { $formData.Name.Text } else { $null }
 					$extName = if ($extData.Name -and $extData.Name.Text) { $extData.Name.Text } else { $null }
@@ -2469,6 +2689,8 @@ function CreateExtensionPanel
 	$extKey = "ext_${instanceId}_$extNum"
 	$instanceKey = "instance_$instanceId"
     
+	InitializeExtensionTracking $instanceId
+
 	$extData = [PSCustomObject]@{
 		Panel          = $panelExt
 		BtnKeySelect   = $btnKeySelectExt
@@ -2783,7 +3005,7 @@ function AddExtensionEventHandlers
 				try
 				{
 					$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$($extData.InstanceId)' -ExtKey '$($extKey)'")
-					# Friendly label for UI
+					
 					$ownerLabel = $null
 					$mainName = if ($formData.Name -and $formData.Name.Text) { $formData.Name.Text } else { $null }
 					$extName = if ($extData.Name -and $extData.Name.Text) { $extData.Name.Text } else { $null }

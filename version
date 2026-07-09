@@ -1,23 +1,27 @@
 Author: Immortal / Divine
-Version: 2.7.3
+Version: 2.8.1
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 [Changelogs]
    - Added:
 
-	- Setting for Auto Start with Windows
-	- Setting for Auto Start of selected Saved Setup on dashboard launch
-    - List for all hotkeys in the settings page auto updates now
-	- Ftool and Macro window is now dragable with the mouse (slider functionality remains active too)
+	- You can now set hotkeys to pause/resume ALL hotkeys at once in the settings hotkey tab. 
+	- You can save a Ftool/Macro template now. 
+	  - Right click the Ftool/Macro button to instead save/load the session for the selected client.
+	- You can move the Ftool/Macro window anywhere now on the screen.
+	  - It remains anchored to the client too.
+	- Added an Upgrade Calculator in Extras.
 
    - Fixed:
 
-	- Dead bosses hide after 10 seconds now instead of 5 minutes
-	- Some notification not being paused on mouse hover
-	- Hotkey un-/registration causes no errors anymore
+	- Re-enabled the boss report.
+	- Fixed hotkeys when Ftool/Macro were activated with the master toggle off.
+	  - If any hotkey ever gets stuck, check the settings hotkey tab.
+	- You can now also use the Ctrl hotbar of the game in addition to the Alt hotbar.
+	- Auto Start with windows didnt work on some machines, remove and set the checkbox again to fix.
 
-	- Hotfix 2.7.3:
-	- No Crash anymore, if no setup is selected for auto start
+
+
 
    Dont forget to request your Access Code in Discord for the Worldboss Feature!
 

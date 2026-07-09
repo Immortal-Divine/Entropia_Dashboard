@@ -2,8 +2,7 @@
 
 #region Helper Functions
 
-function InitMacroRunspace
-{
+function InitMacroRunspace {
     param($InstanceId)
     
     $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
@@ -14,10 +13,8 @@ function InitMacroRunspace
         $_.FullName -match 'Custom.Win32'
     }
     
-    foreach ($asm in $assemblies)
-    {
-        if (-not [string]::IsNullOrEmpty($asm.Location))
-        {
+    foreach ($asm in $assemblies) {
+        if (-not [string]::IsNullOrEmpty($asm.Location)) {
             $iss.Assemblies.Add((New-Object System.Management.Automation.Runspaces.SessionStateAssemblyEntry($asm.Location)))
         }
     }
@@ -29,10 +26,9 @@ function InitMacroRunspace
     return $pool
 }
 
-function Get-MacroKeyScriptBlock
-{
+function Get-MacroKeyScriptBlock {
     return {
-        param($Handle, $Vk, $HoldTime, $IsMouse, $Mods, $IsAlt)
+        param($Handle, $Vk, $HoldTime, $IsMouse, $Mods, $IsAlt, $IsCtrl)
 
         $WM_KEYDOWN = 0x0100; $WM_KEYUP = 0x0101
         $WM_LBUTTONDOWN = 0x0201; $WM_LBUTTONUP = 0x0202
@@ -40,108 +36,130 @@ function Get-MacroKeyScriptBlock
         $WM_MBUTTONDOWN = 0x0207; $WM_MBUTTONUP = 0x0208
         $WM_XBUTTONDOWN = 0x020B; $WM_XBUTTONUP = 0x020C
 
-        $point = New-Object Custom.Win32Point
-        [Custom.Win32MouseUtils]::GetCursorPos([ref]$point) | Out-Null
-        [Custom.Win32MouseUtils]::ScreenToClient($Handle, [ref]$point) | Out-Null
-        $lParam = [Custom.Win32MouseUtils]::MakeLParam($point.X, $point.Y)
+        try {
+            $point = New-Object Custom.Win32Point
+            [Custom.Win32MouseUtils]::GetCursorPos([ref]$point) | Out-Null
+            [Custom.Win32MouseUtils]::ScreenToClient($Handle, [ref]$point) | Out-Null
+            $lParam = [Custom.Win32MouseUtils]::MakeLParam($point.X, $point.Y)
 
-        if (-not $IsMouse) {
-            $lParam = 1
-        }
-
-        $msgDown = 0; $msgUp = 0; $wParamDown = [IntPtr]::Zero; $wParamUp = [IntPtr]::Zero
-
-        if ($IsMouse)
-        {
-            $MK_LBUTTON = 0x0001; $MK_RBUTTON = 0x0002; $MK_SHIFT = 0x0004
-            $MK_CONTROL = 0x0008; $MK_MBUTTON = 0x0010; $MK_XBUTTON1 = 0x0020; $MK_XBUTTON2 = 0x0040
-            
-            $wDown = 0
-            if ($Mods -contains 0x11) { $wDown = $wDown -bor $MK_CONTROL }
-            if ($Mods -contains 0x10) { $wDown = $wDown -bor $MK_SHIFT }
-
-            $targetFlag = 0; $xData = 0
-            switch ($Vk) {
-                0x01 { $targetFlag = $MK_LBUTTON; $msgDown = $WM_LBUTTONDOWN; $msgUp = $WM_LBUTTONUP }
-                0x02 { $targetFlag = $MK_RBUTTON; $msgDown = $WM_RBUTTONDOWN; $msgUp = $WM_RBUTTONUP }
-                0x04 { $targetFlag = $MK_MBUTTON; $msgDown = $WM_MBUTTONDOWN; $msgUp = $WM_MBUTTONUP }
-                0x05 { $targetFlag = $MK_XBUTTON1; $xData = 0x00010000; $msgDown = $WM_XBUTTONDOWN; $msgUp = $WM_XBUTTONUP }
-                0x06 { $targetFlag = $MK_XBUTTON2; $xData = 0x00020000; $msgDown = $WM_XBUTTONDOWN; $msgUp = $WM_XBUTTONUP }
+            if (-not $IsMouse) {
+                $lParam = 1
             }
-            
-            $wDown = $wDown -bor $targetFlag
-            $wUp = $wDown -bxor $targetFlag
-            if ($xData -ne 0) { $wDown = $wDown -bor $xData; $wUp = $wUp -bor $xData }
-            
-            $wParamDown = [IntPtr]$wDown
-            $wParamUp = [IntPtr]$wUp
-        }
-        else
-        {
-            $msgDown = $WM_KEYDOWN
-            $msgUp = $WM_KEYUP
-            $wParamDown = [IntPtr]$Vk
-            $wParamUp = [IntPtr]$Vk
-        }
 
-        if ($IsMouse -and $IsAlt) { [Custom.Ftool]::fnPostMessage($Handle, $WM_KEYDOWN, 0x12, 0) }
-        foreach ($m in $Mods) { [Custom.Ftool]::fnPostMessage($Handle, $WM_KEYDOWN, $m, 0) }
+            $msgDown = 0; $msgUp = 0; $wParamDown = [IntPtr]::Zero; $wParamUp = [IntPtr]::Zero
 
-        [Custom.Ftool]::fnPostMessage($Handle, $msgDown, $wParamDown, $lParam)
+            if ($IsMouse) {
+                $MK_LBUTTON = 0x0001; $MK_RBUTTON = 0x0002; $MK_SHIFT = 0x0004
+                $MK_CONTROL = 0x0008; $MK_MBUTTON = 0x0010; $MK_XBUTTON1 = 0x0020; $MK_XBUTTON2 = 0x0040
+                
+                $wDown = 0
+                if ($Mods -contains 0x11) { $wDown = $wDown -bor $MK_CONTROL }
+                if ($Mods -contains 0x10) { $wDown = $wDown -bor $MK_SHIFT }
 
-        if ($HoldTime -gt 0)
-        {
-            $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            while ($sw.ElapsedMilliseconds -lt $HoldTime)
-            {
+                $targetFlag = 0; $xData = 0
+                switch ($Vk) {
+                    0x01 { $targetFlag = $MK_LBUTTON; $msgDown = $WM_LBUTTONDOWN; $msgUp = $WM_LBUTTONUP }
+                    0x02 { $targetFlag = $MK_RBUTTON; $msgDown = $WM_RBUTTONDOWN; $msgUp = $WM_RBUTTONUP }
+                    0x04 { $targetFlag = $MK_MBUTTON; $msgDown = $WM_MBUTTONDOWN; $msgUp = $WM_MBUTTONUP }
+                    0x05 { $targetFlag = $MK_XBUTTON1; $xData = 0x00010000; $msgDown = $WM_XBUTTONDOWN; $msgUp = $WM_XBUTTONUP }
+                    0x06 { $targetFlag = $MK_XBUTTON2; $xData = 0x00020000; $msgDown = $WM_XBUTTONDOWN; $msgUp = $WM_XBUTTONUP }
+                }
+                
+                $wDown = $wDown -bor $targetFlag
+                $wUp = $wDown -bxor $targetFlag
+                if ($xData -ne 0) { $wDown = $wDown -bor $xData; $wUp = $wUp -bor $xData }
+                
+                $wParamDown = [IntPtr]$wDown
+                $wParamUp = [IntPtr]$wUp
+            }
+            else {
+                $msgDown = $WM_KEYDOWN
+                $msgUp = $WM_SYSKEYUP
+                $wParamDown = [IntPtr]$Vk
+                $wParamUp = [IntPtr]$Vk
+            }
+
+            if ($IsAlt) { [Custom.Ftool]::fnPostMessage($Handle, $WM_KEYDOWN, 0x12, 0) }
+            if ($IsCtrl) { [Custom.Ftool]::fnPostMessage($Handle, $WM_KEYDOWN, 0x11, 0x001D0001) }
+            if ($Mods -contains 0x10) { [Custom.Ftool]::fnPostMessage($Handle, $WM_KEYDOWN, 0x10, 0) }
+
+            foreach ($m in $Mods) {
+                [Custom.Native]::keybd_event([byte]$m, 0, 0, [IntPtr]::Zero)
+                [Custom.Ftool]::fnPostMessage($Handle, $WM_KEYDOWN, $m, 1)
+            }
+
+            [Custom.Ftool]::fnPostMessage($Handle, $msgDown, $wParamDown, $lParam)
+
+            if ($HoldTime -gt 0) {
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                while ($sw.ElapsedMilliseconds -lt $HoldTime) {
+                    Start-Sleep -Milliseconds 5
+                    if ($sw.ElapsedMilliseconds -lt $HoldTime -and -not $IsMouse) {
+                        [Custom.Ftool]::fnPostMessage($Handle, $msgDown, $wParamDown, 0x40000000)
+                    }
+                }
+                $sw.Stop()
+            }
+            else {
                 Start-Sleep -Milliseconds 5
-                if ($sw.ElapsedMilliseconds -lt $HoldTime -and -not $IsMouse)
-                {
-                    [Custom.Ftool]::fnPostMessage($Handle, $msgDown, $wParamDown, 0x40000000)
+            }
+
+            $finalLParam = $lParam
+            
+            if (-not $IsMouse) {
+                $finalLParam = $lParam -bor 0xC0000000
+            }
+
+            [Custom.Ftool]::fnPostMessage($Handle, $msgUp, $wParamUp, $finalLParam)
+        }
+        finally {
+            foreach ($m in $Mods | Sort-Object -Descending) {
+                [Custom.Native]::keybd_event([byte]$m, 0, 2, [IntPtr]::Zero)
+            }
+            if ($IsCtrl) { [Custom.Ftool]::fnPostMessage($Handle, $WM_SYSKEYUP, 0x11, 0x001D0001) }
+            if ($IsAlt) { [Custom.Ftool]::fnPostMessage($Handle, $WM_SYSKEYUP, 0x12, 0xC0000000) }
+            if ($Mods -contains 0x10) { [Custom.Ftool]::fnPostMessage($Handle, $WM_SYSKEYUP, 0x10, 0xC0000000) }
+            
+            if ($Vk -and $Vk -gt 0) {
+                if ($IsMouse) {
+                    $msgUp = 0
+                    switch ($Vk) {
+                        0x01 { $msgUp = $WM_LBUTTONUP }
+                        0x02 { $msgUp = $WM_RBUTTONUP }
+                        0x04 { $msgUp = $WM_MBUTTONUP }
+                        0x05 { $msgUp = $WM_XBUTTONUP }
+                        0x06 { $msgUp = $WM_XBUTTONUP }
+                    }
+                    if ($msgUp -ne 0) {
+                        [Custom.Ftool]::fnPostMessage($Handle, $msgUp, [IntPtr]0, $lParam)
+                    }
+                } else {
+                    [Custom.Native]::keybd_event([byte]$Vk, 0, 2, [IntPtr]::Zero)
                 }
             }
-            $sw.Stop()
         }
-        else
-        {
-            Start-Sleep -Milliseconds 5
-        }
-
-        $finalLParam = $lParam
-        
-        if (-not $IsMouse) {
-            $finalLParam = $lParam -bor 0xC0000000
-        }
-
-        [Custom.Ftool]::fnPostMessage($Handle, $msgUp, $wParamUp, $finalLParam)
-
-        foreach ($m in $Mods) { [Custom.Ftool]::fnPostMessage($Handle, $WM_KEYUP, $m, 0xC0000000) }
-        if ($IsMouse -and $IsAlt) { [Custom.Ftool]::fnPostMessage($Handle, $WM_KEYUP, 0x12, 0xC0000000) }
     }
 }
 
-function Invoke-MacroKeyAction
-{
+function Invoke-MacroKeyAction {
     param($formData, $keyString, [int]$holdTime = 5)
 
     if ($formData.SelectedWindow -eq [IntPtr]::Zero) { return $null }
 
-    if (-not $formData.RunspacePool -or $formData.RunspacePool.RunspacePoolStateInfo.State -ne 'Opened')
-    {
+    if (-not $formData.RunspacePool -or $formData.RunspacePool.RunspacePoolStateInfo.State -ne 'Opened') {
         Write-Verbose "Macro Runspace closed/broken. Attempting to restart..."
-                try {
-                    $scriptBlock = [scriptblock]::Create("ToggleMacroInstance -InstanceId '$($formData.InstanceId)'")
-                    $ownerKey = "macroinst_$($formData.InstanceId)"
-                    # Friendly label for UI
-                    $ownerLabel = $null
-                    if ($formData.PSObject.Properties['Name'] -and -not [string]::IsNullOrEmpty($formData.Name)) { $ownerLabel = $formData.Name }
-                    elseif ($formData.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($formData.WindowTitle)) { $ownerLabel = $formData.WindowTitle }
-                    else { $ownerLabel = "Macro: $($formData.InstanceId)" }
-                    $formData.HotkeyId = SetHotkey -KeyCombinationString $hk -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel
-                } 
-				catch {
-					Write-Verbose "Failed to restart Runspace: $_"
-					return $null
+        try {
+            $scriptBlock = [scriptblock]::Create("ToggleMacroInstance -InstanceId '$($formData.InstanceId)'")
+            $ownerKey = "macroinst_$($formData.InstanceId)"
+            $ownerLabel = $null
+            if ($formData.PSObject.Properties['Name'] -and -not [string]::IsNullOrEmpty($formData.Name)) { $ownerLabel = $formData.Name }
+            elseif ($formData.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($formData.WindowTitle)) { $ownerLabel = $formData.WindowTitle }
+            else { $ownerLabel = "Macro: $($formData.InstanceId)" }
+            $formData.HotkeyId = SetHotkey -KeyCombinationString $hk -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel
+        } 
+        catch {
+            Write-Verbose "Failed to restart Runspace: $_"
+            return $null
         }
     }
 
@@ -158,16 +176,17 @@ function Invoke-MacroKeyAction
     $isMouse = ($virtualKeyCode -ge 0x01 -and $virtualKeyCode -le 0x06)
     $mods = @()
     $isAlt = $false
+    $isCtrl = $false
 
     foreach ($modName in $modifierNames) {
         switch ($modName.ToUpper()) {
-            'CTRL' { $mods += 0x11 }
+            'CTRL' { $mods += 0x11; $isCtrl = $true }
             'ALT' { $mods += 0x12; $isAlt = $true }
             'SHIFT' { $mods += 0x10 }
         }
     }
     
-    if (-not $isMouse) { if ($isAlt) { $isAlt = $false } }
+    if (-not $isMouse) { if ($isAlt) { $isAlt = $false }; if ($isCtrl) { $isCtrl = $false } }
 
     $ps = [System.Management.Automation.PowerShell]::Create()
     try {
@@ -179,20 +198,21 @@ function Invoke-MacroKeyAction
         $ps.AddArgument($isMouse) | Out-Null
         $ps.AddArgument($mods) | Out-Null
         $ps.AddArgument($isAlt) | Out-Null
+        $ps.AddArgument($isCtrl) | Out-Null
 
         return @{ 
-            PowerShell = $ps
+            PowerShell  = $ps
             AsyncResult = $ps.BeginInvoke()
         }
-    } catch {
+    }
+    catch {
         Write-Verbose "Macro Invoke Error: $_"
         if ($ps) { $ps.Dispose() }
         return $null
     }
 }
 
-function CreateMacroPositionTimer
-{
+function CreateMacroPositionTimer {
     param($formData)
     
     $positionTimer = New-Object System.Windows.Forms.Timer
@@ -203,146 +223,156 @@ function CreateMacroPositionTimer
         InstanceId   = $formData.InstanceId
         FormData     = $formData
         ZState       = 'unknown' 
-		RealLeft     = $formData.Form.Left
-		RealTop      = $formData.Form.Top
+        RealLeft     = $formData.Form.Left
+        RealTop      = $formData.Form.Top
+        ClientRect   = (New-Object Custom.Native+RECT)
     }
         
     $positionTimer.Add_Tick({
             param($s, $e)
-            try
-            {
+            try {
                 if (-not $s -or -not $s.Tag) {
                     $s.Stop(); $s.Dispose()
                     return
                 }
 
                 $timerData = $s.Tag
-                if (-not $timerData -or -not $timerData.ContainsKey('WindowHandle') -or -not $timerData.ContainsKey('Form') -or $timerData['WindowHandle'] -eq [IntPtr]::Zero -or -not $timerData['Form'] -or $timerData['Form'].IsDisposed) {
-                    $s.Stop(); $s.Dispose()
+                if (-not $timerData -or -not $timerData.ContainsKey('Form') -or -not $timerData['Form'] -or $timerData['Form'].IsDisposed) { $s.Stop(); $s.Dispose(); return }
+
+                $form = $timerData.Form
+                $formData = $timerData.FormData
+                if (-not $formData -or -not $formData.PositionSliderX -or -not $formData.PositionSliderY) { return }
+
+                $isMinimized = $false
+                if ($timerData.ContainsKey('WindowHandle') -and $timerData.WindowHandle -ne [IntPtr]::Zero) {
+                    $isMinimized = [Custom.Native]::IsWindowMinimized($timerData.WindowHandle)
+                }
+
+                if ($isMinimized) {
+                    $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+                    $sliderValueX = $formData.PositionSliderX.Value
+                    $sliderValueY = $formData.PositionSliderY.Value
+
+                    $minLeft = $virtual.Left + 8
+                    $maxLeft = $virtual.Right - $form.Width - 8
+                    $timerData.RealLeft = [Math]::Max($minLeft, [Math]::Min($maxLeft, $sliderValueX))
+
+                    $minTop = $virtual.Top + 8
+                    $maxTop = $virtual.Bottom - $form.Height - 8
+                    $timerData.RealTop = [Math]::Max($minTop, [Math]::Min($maxTop, $sliderValueY))
+
+                    if ($form.Visible) { $form.Hide() }
                     return
                 }
-            
-                $rect = New-Object Custom.Native+RECT
-                    
-                if ([Custom.Native]::IsWindow($timerData['WindowHandle']) -and [Custom.Native]::GetWindowRect($timerData['WindowHandle'], [ref]$rect))
-                {
-                    try
-                    {
-                        if (-not $timerData.FormData -or -not $timerData.FormData.PositionSliderX -or -not $timerData.FormData.PositionSliderY) { return }
-                        
-                        # Skip anchoring logic if the user is currently dragging the window
-                        if (-not ($timerData.FormData.PSObject.Properties['IsDragging'] -and $timerData.FormData.IsDragging))
-                        {
-                            $sliderValueX = $timerData.FormData.PositionSliderX.Value
-                            $maxLeft = $rect.Right - $timerData['Form'].Width - 8
-                            $targetLeft = $rect.Left + 8 + (($maxLeft - ($rect.Left + 8)) * $sliderValueX / 100)
-                                
-                            $sliderValueY = 100 - $timerData.FormData.PositionSliderY.Value
-                            $maxTop = $rect.Bottom - $timerData['Form'].Height - 8
-                            $targetTop = $rect.Top + 8 + (($maxTop - ($rect.Top + 8)) * $sliderValueY / 100)
+                else {
+                    if (-not $form.Visible) { $form.Show() }
+                }
 
-                            # Use and update a high-precision 'Real' position to prevent snapping
-                            $newRealLeft = $timerData.RealLeft + ($targetLeft - $timerData.RealLeft) * 0.2
-                            $newRealTop = $timerData.RealTop + ($targetTop - $timerData.RealTop) * 0.2
-                            
-                            $timerData.RealLeft = $newRealLeft
-                            $timerData.RealTop = $newRealTop
+                $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+                try {
+                    if ($timerData.ContainsKey('WindowHandle') -and $timerData.WindowHandle -and $timerData.WindowHandle -ne [IntPtr]::Zero) {
+                        $currRect = New-Object Custom.Native+RECT
+                        if ([Custom.Native]::GetWindowRect($timerData.WindowHandle, [ref]$currRect)) {
+                            if ($timerData.ClientRect -and ($timerData.ClientRect.Left -ne 0 -or $timerData.ClientRect.Top -ne 0 -or $timerData.ClientRect.Right -ne 0 -or $timerData.ClientRect.Bottom -ne 0)) {
+                                $dx = $currRect.Left - $timerData.ClientRect.Left
+                                $dy = $currRect.Top - $timerData.ClientRect.Top
+                                if (($dx -ne 0 -or $dy -ne 0) -and -not ($formData.IsDragging)) {
+                                    try {
+                                        $minX = $formData.PositionSliderX.Minimum
+                                        $maxX = $formData.PositionSliderX.Maximum
+                                        $minX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $minX))
+                                        $maxX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $maxX))
+                                        if ($minX -gt $maxX) { $tmp = $minX; $minX = $maxX; $maxX = $tmp }
+                                        $newX = [int]([Math]::Max($minX, [Math]::Min($maxX, $formData.PositionSliderX.Value + $dx)))
+                                        $formData.PositionSliderX.Value = $newX
 
-                            # Set the form's integer position for display
-                            $timerData['Form'].Left = [int]$newRealLeft
-                            $timerData['Form'].Top = [int]$newRealTop
+                                        $minY = $formData.PositionSliderY.Minimum
+                                        $maxY = $formData.PositionSliderY.Maximum
+                                        $minY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $minY))
+                                        $maxY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $maxY))
+                                        if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
+                                        $newY = [int]([Math]::Max($minY, [Math]::Min($maxY, $formData.PositionSliderY.Value + $dy)))
+                                        $formData.PositionSliderY.Value = $newY
+
+                                        $timerData.RealLeft = $timerData.RealLeft + $dx
+                                        $timerData.RealTop = $timerData.RealTop + $dy
+                                    }
+                                    catch { }
+                                }
+                            }
+                            $timerData.ClientRect = $currRect
                         }
-                        else
-                        {
-                            # While dragging, sync the 'Real' coordinates with the actual window position
-                            $timerData.RealLeft = $timerData['Form'].Left
-                            $timerData.RealTop = $timerData['Form'].Top
+                    }
+                }
+                catch { }
+
+                $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+                $sliderValueX = $formData.PositionSliderX.Value
+                $sliderValueY = $formData.PositionSliderY.Value
+
+                $minLeft = $virtual.Left + 8
+                $maxLeft = $virtual.Right - $form.Width - 8
+                $targetLeft = [Math]::Max($minLeft, [Math]::Min($maxLeft, $sliderValueX))
+
+                $minTop = $virtual.Top + 8
+                $maxTop = $virtual.Bottom - $form.Height - 8
+                $targetTop = [Math]::Max($minTop, [Math]::Min($maxTop, $sliderValueY))
+
+                $newRealLeft = $timerData.RealLeft + ($targetLeft - $timerData.RealLeft) * 0.2
+                $newRealTop = $timerData.RealTop + ($targetTop - $timerData.RealTop) * 0.2
+                $timerData.RealLeft = $newRealLeft
+                $timerData.RealTop = $newRealTop
+
+                $form.Left = [int]$newRealLeft
+                $form.Top = [int]$newRealTop
+
+                $formHandle = $form.Handle
+                $flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
+                if ($timerData.ContainsKey('WindowHandle') -and $timerData.WindowHandle -and $timerData.WindowHandle -ne [IntPtr]::Zero) {
+                    $linkedHandle = $timerData.WindowHandle
+                    $foregroundWindow = [Custom.Native]::GetForegroundWindow()
+                    $shouldBeTopMost = $false
+                    if ($foregroundWindow -eq $linkedHandle) { $shouldBeTopMost = $true }
+                    else {
+                        $activeCtrl = [System.Windows.Forms.Control]::FromHandle($foregroundWindow)
+                        if ($activeCtrl -and -not $activeCtrl.IsDisposed -and $activeCtrl.Tag) {
+                            if ($activeCtrl.Tag.PSObject.Properties['SelectedWindow'] -and $activeCtrl.Tag.SelectedWindow -eq $linkedHandle) { $shouldBeTopMost = $true }
                         }
-                                                
-                        $formHandle = $timerData['Form'].Handle
-                        $linkedHandle = $timerData['WindowHandle']
-                        $foregroundWindow = [Custom.Native]::GetForegroundWindow()
-                        $flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
-                        
-                        $shouldBeTopMost = $false
+                    }
+
+                    if ($shouldBeTopMost) {
+                        $forceUpdate = $false
                         if ($foregroundWindow -eq $linkedHandle) {
-                            $shouldBeTopMost = $true
-                        } else {
-                            $activeCtrl = [System.Windows.Forms.Control]::FromHandle($foregroundWindow)
-                            if ($activeCtrl -and -not $activeCtrl.IsDisposed -and $activeCtrl.Tag) {
-                                if ($activeCtrl.Tag.PSObject.Properties['SelectedWindow'] -and $activeCtrl.Tag.SelectedWindow -eq $linkedHandle) {
-                                    $shouldBeTopMost = $true
-                                }
+                            $testPrev = [Custom.Native]::GetWindow($formHandle, 3)
+                            $checkCount = 0
+                            while ($testPrev -ne [IntPtr]::Zero -and $checkCount -lt 50) {
+                                if ($testPrev -eq $linkedHandle) { $forceUpdate = $true; break }
+                                $testPrev = [Custom.Native]::GetWindow($testPrev, 3)
+                                $checkCount++
                             }
                         }
 
-                        if ($shouldBeTopMost)
-                        {
-                            $forceUpdate = $false
-                            if ($foregroundWindow -eq $linkedHandle) {
-                                $testPrev = [Custom.Native]::GetWindow($formHandle, 3)
-                                $checkCount = 0
-                                while ($testPrev -ne [IntPtr]::Zero -and $checkCount -lt 50) {
-                                    if ($testPrev -eq $linkedHandle) { $forceUpdate = $true; break }
-                                    $testPrev = [Custom.Native]::GetWindow($testPrev, 3)
-                                    $checkCount++
-                                }
-                            }
-
-                            if ($timerData.ZState -ne 'topmost' -or $forceUpdate)
-                            {
-                                if ($forceUpdate) {
-                                    [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-                                }
-                                [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-                                $timerData.ZState = 'topmost'
-                            }
+                        if ($timerData.ZState -ne 'topmost' -or $forceUpdate) {
+                            if ($forceUpdate) { [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null }
+                            [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
+                            $timerData.ZState = 'topmost'
                         }
-                        else
-                        {
-                            if ($timerData.ZState -ne 'standard')
-                            {
-                                [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-                                $timerData.ZState = 'standard'
-                            }
-
-                            $next = [Custom.Native]::GetWindow($formHandle, 2) 
-                            $amIAboveGame = $false
-                            $loopCount = 0
-                            
-                            while ($next -ne [IntPtr]::Zero -and $loopCount -lt 50)
-                            {
-                                if ($next -eq $linkedHandle) { $amIAboveGame = $true; break }
-                                $next = [Custom.Native]::GetWindow($next, 2)
-                                $loopCount++
-                            }
-
-                            if (-not $amIAboveGame)
-                            {
-                                $bottomOfCluster = [Custom.Native]::GetWindow($linkedHandle, 3)
-                                if ($bottomOfCluster -ne [IntPtr]::Zero) { [Custom.Native]::PositionWindow($formHandle, $bottomOfCluster, 0, 0, 0, 0, $flags) | Out-Null }
-                                else { [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::TopWindowHandle, 0, 0, 0, 0, $flags) | Out-Null }
-                            }
-                        }
-                        $timerData.LastForegroundWindow = $foregroundWindow
                     }
-                    catch {}
-                }
-                else
-                {
-                    if ($timerData.ContainsKey('Form') -and $timerData.Form -and -not $timerData.Form.IsDisposed) {
-                        $timerData['Form'].Close()
-                    }
-                    $s.Stop()
-                    $s.Dispose()
-                    if ($timerData.ContainsKey('InstanceId')) {
-                        $global:DashboardConfig.Resources.Timers.Remove("macroPosition_$($timerData.InstanceId)")
+                    else {
+                        if ($timerData.ZState -ne 'standard') { [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null; $timerData.ZState = 'standard' }
+                        $next = [Custom.Native]::GetWindow($formHandle, 2)
+                        $amIAboveGame = $false; $loopCount = 0
+                        while ($next -ne [IntPtr]::Zero -and $loopCount -lt 50) { if ($next -eq $linkedHandle) { $amIAboveGame = $true; break }; $next = [Custom.Native]::GetWindow($next, 2); $loopCount++ }
+                        if (-not $amIAboveGame) { $bottomOfCluster = [Custom.Native]::GetWindow($linkedHandle, 3); if ($bottomOfCluster -ne [IntPtr]::Zero) { [Custom.Native]::PositionWindow($formHandle, $bottomOfCluster, 0, 0, 0, 0, $flags) | Out-Null } else { [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::TopWindowHandle, 0, 0, 0, 0, $flags) | Out-Null } }
                     }
                 }
+                else {
+                    if ($timerData.ZState -ne 'standard') { [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null; $timerData.ZState = 'standard' }
+                }
+
             }
             catch {
-                $s.Stop()
-                $s.Dispose()
+                Write-Verbose ('MACRO: Position timer critical error: {0}' -f $_.Exception.Message)
             }
         })
     
@@ -350,15 +380,13 @@ function CreateMacroPositionTimer
     $global:DashboardConfig.Resources.Timers["macroPosition_$($formData.InstanceId)"] = $positionTimer
 }
 
-function RepositionSequences
-{
+function RepositionSequences {
     param($form)
     
     if (-not $form -or $form.IsDisposed) { return }
     
     $form.SuspendLayout()
-    try
-    {
+    try {
         $baseHeight = 140 
         $rowHeight = 70
         
@@ -366,39 +394,32 @@ function RepositionSequences
         $position = 0
         
         $formData = $form.Tag
-        if ($formData.SequencePanels)
-        {
-            foreach ($panel in $formData.SequencePanels)
-            {
-                if ($panel -and -not $panel.IsDisposed)
-                {
+        if ($formData.SequencePanels) {
+            foreach ($panel in $formData.SequencePanels) {
+                if ($panel -and -not $panel.IsDisposed) {
                     $newTop = $baseHeight + ($position * $rowHeight)
                     $panel.Top = $newTop
                     $position++
                 }
             }
-            if ($position -gt 0)
-            {
+            if ($position -gt 0) {
                 $newHeight = $baseHeight + ($position * $rowHeight)
             }
         }
         
-        if (-not $formData.IsCollapsed)
-        {
+        if (-not $formData.IsCollapsed) {
             $finalHeight = $newHeight + 10
             $form.Height = $finalHeight
             $formData.OriginalHeight = $finalHeight
             $formData.PositionSliderY.Height = $finalHeight - 20
         }
     }
-    finally
-    {
+    finally {
         $form.ResumeLayout()
     }
 }
 
-function StartMacroSequence
-{
+function StartMacroSequence {
     param($formData)
 
     $steps = @()
@@ -411,23 +432,19 @@ function StartMacroSequence
     $mainHoldInterval = $formData.TxtHoldKeyInterval.Text
     $mainWaitEnabled = $formData.BtnWaitToggle.Checked
 
-    if (-not [string]::IsNullOrWhiteSpace($mainKey) -and $mainKey -ne 'none')
-    {
+    if (-not [string]::IsNullOrWhiteSpace($mainKey) -and $mainKey -ne 'none') {
         $steps += [PSCustomObject]@{ 
-            Key = $mainKey; 
-            Interval = $mainInterval; 
-            HoldEnabled = $mainHoldEnabled; 
+            Key          = $mainKey; 
+            Interval     = $mainInterval; 
+            HoldEnabled  = $mainHoldEnabled; 
             HoldInterval = $mainHoldInterval;
-            WaitEnabled = $mainWaitEnabled
+            WaitEnabled  = $mainWaitEnabled
         }
     }
 
-    if ($formData.SequencePanels)
-    {
-        foreach ($panel in $formData.SequencePanels)
-        {
-            if ($panel -and -not $panel.IsDisposed)
-            {
+    if ($formData.SequencePanels) {
+        foreach ($panel in $formData.SequencePanels) {
+            if ($panel -and -not $panel.IsDisposed) {
                 $seqData = $panel.Tag
                 $seqKey = $seqData.BtnKeySelect.Text
                 $seqInterval = 1000
@@ -436,22 +453,20 @@ function StartMacroSequence
                 $seqHoldInterval = $seqData.TxtHoldKeyInterval.Text
                 $seqWaitEnabled = $seqData.BtnWaitToggle.Checked
 
-                if (-not [string]::IsNullOrWhiteSpace($seqKey) -and $seqKey -ne 'none')
-                {
+                if (-not [string]::IsNullOrWhiteSpace($seqKey) -and $seqKey -ne 'none') {
                     $steps += [PSCustomObject]@{ 
-                        Key = $seqKey; 
-                        Interval = $seqInterval; 
-                        HoldEnabled = $seqHoldEnabled; 
+                        Key          = $seqKey; 
+                        Interval     = $seqInterval; 
+                        HoldEnabled  = $seqHoldEnabled; 
                         HoldInterval = $seqHoldInterval;
-                        WaitEnabled = $seqWaitEnabled
+                        WaitEnabled  = $seqWaitEnabled
                     }
                 }
             }
         }
     }
 
-    if ($steps.Count -eq 0)
-    {
+    if ($steps.Count -eq 0) {
         Show-DarkMessageBox 'No valid keys defined in the macro sequence.' 'Macro Error' 'Ok' 'Warning'
         return
     }
@@ -459,25 +474,23 @@ function StartMacroSequence
     $formData.ActiveSteps = $steps
     $formData.CurrentStepIndex = 0
     
-    if (-not $formData.PSObject.Properties['ActiveJobs'])
-    {
+    if (-not $formData.PSObject.Properties['ActiveJobs']) {
         $formData | Add-Member -MemberType NoteProperty -Name 'ActiveJobs' -Value ([System.Collections.ArrayList]::new())
     }
-    else
-    {
+    else {
         foreach ($job in $formData.ActiveJobs) {
             try {
                 if ($job.PowerShell.InvocationStateInfo.State -eq 'Running') {
                     $job.PowerShell.Stop()
                 }
                 $job.PowerShell.Dispose()
-            } catch {}
+            }
+            catch {}
         }
         $formData.ActiveJobs.Clear()
     }
 
-    if (-not $formData.RunspacePool -or $formData.RunspacePool.RunspacePoolStateInfo.State -ne 'Opened')
-    {
+    if (-not $formData.RunspacePool -or $formData.RunspacePool.RunspacePoolStateInfo.State -ne 'Opened') {
         if ($formData.RunspacePool) { try { $formData.RunspacePool.Dispose() } catch {} }
         $formData.RunspacePool = InitMacroRunspace -InstanceId $formData.InstanceId
     }
@@ -487,14 +500,12 @@ function StartMacroSequence
     $formData.BtnStop.Enabled = $true
     $formData.BtnStop.Visible = $true
 
-    if (-not $formData.PSObject.Properties['IsMacroRunning'])
-    {
+    if (-not $formData.PSObject.Properties['IsMacroRunning']) {
         $formData | Add-Member -MemberType NoteProperty -Name 'IsMacroRunning' -Value $true
     }
     $formData.IsMacroRunning = $true
 
-    if (-not $formData.PSObject.Properties['Stopping'])
-    {
+    if (-not $formData.PSObject.Properties['Stopping']) {
         $formData | Add-Member -MemberType NoteProperty -Name 'Stopping' -Value $false
     }
     $formData.Stopping = $false
@@ -510,14 +521,12 @@ function StartMacroSequence
 
         if (-not $fData.IsMacroRunning) { return }
 
-        if ($fData.Stopping)
-        {
+        if ($fData.Stopping) {
             StopMacroSequence $fData -NaturalEnd
             return
         }
 
-        if (-not $fData.Form -or $fData.Form.IsDisposed)
-        {
+        if (-not $fData.Form -or $fData.Form.IsDisposed) {
             $s.Dispose()
             return
         }
@@ -536,20 +545,17 @@ function StartMacroSequence
         }
 
         $idx = $fData.CurrentStepIndex
-        if ($idx -lt $fData.ActiveSteps.Count)
-        {
+        if ($idx -lt $fData.ActiveSteps.Count) {
             $step = $fData.ActiveSteps[$idx]
             
             $holdTime = $null
-            if ($step.HoldEnabled)
-            {
+            if ($step.HoldEnabled) {
                 if (-not [int]::TryParse($step.HoldInterval, [ref]$holdTime)) { $holdTime = 5 }
             }
 
             $job = Invoke-MacroKeyAction -formData $fData -keyString $step.Key -holdTime $holdTime
             
-            if ($job)
-            {
+            if ($job) {
                 $fData.ActiveJobs.Add($job) | Out-Null
             }
 
@@ -559,63 +565,55 @@ function StartMacroSequence
             $isSingleRun = -not $fData.BtnLoopToggle.Checked
             $shouldStop = ($isSingleRun -and $nextIdx -eq 0)
 
-            if ($step.WaitEnabled -and $job)
-            {
+            if ($step.WaitEnabled -and $job) {
                 $pollTimer = New-Object System.Windows.Forms.Timer
                 $pollTimer.Interval = 2
                 $pollTimer.Tag = @{ 
-                    Job = $job; 
-                    MainTimer = $s; 
+                    Job          = $job; 
+                    MainTimer    = $s; 
                     NextInterval = $step.Interval; 
-                    ShouldStop = $shouldStop;
-                    FormData = $fData
+                    ShouldStop   = $shouldStop;
+                    FormData     = $fData
                 }
                 
                 $pollTimer.Add_Tick({
-                    $pt = $this
-                    $d = $pt.Tag
+                        $pt = $this
+                        $d = $pt.Tag
                     
-                    if (-not $d.FormData.IsMacroRunning)
-                    {
-                        $pt.Stop()
-                        $pt.Dispose()
-                        return
-                    }
-
-                    if ($d.Job.AsyncResult.IsCompleted)
-                    {
-                        $pt.Stop()
-                        
-                        try {
-                            $d.Job.PowerShell.EndInvoke($d.Job.AsyncResult)
-                            $d.Job.PowerShell.Dispose()
-                        } catch {}
-                        
-                        $d.FormData.ActiveJobs.Remove($d.Job)
-
-                        if ($d.FormData.IsMacroRunning)
-                        {
-                            if ($d.ShouldStop)
-                            {
-                                StopMacroSequence $d.FormData -NaturalEnd
-                            }
-                            else
-                            {
-                                $d.MainTimer.Interval = $d.NextInterval
-                                $d.MainTimer.Start()
-                            }
+                        if (-not $d.FormData.IsMacroRunning) {
+                            $pt.Stop()
+                            $pt.Dispose()
+                            return
                         }
-                        $pt.Dispose()
-                    }
-                })
+
+                        if ($d.Job.AsyncResult.IsCompleted) {
+                            $pt.Stop()
+                        
+                            try {
+                                $d.Job.PowerShell.EndInvoke($d.Job.AsyncResult)
+                                $d.Job.PowerShell.Dispose()
+                            }
+                            catch {}
+                        
+                            $d.FormData.ActiveJobs.Remove($d.Job)
+
+                            if ($d.FormData.IsMacroRunning) {
+                                if ($d.ShouldStop) {
+                                    StopMacroSequence $d.FormData -NaturalEnd
+                                }
+                                else {
+                                    $d.MainTimer.Interval = $d.NextInterval
+                                    $d.MainTimer.Start()
+                                }
+                            }
+                            $pt.Dispose()
+                        }
+                    })
                 $pollTimer.Start()
             }
-            else
-            {
-                if ($fData.IsMacroRunning)
-                {
-                    if ($shouldStop)
-                    {
+            else {
+                if ($fData.IsMacroRunning) {
+                    if ($shouldStop) {
                         $fData.Stopping = $true
                         $s.Interval = $step.Interval
                         $s.Start()
@@ -636,38 +634,32 @@ function StartMacroSequence
     & $tickAction $timer $null
 }
 
-function StopMacroSequence
-{
+function StopMacroSequence {
     param($formData, [switch]$NaturalEnd)
 
-    if ($formData.PSObject.Properties['IsMacroRunning'])
-    {
+    if ($formData.PSObject.Properties['IsMacroRunning']) {
         $formData.IsMacroRunning = $false
     }
 
-    if ($formData.RunningTimer)
-    {
+    if ($formData.RunningTimer) {
         $formData.RunningTimer.Stop()
         $formData.RunningTimer.Dispose()
         $formData.RunningTimer = $null
     }
     
-    if ($global:DashboardConfig.Resources.Timers.Contains("MacroTimer_$($formData.InstanceId)"))
-    {
+    if ($global:DashboardConfig.Resources.Timers.Contains("MacroTimer_$($formData.InstanceId)")) {
         $t = $global:DashboardConfig.Resources.Timers["MacroTimer_$($formData.InstanceId)"]
         if ($t) { $t.Stop(); $t.Dispose() }
         $global:DashboardConfig.Resources.Timers.Remove("MacroTimer_$($formData.InstanceId)")
     }
 
-    if (-not $NaturalEnd)
-    {
-        if ($formData.ActiveJobs)
-        {
-            foreach ($job in $formData.ActiveJobs)
-            {
+    if (-not $NaturalEnd) {
+        if ($formData.ActiveJobs) {
+            foreach ($job in $formData.ActiveJobs) {
                 try {
                     if ($job.PowerShell) { $job.PowerShell.Stop(); $job.PowerShell.Dispose() }
-                } catch {}
+                }
+                catch {}
             }
             $formData.ActiveJobs.Clear()
         }
@@ -678,40 +670,36 @@ function StopMacroSequence
     $formData.BtnStop.Visible = $false
 }
 
-function ToggleMacroInstance
-{
+function ToggleMacroInstance {
     param($InstanceId)
 
     if (-not $global:DashboardConfig.Resources.FtoolForms.Contains($InstanceId)) { return }
     $form = $global:DashboardConfig.Resources.FtoolForms[$InstanceId]
     
-    if ($form -and -not $form.IsDisposed -and $form.Tag.Type -eq 'Macro')
-    {
-        if ($form.InvokeRequired)
-        {
+    if ($form -and -not $form.IsDisposed -and $form.Tag.Type -eq 'Macro') {
+        if ($form.InvokeRequired) {
             try {
-                $form.BeginInvoke([System.Action]{ ToggleMacroInstance -InstanceId $InstanceId }) | Out-Null
-            } catch {}
+                $form.BeginInvoke([System.Action] { ToggleMacroInstance -InstanceId $InstanceId }) | Out-Null
+            }
+            catch {}
         }
 
         try {
             $data = $form.Tag
-            if ($data -and $data.RunningTimer)
-            {
+            if ($data -and $data.RunningTimer) {
                 StopMacroSequence $data
             }
-            else
-            {
+            else {
                 StartMacroSequence $data
             }
-        } catch {
+        }
+        catch {
             Write-Verbose "MACRO: Error in ToggleMacroInstance: $_"
         }
     }
 }
 
-function ToggleMacroHotkeys
-{
+function ToggleMacroHotkeys {
     param(
         [Parameter(Mandatory = $true)]
         [string]$InstanceId,
@@ -719,12 +707,10 @@ function ToggleMacroHotkeys
         [bool]$ToggleState
     )
     
-    if ($global:DashboardConfig.Resources.FtoolForms.Contains($InstanceId))
-    {
+    if ($global:DashboardConfig.Resources.FtoolForms.Contains($InstanceId)) {
         $form = $global:DashboardConfig.Resources.FtoolForms[$InstanceId]
-        if ($form -and -not $form.IsDisposed -and $form.InvokeRequired)
-        {
-            $form.BeginInvoke([System.Action]{ ToggleMacroHotkeys -InstanceId $InstanceId -ToggleState $ToggleState }) | Out-Null
+        if ($form -and -not $form.IsDisposed -and $form.InvokeRequired) {
+            $form.BeginInvoke([System.Action] { ToggleMacroHotkeys -InstanceId $InstanceId -ToggleState $ToggleState }) | Out-Null
             return
         }
     }
@@ -733,83 +719,64 @@ function ToggleMacroHotkeys
     
     $global:DashboardConfig.Resources.InstanceHotkeysPaused[$InstanceId] = (-not $ToggleState)
 
-    try
-    {
+    try {
         $ownerKey = "macroinst_$InstanceId"
-        if ($ToggleState)
-        {
+        if ($ToggleState) {
             try { ResumeHotkeysForOwner -OwnerKey $ownerKey } catch {}
         }
-        else
-        {
+        else {
             try { PauseHotkeysForOwner -OwnerKey $ownerKey } catch {}
         }
     }
     catch {}
 
-    if ($global:DashboardConfig.Resources.FtoolForms.Contains($InstanceId))
-    {
+    if ($global:DashboardConfig.Resources.FtoolForms.Contains($InstanceId)) {
         $form = $global:DashboardConfig.Resources.FtoolForms[$InstanceId]
-        if ($form -and -not $form.IsDisposed)
-        {
+        if ($form -and -not $form.IsDisposed) {
             UpdateMacroSettings -formData $form.Tag -forceWrite
         }
-		if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)
-		{
-			try { RefreshHotkeysList } catch {}
-		}
+        if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+            try { RefreshHotkeysList } catch {}
+        }
     }
 }
 
-function CleanupMacroResources
-{
+function CleanupMacroResources {
     param($instanceId)
     
     $timerKeysToRemove = @()
-    foreach ($key in $global:DashboardConfig.Resources.Timers.Keys)
-    {
-        if ($key -eq "MacroTimer_$instanceId" -or $key -eq "macroPosition_$instanceId")
-        {
+    foreach ($key in $global:DashboardConfig.Resources.Timers.Keys) {
+        if ($key -eq "MacroTimer_$instanceId" -or $key -eq "macroPosition_$instanceId") {
             $timer = $global:DashboardConfig.Resources.Timers[$key]
-            if ($timer)
-            {
+            if ($timer) {
                 $timer.Stop()
                 $timer.Dispose()
             }
             $timerKeysToRemove += $key
         }
     }
-    foreach ($key in $timerKeysToRemove)
-    {
+    foreach ($key in $timerKeysToRemove) {
         $global:DashboardConfig.Resources.Timers.Remove($key)
     }
 
-    if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
-    {
+    if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId)) {
         $form = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
-        if ($form -and $form.Tag)
-        {
-            if ($form.Tag.ToolTipFtool)
-            {
+        if ($form -and $form.Tag) {
+            if ($form.Tag.ToolTipFtool) {
                 $form.Tag.ToolTipFtool.Dispose()
             }
             
-            # REQUIREMENT #2: When closing with active global toggle, pause the inner hotkey first to release the key
-            if ($form.Tag.BtnHotkeyToggle -and $form.Tag.BtnHotkeyToggle.Checked)
-            {
-                try
-                {
+            if ($form.Tag.BtnHotkeyToggle -and $form.Tag.BtnHotkeyToggle.Checked) {
+                try {
                     Write-Verbose "MACRO: Pausing hotkeys for instance $instanceId before cleanup (global toggle was active)"
                     PauseHotkeysForOwner -OwnerKey "macroinst_$instanceId"
                 }
-                catch
-                {
+                catch {
                     Write-Warning "MACRO: Failed to pause hotkeys for instance $instanceId during cleanup. Error: $_"
                 }
             }
             
-            if ($form.Tag.ActiveJobs)
-            {
+            if ($form.Tag.ActiveJobs) {
                 foreach ($job in $form.Tag.ActiveJobs) {
                     try {
                         if ($job.PowerShell) {
@@ -818,26 +785,26 @@ function CleanupMacroResources
                             }
                             $job.PowerShell.Dispose()
                         }
-                    } catch {
+                    }
+                    catch {
                         Write-Verbose "Error disposing Macro Job: $_"
                     }
                 }
                 $form.Tag.ActiveJobs.Clear()
             }
-            if ($form.Tag.RunspacePool)
-            {
+            if ($form.Tag.RunspacePool) {
                 try {
                     if ($form.Tag.RunspacePool.RunspacePoolStateInfo.State -ne 'Closed') {
                         $form.Tag.RunspacePool.Close()
                     }
                     $form.Tag.RunspacePool.Dispose()
-                } catch {
+                }
+                catch {
                     Write-Verbose "Error disposing Macro Runspace: $_"
                 }
                 $form.Tag.RunspacePool = $null
             }
 
-            # REQUIREMENT #3: Unregister all hotkeys on form close (not just pause)
             if ($form.Tag.HotkeyId) {
                 try { UnregisterHotkeyInstance -Id $form.Tag.HotkeyId -OwnerKey "macroinst_$($form.Tag.InstanceId)" } catch {}
             }
@@ -845,29 +812,24 @@ function CleanupMacroResources
         }
     }
 
-    # Ensure the Hotkeys UI reflects any removals performed during cleanup
     if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
 }
 
-function LoadMacroSettings
-{
+function LoadMacroSettings {
     param($formData)
     $formData.IsLoading = $true
     
     if (-not $global:DashboardConfig.Config.Contains('Macro')) { $formData.IsLoading = $false; return }
     
     $profilePrefix = $null
-    if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue)
-    {
+    if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue) {
         $profilePrefix = FindOrCreateProfile $formData.WindowTitle
     }
     
-    if ($profilePrefix)
-    {
+    if ($profilePrefix) {
         $configSuffix = ""
         $parts = $formData.InstanceId -split '_'
-        if ($parts.Count -gt 2)
-        {
+        if ($parts.Count -gt 2) {
             $configSuffix = "_Sub" + $parts[-1]
         }
 
@@ -888,42 +850,64 @@ function LoadMacroSettings
         if ($cfg.Contains($globalHotkeyName)) { $formData.GlobalHotkey = $cfg[$globalHotkeyName] }
 
         $hotkeysEnabledName = "hotkeys_enabled_$p"
-        if ($cfg.Contains($hotkeysEnabledName))
-        {
+        if ($cfg.Contains($hotkeysEnabledName)) {
             $value = $cfg[$hotkeysEnabledName]
             try { $formData.BtnHotkeyToggle.Checked = [bool]::Parse($value) } catch { $formData.BtnHotkeyToggle.Checked = $true }
         }
         else { $formData.BtnHotkeyToggle.Checked = $true }
 
-        if ($cfg.Contains("PosX_$p")) { $formData.PositionSliderX.Value = [int]$cfg["PosX_$p"] }
-        if ($cfg.Contains("PosY_$p")) { $formData.PositionSliderY.Value = [int]$cfg["PosY_$p"] }
+        if (-not $global:DashboardConfig.Resources.InstanceHotkeysPaused) { $global:DashboardConfig.Resources.InstanceHotkeysPaused = @{} }
+        $global:DashboardConfig.Resources.InstanceHotkeysPaused[$formData.InstanceId] = (-not $formData.BtnHotkeyToggle.Checked)
 
-        if ($cfg.Contains("Hotkey_$p"))
-        {
+        if ($cfg.Contains("PosX_$p")) {
+            $positionValue = [int]$cfg["PosX_$p"]
+            $min = $formData.PositionSliderX.Minimum
+            $max = $formData.PositionSliderX.Maximum
+            if ($min -gt $max) { $tmp = $min; $min = $max; $max = $tmp }
+            $formData.PositionSliderX.Value = [Math]::Max($min, [Math]::Min($max, $positionValue))
+        }
+        if ($cfg.Contains("PosY_$p")) {
+            $positionValue = [int]$cfg["PosY_$p"]
+            $min = $formData.PositionSliderY.Minimum
+            $max = $formData.PositionSliderY.Maximum
+            if ($min -gt $max) { $tmp = $min; $min = $max; $max = $tmp }
+            $formData.PositionSliderY.Value = [Math]::Max($min, [Math]::Min($max, $positionValue))
+        }
+
+        if ($cfg.Contains("collapsed_$p")) {
+            $formData.IsCollapsed = [bool]::Parse($cfg["collapsed_$p"])
+        }
+        else {
+            $formData.IsCollapsed = $false
+        }
+
+        if ($cfg.Contains("origHeight_$p")) {
+            $formData.OriginalHeight = [int]$cfg["origHeight_$p"]
+        }
+        else {
+            $formData.OriginalHeight = $formData.Form.Height
+        }
+
+        if ($cfg.Contains("Hotkey_$p")) {
             $hk = $cfg["Hotkey_$p"]
             $formData.Hotkey = $hk
             $formData.BtnHotKey.Text = $hk
             
-            try
-            {
+            try {
                 $scriptBlock = [scriptblock]::Create("ToggleMacroInstance -InstanceId '$($formData.InstanceId)'")
-                # Friendly label for UI
                 $ownerLabel = $null
                 if ($formData.PSObject.Properties['Name'] -and -not [string]::IsNullOrEmpty($formData.Name)) { $ownerLabel = $formData.Name }
                 elseif ($formData.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($formData.WindowTitle)) { $ownerLabel = $formData.WindowTitle }
                 else { $ownerLabel = "Macro: $($formData.InstanceId)" }
-                # Use canonical owner key for macro instance hotkeys
                 $ownerKey = "macroinst_$($formData.InstanceId)"
                 $formData.HotkeyId = SetHotkey -KeyCombinationString $hk -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel
             }
             catch {}
         }
 
-        if ($cfg.Contains("SeqCount_$p"))
-        {
+        if ($cfg.Contains("SeqCount_$p")) {
             $count = [int]$cfg["SeqCount_$p"]
-            for ($i = 1; $i -le $count; $i++)
-            {
+            for ($i = 1; $i -le $count; $i++) {
                 $seqData = CreateSequencePanel $formData.Form
                 if ($cfg.Contains("Seq${i}_Key_$p")) { $seqData.BtnKeySelect.Text = $cfg["Seq${i}_Key_$p"] }
                 if ($cfg.Contains("Seq${i}_Interval_$p")) { $seqData.Interval.Text = $cfg["Seq${i}_Interval_$p"] }
@@ -935,8 +919,7 @@ function LoadMacroSettings
             RepositionSequences $formData.Form
         }
     }
-    else
-    {
+    else {
         $formData.Hotkey = $null
         $formData.BtnHotKey.Text = 'Hotkey'
         $formData.BtnHotkeyToggle.Checked = $true
@@ -944,29 +927,24 @@ function LoadMacroSettings
     $formData.IsLoading = $false
 }
 
-function UpdateMacroSettings
-{
+function UpdateMacroSettings {
     param($formData, [switch]$forceWrite)
     
     if ($formData.IsLoading) { return }
     
-    if (-not $global:DashboardConfig.Config.Contains('Macro'))
-    { 
+    if (-not $global:DashboardConfig.Config.Contains('Macro')) { 
         $global:DashboardConfig.Config['Macro'] = [ordered]@{} 
     }
     
     $profilePrefix = $null
-    if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue)
-    {
+    if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue) {
         $profilePrefix = FindOrCreateProfile $formData.WindowTitle
     }
 
-    if ($profilePrefix)
-    {
+    if ($profilePrefix) {
         $configSuffix = ""
         $parts = $formData.InstanceId -split '_'
-        if ($parts.Count -gt 2)
-        {
+        if ($parts.Count -gt 2) {
             $configSuffix = "_Sub" + $parts[-1]
         }
 
@@ -985,14 +963,15 @@ function UpdateMacroSettings
         $cfg["WaitEnabled_$p"] = $formData.BtnWaitToggle.Checked
         $cfg["GlobalHotkey_$p"] = $formData.GlobalHotkey
         $cfg["hotkeys_enabled_$p"] = $formData.BtnHotkeyToggle.Checked
+        $cfg["collapsed_$p"] = $formData.IsCollapsed
+        $cfg["origHeight_$p"] = $formData.OriginalHeight
 
         if ($formData.Hotkey) { $cfg["Hotkey_$p"] = $formData.Hotkey } else { if ($cfg.Contains("Hotkey_$p")) { $cfg.Remove("Hotkey_$p") } }
 
         $seqs = $formData.SequencePanels
         $cfg["SeqCount_$p"] = $seqs.Count
         
-        for ($i = 0; $i -lt $seqs.Count; $i++)
-        {
+        for ($i = 0; $i -lt $seqs.Count; $i++) {
             $n = $i + 1
             $sData = $seqs[$i].Tag
             $cfg["Seq${n}_Key_$p"] = $sData.BtnKeySelect.Text
@@ -1004,8 +983,7 @@ function UpdateMacroSettings
         }
         
         $k = $seqs.Count + 1
-        while ($cfg.Contains("Seq${k}_Key_$p"))
-        {
+        while ($cfg.Contains("Seq${k}_Key_$p")) {
             $cfg.Remove("Seq${k}_Key_$p")
             $cfg.Remove("Seq${k}_Interval_$p")
             $cfg.Remove("Seq${k}_Name_$p")
@@ -1015,8 +993,7 @@ function UpdateMacroSettings
             $k++
         }
 
-        if ($forceWrite)
-        {
+        if ($forceWrite) {
             if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
         }
     }
@@ -1026,16 +1003,31 @@ function UpdateMacroSettings
 
 #region Core Functions
 
-function MacroSelectedRow
-{
-    param($row)
+function MacroSelectedRow {
+    param($row, [switch]$ForceNew, [Parameter(Mandatory = $false)]$Config, [int]$InstanceIndex = 0)
     
-    if (-not $row -or -not $row.Cells -or $row.Cells.Count -lt 3 -or -not $row.Cells[2].Value) {
+    if (-not $row) {
         Write-Verbose "MACRO: Invalid row data passed to MacroSelectedRow."
         return
     }
     
-    $instanceId = "Macro_" + $row.Cells[2].Value.ToString()
+    $rowIdentity = Get-RowIdentity -Row $row
+    $safeIdentity = $rowIdentity -replace '[^a-zA-Z0-9_\-]', '_'
+    $instanceId = "Macro_$safeIdentity"
+    
+    if ($ForceNew) {
+        if ($InstanceIndex -gt 0) {
+            $instanceId = "${instanceId}_${InstanceIndex}"
+        }
+        else {
+            $index = 1
+            while ($global:DashboardConfig.Resources.FtoolForms.Contains("${instanceId}_${index}")) {
+                $index++
+            }
+            $instanceId = "${instanceId}_${index}"
+        }
+        Write-Verbose "Macro Debug: Generated stable unique instance ID $instanceId for restoration."
+    }
 
     if (-not $row.Tag -or -not $row.Tag.PSObject.Properties['MainWindowHandle'] -or -not $row.Tag.MainWindowHandle) {
         Write-Verbose "MACRO: Row is missing a valid MainWindowHandle."
@@ -1044,22 +1036,21 @@ function MacroSelectedRow
     
     $windowHandle = $row.Tag.MainWindowHandle
     
-    if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
-    {
+    if (-not $ForceNew -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId)) {
         $existingForm = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
-        if ($existingForm -and -not $existingForm.IsDisposed)
-        {
+        if ($existingForm -and -not $existingForm.IsDisposed) {
             try {
                 if ($existingForm.InvokeRequired) {
-                    $existingForm.Invoke([System.Action]{ $existingForm.BringToFront() })
-                } else {
+                    $existingForm.Invoke([System.Action] { $existingForm.BringToFront() })
+                }
+                else {
                     $existingForm.BringToFront()
                 }
-            } catch {}
+            }
+            catch {}
             return
         }
-        else
-        {
+        else {
             $global:DashboardConfig.Resources.FtoolForms.Remove($instanceId)
         }
     }
@@ -1070,11 +1061,12 @@ function MacroSelectedRow
     $windowTitle = "Macro: $instanceId"
     if ($row.Tag.PSObject.Properties['MainWindowTitle'] -and -not [string]::IsNullOrEmpty($row.Tag.MainWindowTitle)) {
         $windowTitle = $row.Tag.MainWindowTitle
-    } elseif ($row.Cells.Count -gt 1 -and $row.Cells[1].Value) {
+    }
+    elseif ($row.Cells.Count -gt 1 -and $row.Cells[1].Value) {
         $windowTitle = $row.Cells[1].Value.ToString()
     }
     
-    $macroForm = CreateMacroForm $instanceId $targetWindowRect $windowTitle $row
+    $macroForm = CreateMacroForm $instanceId $targetWindowRect $windowTitle $row -Config $Config
     
     if ($macroForm) {
         $global:DashboardConfig.Resources.FtoolForms[$instanceId] = $macroForm
@@ -1083,14 +1075,12 @@ function MacroSelectedRow
     }
 }
 
-function StopMacroForm
-{
+function StopMacroForm {
     param($Form)
     
     if (-not $Form -or $Form.IsDisposed) { return }
     
-    try
-    {
+    try {
         if ($Form.Tag -and $Form.Tag.InstanceId) {
             $instanceId = $Form.Tag.InstanceId
             CleanupMacroResources $instanceId
@@ -1099,19 +1089,26 @@ function StopMacroForm
             }
         }
         $Form.Close()
-        # Dispose is handled by the Form's OnFormClosed event to prevent race conditions
     }
     catch {}
 }
 
-function CreateMacroForm
-{
-    param($instanceId, $targetWindowRect, $windowTitle, $row)
+function CreateMacroForm {
+    param($instanceId, $targetWindowRect, $windowTitle, $row, [Parameter(Mandatory = $false)]$Config)
     
-    # Defensive check for row
     if (-not $row -or -not $row.Cells -or $row.Cells.Count -lt 2) {
         Write-Verbose "MACRO: Cannot create form due to invalid row data."
         return $null
+    }
+    
+    if ($null -ne $Config -and $Config -is [string]) {
+        try {
+            $Config = $Config | ConvertFrom-Json
+        }
+        catch {
+            Write-Verbose "MACRO: Failed to parse Config string as JSON. Ignoring."
+            $Config = $null
+        }
     }
 
     $macroForm = New-Object Custom.FtoolFormWindow
@@ -1125,8 +1122,7 @@ function CreateMacroForm
     $macroForm.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
     $macroForm.Opacity = 1.0 
 
-    if ($global:DashboardConfig.Paths.Icon -and (Test-Path $global:DashboardConfig.Paths.Icon))
-    {
+    if ($global:DashboardConfig.Paths.Icon -and (Test-Path $global:DashboardConfig.Paths.Icon)) {
         try { $macroForm.Icon = New-Object System.Drawing.Icon($global:DashboardConfig.Paths.Icon) } catch {}
     }
 
@@ -1139,175 +1135,207 @@ function CreateMacroForm
     $macroToolTip | Add-Member -MemberType NoteProperty -Name 'TipFont' -Value (New-Object System.Drawing.Font('Segoe UI', 9))
     $macroToolTip.Add_Draw({
             $g, $b, $c = $_.Graphics, $_.Bounds, [System.Drawing.Color]
-            $g.FillRectangle((New-Object System.Drawing.SolidBrush $c::FromArgb(30,30,30)), $b)
-            $g.DrawRectangle((New-Object System.Drawing.Pen $c::FromArgb(100,100,100)), $b.X, $b.Y, $b.Width-1, $b.Height-1)
-            $g.DrawString($_.ToolTipText, $this.TipFont, (New-Object System.Drawing.SolidBrush $c::FromArgb(240,240,240)), 3, 3, [System.Drawing.StringFormat]::GenericTypographic)
+            $g.FillRectangle((New-Object System.Drawing.SolidBrush $c::FromArgb(30, 30, 30)), $b)
+            $g.DrawRectangle((New-Object System.Drawing.Pen $c::FromArgb(100, 100, 100)), $b.X, $b.Y, $b.Width - 1, $b.Height - 1)
+            $g.DrawString($_.ToolTipText, $this.TipFont, (New-Object System.Drawing.SolidBrush $c::FromArgb(240, 240, 240)), 3, 3, [System.Drawing.StringFormat]::GenericTypographic)
         })
     $macroToolTip.Add_Popup({
             $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
-            $s = $g.MeasureString($this.GetToolTip($_.AssociatedControl), $this.TipFont, [System.Drawing.PointF]::new(0,0), [System.Drawing.StringFormat]::GenericTypographic)
-            $g.Dispose(); $_.ToolTipSize = [System.Drawing.Size]::new($s.Width+12, $s.Height+8)
+            $s = $g.MeasureString($this.GetToolTip($_.AssociatedControl), $this.TipFont, [System.Drawing.PointF]::new(0, 0), [System.Drawing.StringFormat]::GenericTypographic)
+            $g.Dispose(); $_.ToolTipSize = [System.Drawing.Size]::new($s.Width + 12, $s.Height + 8)
         })
 
     $previousToolTip = $global:DashboardConfig.UI.ToolTipFtool
     $global:DashboardConfig.UI.ToolTipFtool = $macroToolTip
 
-    try
-    {
+    try {
 
-    $headerPanel = SetUIElement -type 'Panel' -visible $true -width 250 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
-    $macroForm.Controls.Add($headerPanel)
+        $headerPanel = SetUIElement -type 'Panel' -visible $true -width 250 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
+        $macroForm.Controls.Add($headerPanel)
 
-    $labelText = if ($row.Cells[1].Value) { $row.Cells[1].Value.ToString() } else { "" }
-    $labelWinTitle = SetUIElement -type 'Label' -visible $true -width 105 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $labelText -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
-    $headerPanel.Controls.Add($labelWinTitle)
+        $labelText = if ($row.Cells[1].Value) { $row.Cells[1].Value.ToString() } else { "" }
+        $labelWinTitle = SetUIElement -type 'Label' -visible $true -width 105 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $labelText -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
+        $headerPanel.Controls.Add($labelWinTitle)
 
-    $btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 15 -top 2 -left 105 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
-    $headerPanel.Controls.Add($btnInstanceHotkeyToggle)
+        $btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 15 -top 2 -left 105 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
+        $headerPanel.Controls.Add($btnInstanceHotkeyToggle)
 
-    $btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 15 -top 3 -left 120 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific macro instance."
-    $headerPanel.Controls.Add($btnHotkeyToggle)
+        $btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 15 -top 3 -left 120 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific macro instance."
+        $headerPanel.Controls.Add($btnHotkeyToggle)
 
-    $btnAddInstance = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 150 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2398) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Instance`nCreates another macro window for this specific client."
-    $headerPanel.Controls.Add($btnAddInstance)
+        $btnAddInstance = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 150 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2398) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Instance`nCreates another macro window for this specific client."
+        $headerPanel.Controls.Add($btnAddInstance)
         
-    $btnAdd = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 165 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Sequence`nAdds a new key sequence step to the macro list."
-    $headerPanel.Controls.Add($btnAdd)
+        $btnAdd = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 165 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Sequence`nAdds a new key sequence step to the macro list."
+        $headerPanel.Controls.Add($btnAdd)
     
-    # MOVED: Show/Hide button slightly right
-    $btnShowHide = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 180 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Minimize/Expand`nCollapse or expand the macro window to save screen space."
-    $headerPanel.Controls.Add($btnShowHide)
+        $btnShowHide = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 180 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Minimize/Expand`nCollapse or expand the macro window to save screen space."
+        $headerPanel.Controls.Add($btnShowHide)
         
-    # ADDED: Reset button
-    $btnReset = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 195 -bg @(100, 100, 100) -fg @(255, 255, 255) -text ([char]0x21BB) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Reset`nReset all settings for this instance to default."
-    $headerPanel.Controls.Add($btnReset)
+        $btnReset = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 195 -bg @(100, 100, 100) -fg @(255, 255, 255) -text ([char]0x21BB) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Reset`nReset all settings for this instance to default."
+        $headerPanel.Controls.Add($btnReset)
 
-    $btnClose = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 215 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Close`nStops the macro and closes this window."
-    $headerPanel.Controls.Add($btnClose)
+        $btnClose = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 215 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Close`nStops the macro and closes this window."
+        $headerPanel.Controls.Add($btnClose)
 
-    $panelSettings = SetUIElement -type 'Panel' -visible $true -width 190 -height 75 -top 60 -left 40 -bg @(50, 50, 50)
-    $macroForm.Controls.Add($panelSettings)
+        $panelSettings = SetUIElement -type 'Panel' -visible $true -width 190 -height 75 -top 60 -left 40 -bg @(50, 50, 50)
+        $macroForm.Controls.Add($panelSettings)
     
-    $btnKeySelect = SetUIElement -type 'Button' -visible $true -width 50 -height 24 -top 3 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Bind Key`nClick here, then press a key to assign it to this action."
-    $panelSettings.Controls.Add($btnKeySelect)
+        $btnKeySelect = SetUIElement -type 'Button' -visible $true -width 50 -height 24 -top 3 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Bind Key`nClick here, then press a key to assign it to this action."
+        $panelSettings.Controls.Add($btnKeySelect)
     
-    $interval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 15 -top 4 -left 56 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Interval (ms)`nTime in milliseconds to wait before repeating this action."
-    $panelSettings.Controls.Add($interval)
+        $interval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 15 -top 4 -left 56 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Interval (ms)`nTime in milliseconds to wait before repeating this action."
+        $panelSettings.Controls.Add($interval)
     
-    $name = SetUIElement -type 'TextBox' -visible $true -width 40 -height 17 -top 4 -left 99 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Name`nGive this sequence a descriptive name for easier identification."
-    $panelSettings.Controls.Add($name)
+        $name = SetUIElement -type 'TextBox' -visible $true -width 40 -height 17 -top 4 -left 99 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Name`nGive this sequence a descriptive name for easier identification."
+        $panelSettings.Controls.Add($name)
 
-    $btnHotKey = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 3 -left 145 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip "Global Hotkey`nAssign a global hotkey to Start/Stop this specific macro sequence."
-    $panelSettings.Controls.Add($btnHotKey)
+        $btnHotKey = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 3 -left 145 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip "Global Hotkey`nAssign a global hotkey to Start/Stop this specific macro sequence."
+        $panelSettings.Controls.Add($btnHotKey)
 
-    $lblLoop = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 45 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Loop' -font (New-Object System.Drawing.Font('Segoe UI', 6))
-    $panelSettings.Controls.Add($lblLoop)
+        $lblLoop = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 45 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Loop' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+        $panelSettings.Controls.Add($lblLoop)
 
-    $lblWait = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 80 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Wait' -font (New-Object System.Drawing.Font('Segoe UI', 6))
-    $panelSettings.Controls.Add($lblWait)
+        $lblWait = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 80 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Wait' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+        $panelSettings.Controls.Add($lblWait)
 
-    $lblHold = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 115 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Hold' -font (New-Object System.Drawing.Font('Segoe UI', 6))
-    $panelSettings.Controls.Add($lblHold)
+        $lblHold = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 115 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Hold' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+        $panelSettings.Controls.Add($lblHold)
 
-    $btnStart = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 40 -left 3 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Start`nBegin executing the macro sequence."
-    $panelSettings.Controls.Add($btnStart)
+        $btnStart = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 40 -left 3 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Start`nBegin executing the macro sequence."
+        $panelSettings.Controls.Add($btnStart)
     
-    $btnStop = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 40 -left 3 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Stop`nStop the currently running macro sequence."
-    $btnStop.Enabled = $false
-    $btnStop.Visible = $false
-    $panelSettings.Controls.Add($btnStop)
-
-    $btnLoopToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 45 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Loop`nToggle looping. If enabled, the macro repeats until stopped."
-    $panelSettings.Controls.Add($btnLoopToggle)
-
-    $btnWaitToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 80 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Wait Mode`nIf enabled, the macro waits for the key hold duration to finish before proceeding."
-    $panelSettings.Controls.Add($btnWaitToggle)
-
-    $btnHoldKeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 115 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $false -tooltip "Hold Key`nEnable to hold the key down for a specific duration instead of a single press."
-    $panelSettings.Controls.Add($btnHoldKeyToggle)
-
-    $txtHoldKeyInterval = SetUIElement -type 'TextBox' -visible $true -width 30 -height 15 -top 42 -left 150 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '50' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Hold Duration (ms)`nHow long the key should be held down in milliseconds."
-    $panelSettings.Controls.Add($txtHoldKeyInterval)
+        $btnStart.Add_Click({
+                $form = $this.FindForm()
+                if (-not $form -or -not $form.Tag) { return }
+                StartMacroSequence $form.Tag
+            })
     
-    $positionSliderY = New-Object System.Windows.Forms.TrackBar
-    $positionSliderY.Orientation = 'Vertical'
-    $positionSliderY.Minimum = -18
-    $positionSliderY.Maximum = 118
-    $positionSliderY.TickFrequency = 300
-    $positionSliderY.Value = 0
-    $positionSliderY.Size = New-Object System.Drawing.Size(15, 110)
-    $positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
-    $macroForm.Controls.Add($positionSliderY)
+        $btnStop = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 40 -left 3 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Stop`nStop the currently running macro sequence."
+        $btnStop.Enabled = $false
+        $btnStop.Visible = $false
+        $panelSettings.Controls.Add($btnStop)
+
+        $btnLoopToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 45 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Loop`nToggle looping. If enabled, the macro repeats until stopped."
+        $panelSettings.Controls.Add($btnLoopToggle)
+
+        $btnWaitToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 80 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Wait Mode`nIf enabled, the macro waits for the key hold duration to finish before proceeding."
+        $panelSettings.Controls.Add($btnWaitToggle)
+
+        $btnHoldKeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 115 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $false -tooltip "Hold Key`nEnable to hold the key down for a specific duration instead of a single press."
+        $panelSettings.Controls.Add($btnHoldKeyToggle)
+
+        $txtHoldKeyInterval = SetUIElement -type 'TextBox' -visible $true -width 30 -height 15 -top 42 -left 150 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '50' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Hold Duration (ms)`nHow long the key should be held down in milliseconds."
+        $panelSettings.Controls.Add($txtHoldKeyInterval)
+    
+
+        try {
+            if ($targetWindowRect -and $targetWindowRect -is [Custom.Native+RECT]) {
+                $rectForScreen = [System.Drawing.Rectangle]::FromLTRB($targetWindowRect.Left, $targetWindowRect.Top, $targetWindowRect.Right, $targetWindowRect.Bottom)
+                $screen = [System.Windows.Forms.Screen]::FromRectangle($rectForScreen)
+            }
+            elseif ($row -and $row.Tag -and $row.Tag.MainWindowHandle) {
+                $screen = [System.Windows.Forms.Screen]::FromHandle([IntPtr]$row.Tag.MainWindowHandle)
+            }
+            else {
+                $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+            }
+        }
+        catch { $screen = [System.Windows.Forms.Screen]::PrimaryScreen }
+        $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        $maxX = $virtual.Right
+        $maxY = $virtual.Bottom
+        $minX = $virtual.Left
+        $minX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $minX))
+        $maxX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $maxX))
+        if ($minX -gt $maxX) { $tmp = $minX; $minX = $maxX; $maxX = $tmp }
+        $minY = $virtual.Top
+        $minY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $minY))
+        $maxY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $maxY))
+        if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
+
+        $positionSliderY = New-Object System.Windows.Forms.TrackBar
+        $positionSliderY.Orientation = 'Vertical'
+        $positionSliderY.Minimum = $minY
+        $positionSliderY.Maximum = $maxY
+        $positionSliderY.TickFrequency = 300
+        $initialY = [Math]::Max($minY, [Math]::Min($maxY, $macroForm.Top))
+        $positionSliderY.Value = $initialY
+        $positionSliderY.Size = New-Object System.Drawing.Size(15, 110)
+        $positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
+        $macroForm.Controls.Add($positionSliderY)
         
-    $positionSliderX = New-Object System.Windows.Forms.TrackBar
-    $positionSliderX.Minimum = -25
-    $positionSliderX.Maximum = 125
-    $positionSliderX.TickFrequency = 300
-    $positionSliderX.Value = 0
-    $positionSliderX.Size = New-Object System.Drawing.Size(190, 15)
-    $positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
-    $macroForm.Controls.Add($positionSliderX)
+        $positionSliderX = New-Object System.Windows.Forms.TrackBar
+        $positionSliderX.Minimum = $minX
+        $positionSliderX.Maximum = $maxX
+        $positionSliderX.TickFrequency = 300
+        $initialX = [Math]::Max($minX, [Math]::Min($maxX, $macroForm.Left))
+        $positionSliderX.Value = $initialX
+        $positionSliderX.Size = New-Object System.Drawing.Size(190, 15)
+        $positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
+        $macroForm.Controls.Add($positionSliderX)
 
     }
-    finally
-    {
+    finally {
         $global:DashboardConfig.UI.ToolTipFtool = $previousToolTip
     }
 
     $formData = [PSCustomObject]@{
-        Type            = 'Macro'
-        InstanceId      = $instanceId
-        HeaderPanel     = $headerPanel
-        LabelWinTitle   = $labelWinTitle
-        SelectedWindow  = $row.Tag.MainWindowHandle
-        BtnKeySelect    = $btnKeySelect
-        Interval        = $interval
-        Name            = $name
-        BtnStart        = $btnStart
-        BtnStop         = $btnStop
-        BtnLoopToggle   = $btnLoopToggle
-        BtnWaitToggle   = $btnWaitToggle
-        BtnHoldKeyToggle = $btnHoldKeyToggle
-        TxtHoldKeyInterval = $txtHoldKeyInterval
-        BtnHotKey       = $btnHotKey
+        Type                    = 'Macro'
+        InstanceId              = $instanceId
+        HeaderPanel             = $headerPanel
+        LabelWinTitle           = $labelWinTitle
+        SelectedWindow          = $row.Tag.MainWindowHandle
+        BtnKeySelect            = $btnKeySelect
+        Interval                = $interval
+        Name                    = $name
+        BtnStart                = $btnStart
+        BtnStop                 = $btnStop
+        BtnLoopToggle           = $btnLoopToggle
+        BtnWaitToggle           = $btnWaitToggle
+        BtnHoldKeyToggle        = $btnHoldKeyToggle
+        TxtHoldKeyInterval      = $txtHoldKeyInterval
+        BtnHotKey               = $btnHotKey
         BtnInstanceHotkeyToggle = $btnInstanceHotkeyToggle
-        BtnHotkeyToggle = $btnHotkeyToggle
-        BtnAdd          = $btnAdd
-        BtnAddInstance  = $btnAddInstance
-        BtnClose        = $btnClose
-        BtnShowHide     = $btnShowHide
-        BtnReset        = $btnReset
-        PositionSliderX = $positionSliderX
-        PositionSliderY = $positionSliderY
-        Form            = $macroForm
-        RunningTimer    = $null
-        WindowTitle     = $windowTitle
-        Row             = $row
-        ToolTipFtool    = $macroToolTip
-        IsCollapsed     = $false
-        OriginalHeight  = 145
-        HotkeyId        = $null
-        GlobalHotkeyId  = $null
-        GlobalHotkey    = $null
-        Hotkey          = $null
-        SequencePanels  = [System.Collections.ArrayList]::new()
-        ActiveSteps     = @()
-        CurrentStepIndex= 0
-        ActiveJobs      = [System.Collections.ArrayList]::new()
-        RunspacePool    = (InitMacroRunspace -InstanceId $instanceId)
-        IsLoading       = $false
+        BtnHotkeyToggle         = $btnHotkeyToggle
+        BtnAdd                  = $btnAdd
+        BtnAddInstance          = $btnAddInstance
+        BtnClose                = $btnClose
+        BtnShowHide             = $btnShowHide
+        BtnReset                = $btnReset
+        PositionSliderX         = $positionSliderX
+        PositionSliderY         = $positionSliderY
+        Form                    = $macroForm
+        DebugLabel              = $labelDebug
+        RunningTimer            = $null
+        WindowTitle             = $windowTitle
+        Row                     = $row
+        ToolTipFtool            = $macroToolTip
+        IsCollapsed             = $false
+        OriginalHeight          = 145
+        HotkeyId                = $null
+        GlobalHotkeyId          = $null
+        GlobalHotkey            = $null
+        Hotkey                  = $null
+        SequencePanels          = [System.Collections.ArrayList]::new()
+        ActiveSteps             = @()
+        CurrentStepIndex        = 0
+        ActiveJobs              = [System.Collections.ArrayList]::new()
+        RunspacePool            = (InitMacroRunspace -InstanceId $instanceId)
+        IsLoading               = $false
     }
     
     $macroForm.Tag = $formData
     
-    CreateMacroPositionTimer $formData | Out-Null
+    $global:DashboardConfig.Resources.FtoolForms[$instanceId] = $macroForm
+
     LoadMacroSettings $formData | Out-Null
+    
+    CreateMacroPositionTimer $formData | Out-Null
     ToggleMacroHotkeys -InstanceId $formData.InstanceId -ToggleState $formData.BtnHotkeyToggle.Checked | Out-Null
 
-    if (-not [string]::IsNullOrEmpty($formData.GlobalHotkey))
-    {
-        try
-        {
+    if (-not [string]::IsNullOrEmpty($formData.GlobalHotkey)) {
+        try {
             $ownerKey = "global_toggle_$($formData.InstanceId)"
             $script = @"
 if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.InstanceId)')) {
@@ -1325,115 +1353,118 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.Instance
             $ownerLabel = "Macro: $($formData.InstanceId)"
             $formData.GlobalHotkeyId = SetHotkey -KeyCombinationString $formData.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel -OldHotkeyId $null
         }
-        catch
-        {
+        catch {
             $formData.GlobalHotkeyId = $null
         }
     }
 
     AddMacroEventHandlers $formData | Out-Null
     AddMacroDragHandlers $formData | Out-Null
+
+    if ($formData.IsCollapsed) {
+        $macroForm.Height = 26
+        $formData.BtnShowHide.Text = [char]0x25BC
+    }
+    else {
+        $macroForm.Height = $formData.OriginalHeight
+        $formData.BtnShowHide.Text = [char]0x25B2
+    }
     
     return $macroForm
 }
 
-function CreateSequencePanel
-{
+function CreateSequencePanel {
     param($form)
     $formData = $form.Tag
 
     $previousToolTip = $global:DashboardConfig.UI.ToolTipFtool
-    if ($formData.ToolTipFtool)
-    {
+    if ($formData.ToolTipFtool) {
         $global:DashboardConfig.UI.ToolTipFtool = $formData.ToolTipFtool
     }
 
-    try
-    {
+    try {
     
-    $panelSeq = SetUIElement -type 'Panel' -visible $true -width 190 -height 65 -top 0 -left 40 -bg @(50, 50, 50)
-    $form.Controls.Add($panelSeq)
-    $panelSeq.BringToFront()
+        $panelSeq = SetUIElement -type 'Panel' -visible $true -width 190 -height 65 -top 0 -left 40 -bg @(50, 50, 50)
+        $form.Controls.Add($panelSeq)
+        $panelSeq.BringToFront()
 
-    $btnKeySelect = SetUIElement -type 'Button' -visible $true -width 50 -height 24 -top 3 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Bind Key`nClick here, then press a key to assign it to this action."
-    $panelSeq.Controls.Add($btnKeySelect)
+        $btnKeySelect = SetUIElement -type 'Button' -visible $true -width 50 -height 24 -top 3 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Bind Key`nClick here, then press a key to assign it to this action."
+        $panelSeq.Controls.Add($btnKeySelect)
 
-    $interval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 15 -top 4 -left 56 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Interval (ms)`nTime in milliseconds to wait before repeating this action."
-    $panelSeq.Controls.Add($interval)
+        $interval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 15 -top 4 -left 56 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Interval (ms)`nTime in milliseconds to wait before repeating this action."
+        $panelSeq.Controls.Add($interval)
 
-    $name = SetUIElement -type 'TextBox' -visible $true -width 60 -height 17 -top 4 -left 99 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Name' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Name`nGive this sequence a descriptive name for easier identification."
-    $panelSeq.Controls.Add($name)
+        $name = SetUIElement -type 'TextBox' -visible $true -width 60 -height 17 -top 4 -left 99 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Name' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Name`nGive this sequence a descriptive name for easier identification."
+        $panelSeq.Controls.Add($name)
 
-    $btnRemove = SetUIElement -type 'Button' -visible $true -width 22 -height 20 -top 3 -left 163 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'X' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) -tooltip "Remove Step`nDelete this key sequence from the macro."
-    $panelSeq.Controls.Add($btnRemove)
+        $btnRemove = SetUIElement -type 'Button' -visible $true -width 22 -height 20 -top 3 -left 163 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'X' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) -tooltip "Remove Step`nDelete this key sequence from the macro."
+        $panelSeq.Controls.Add($btnRemove)
 
-    $lblWait = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 3 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Wait' -font (New-Object System.Drawing.Font('Segoe UI', 6))
-    $panelSeq.Controls.Add($lblWait)
+        $lblWait = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 3 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Wait' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+        $panelSeq.Controls.Add($lblWait)
 
-    $lblHold = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 40 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Hold' -font (New-Object System.Drawing.Font('Segoe UI', 6))
-    $panelSeq.Controls.Add($lblHold)
+        $lblHold = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 40 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Hold' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+        $panelSeq.Controls.Add($lblHold)
 
-    $btnWaitToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 40 -left 3 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Wait Mode`nIf enabled, the macro waits for the key hold duration to finish before proceeding."
-    $panelSeq.Controls.Add($btnWaitToggle)
+        $btnWaitToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 40 -left 3 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Wait Mode`nIf enabled, the macro waits for the key hold duration to finish before proceeding."
+        $panelSeq.Controls.Add($btnWaitToggle)
 
-    $btnHoldKeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 40 -left 40 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $false -tooltip "Hold Key`nEnable to hold the key down for a specific duration instead of a single press."
-    $panelSeq.Controls.Add($btnHoldKeyToggle)
+        $btnHoldKeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 40 -left 40 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $false -tooltip "Hold Key`nEnable to hold the key down for a specific duration instead of a single press."
+        $panelSeq.Controls.Add($btnHoldKeyToggle)
 
-    $txtHoldKeyInterval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 15 -top 42 -left 75 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '50' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Hold Duration (ms)`nHow long the key should be held down in milliseconds."
-    $panelSeq.Controls.Add($txtHoldKeyInterval)
+        $txtHoldKeyInterval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 15 -top 42 -left 75 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '50' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Hold Duration (ms)`nHow long the key should be held down in milliseconds."
+        $panelSeq.Controls.Add($txtHoldKeyInterval)
 
     }
-    finally
-    {
+    finally {
         $global:DashboardConfig.UI.ToolTipFtool = $previousToolTip
     }
 
     $seqData = [PSCustomObject]@{
-        Panel        = $panelSeq
-        BtnKeySelect = $btnKeySelect
-        Interval     = $interval
-        Name         = $name
-        BtnWaitToggle = $btnWaitToggle
-        BtnHoldKeyToggle = $btnHoldKeyToggle
+        Panel              = $panelSeq
+        BtnKeySelect       = $btnKeySelect
+        Interval           = $interval
+        Name               = $name
+        BtnWaitToggle      = $btnWaitToggle
+        BtnHoldKeyToggle   = $btnHoldKeyToggle
         TxtHoldKeyInterval = $txtHoldKeyInterval
-        BtnRemove    = $btnRemove
+        BtnRemove          = $btnRemove
     }
     $panelSeq.Tag = $seqData
     
     $formData.SequencePanels.Add($panelSeq) | Out-Null
 
     $btnKeySelect.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $formData = $form.Tag
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $formData = $form.Tag
 
-        $currentKey = $this.Text
-        $newKey = Show-KeyCaptureDialog $currentKey -OwnerForm $form
-        if ($newKey -and $newKey -ne $currentKey)
-        {
-            $this.Text = $newKey
-            if ($formData.RunningTimer) { StopMacroSequence $formData }
-            UpdateMacroSettings $formData -forceWrite
-        }
-    })
+            $currentKey = $this.Text
+            $newKey = Show-KeyCaptureDialog $currentKey -OwnerForm $form
+            if ($newKey -and $newKey -ne $currentKey) {
+                $this.Text = $newKey
+                if ($formData.RunningTimer) { StopMacroSequence $formData }
+                UpdateMacroSettings $formData -forceWrite
+            }
+        })
 
     $btnRemove.Add_Click({
-        $btn = $this
-        $form = $btn.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $formData = $form.Tag
+            $btn = $this
+            $form = $btn.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $formData = $form.Tag
         
-        $panelToRemove = $btn.Parent 
-        if ($panelToRemove) {
-            $form.Controls.Remove($panelToRemove)
-            $formData.SequencePanels.Remove($panelToRemove)
-            $panelToRemove.Dispose()
+            $panelToRemove = $btn.Parent 
+            if ($panelToRemove) {
+                $form.Controls.Remove($panelToRemove)
+                $formData.SequencePanels.Remove($panelToRemove)
+                $panelToRemove.Dispose()
             
-            RepositionSequences $form
-            if ($formData.RunningTimer) { StopMacroSequence $formData }
-            UpdateMacroSettings $formData -forceWrite
-        }
-    })
+                RepositionSequences $form
+                if ($formData.RunningTimer) { StopMacroSequence $formData }
+                UpdateMacroSettings $formData -forceWrite
+            }
+        })
 
     $btnWaitToggle.Add_Click({ UpdateMacroSettings $this.FindForm().Tag -forceWrite })
     $btnHoldKeyToggle.Add_Click({ UpdateMacroSettings $this.FindForm().Tag -forceWrite })
@@ -1444,442 +1475,390 @@ function CreateSequencePanel
     return $seqData
 }
 
-function UpdateMacroSliderValuesFromFormPosition
-{
-	param($formData, $windowRect)
+function UpdateMacroSliderValuesFromFormPosition {
+    param($formData, $windowRect)
 	
-	if (-not $formData -or -not $formData.PSObject.Properties['PositionSliderX'] -or -not $formData.PSObject.Properties['PositionSliderY'])
-	{
-		return
-	}
+    if (-not $formData -or -not $formData.PSObject.Properties['PositionSliderX'] -or -not $formData.PSObject.Properties['PositionSliderY']) {
+        return
+    }
 	
-	if (-not $windowRect)
-	{
-		return
-	}
+    if (-not $windowRect) {
+        return
+    }
 	
-	try
-	{
-		$form = $formData.Form
-		if (-not $form -or $form.IsDisposed)
-		{
-			return
-		}
+    try {
+        $form = $formData.Form
+        if (-not $form -or $form.IsDisposed) {
+            return
+        }
 		
-		# Calculate slider values based on current form position relative to window
-		$formLeft = $form.Left
-		$formTop = $form.Top
-		$formWidth = $form.Width
-		$formHeight = $form.Height
-		
-		# Calculate X slider (0-100 based on left position)
-		$minLeft = $windowRect.Left + 8
-		$maxLeft = $windowRect.Right - $formWidth - 8
-		if ($maxLeft -gt $minLeft)
-		{
-			$sliderX = [Math]::Round(($formLeft - $minLeft) / ($maxLeft - $minLeft) * 100)
-			$sliderX = [Math]::Max(-25, [Math]::Min(125, $sliderX))
-			$formData.PositionSliderX.Value = $sliderX
-		}
-		
-		# Calculate Y slider (0-100 based on top position, inverted)
-		$minTop = $windowRect.Top + 8
-		$maxTop = $windowRect.Bottom - $formHeight - 8
-		if ($maxTop -gt $minTop)
-		{
-			$sliderY = [Math]::Round(($formTop - $minTop) / ($maxTop - $minTop) * 100)
-			$sliderY = [Math]::Max(-18, [Math]::Min(118, $sliderY))
-			$formData.PositionSliderY.Value = 100 - $sliderY
-		}
-	}
-	catch
-	{
-		Write-Verbose ('MACRO: Error updating slider values from form position: {0}' -f $_.Exception.Message)
-	}
+        $formLeft = $form.Left
+        $formTop = $form.Top
+        try {
+            if ($windowRect -and $windowRect -is [Custom.Native+RECT]) {
+                $rectForScreen = [System.Drawing.Rectangle]::FromLTRB($windowRect.Left, $windowRect.Top, $windowRect.Right, $windowRect.Bottom)
+                $screen = [System.Windows.Forms.Screen]::FromRectangle($rectForScreen)
+            }
+            elseif ($formData.SelectedWindow -and $formData.SelectedWindow -ne [IntPtr]::Zero) {
+                $screen = [System.Windows.Forms.Screen]::FromHandle([IntPtr]$formData.SelectedWindow)
+            }
+            else {
+                $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+            }
+        }
+        catch { $screen = [System.Windows.Forms.Screen]::PrimaryScreen }
+        $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        $maxX = $virtual.Right
+        $maxY = $virtual.Bottom
+
+        $minX = $virtual.Left
+        $sliderX = [Math]::Max($minX, [Math]::Min($maxX, $formLeft))
+        $formData.PositionSliderX.Value = $sliderX
+
+        $minY = $virtual.Top
+        $sliderY = [Math]::Max($minY, [Math]::Min($maxY, $formTop))
+        $formData.PositionSliderY.Value = $sliderY
+
+    }
+    catch {
+        Write-Verbose ('MACRO: Error updating slider values from form position: {0}' -f $_.Exception.Message)
+    }
 }
 
-function AddMacroDragHandlers
-{
-	param($formData)
+function AddMacroDragHandlers {
+    param($formData)
 	
-	if (-not $formData -or -not $formData.PSObject.Properties['Form'])
-	{
-		return
-	}
+    if (-not $formData -or -not $formData.PSObject.Properties['Form']) {
+        return
+    }
 	
-	$form = $formData.Form
-	if ($form.IsDisposed)
-	{
-		return
-	}
+    $form = $formData.Form
+    if ($form.IsDisposed) {
+        return
+    }
 	
-	# Initialize drag tracking data
-	if (-not $formData.PSObject.Properties['IsDragging'])
-	{
-		$formData | Add-Member -MemberType NoteProperty -Name 'IsDragging' -Value $false
-	}
-	if (-not $formData.PSObject.Properties['DragStart'])
-	{
-		$formData | Add-Member -MemberType NoteProperty -Name 'DragStart' -Value @{ X = 0; Y = 0; FormX = 0; FormY = 0 }
-	}
-	if (-not $formData.PSObject.Properties['LastUpdateTime'])
-	{
-		$formData | Add-Member -MemberType NoteProperty -Name 'LastUpdateTime' -Value ([DateTime]::MinValue)
-	}
+    if (-not $formData.PSObject.Properties['IsDragging']) {
+        $formData | Add-Member -MemberType NoteProperty -Name 'IsDragging' -Value $false
+    }
+    if (-not $formData.PSObject.Properties['DragStart']) {
+        $formData | Add-Member -MemberType NoteProperty -Name 'DragStart' -Value @{ X = 0; Y = 0; FormX = 0; FormY = 0 }
+    }
+    if (-not $formData.PSObject.Properties['LastUpdateTime']) {
+        $formData | Add-Member -MemberType NoteProperty -Name 'LastUpdateTime' -Value ([DateTime]::MinValue)
+    }
 	
-	$mouseDown = {
-		$f = $this.FindForm()
-		if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left)
-		{
-			if ($f.Tag -and -not $f.Tag.IsDragging)
-			{
-				$f.Tag.IsDragging = $true
-				$f.Tag.DragStart.X = [System.Windows.Forms.Cursor]::Position.X
-				$f.Tag.DragStart.Y = [System.Windows.Forms.Cursor]::Position.Y
-				$f.Tag.DragStart.FormX = $f.Left
-				$f.Tag.DragStart.FormY = $f.Top
-			}
-		}
-	}
+    $mouseDown = {
+        $f = $this.FindForm()
+        if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+            if ($f.Tag -and -not $f.Tag.IsDragging) {
+                $f.Tag.IsDragging = $true
+                $f.Tag.DragStart.X = [System.Windows.Forms.Cursor]::Position.X
+                $f.Tag.DragStart.Y = [System.Windows.Forms.Cursor]::Position.Y
+                $f.Tag.DragStart.FormX = $f.Left
+                $f.Tag.DragStart.FormY = $f.Top
+            }
+        }
+    }
 	
-	$mouseMove = {
-		$f = $this.FindForm()
-		if ($f.Tag -and $f.Tag.IsDragging)
-		{
-			try
-			{
-				$currentTime = [DateTime]::Now
-				# Rate limit updates to avoid excessive slider changes
-				if (($currentTime - $f.Tag.LastUpdateTime).TotalMilliseconds -lt 20)
-				{
-					return
-				}
-				$f.Tag.LastUpdateTime = $currentTime
+    $mouseMove = {
+        $f = $this.FindForm()
+        if ($f.Tag -and $f.Tag.IsDragging) {
+            try {
+                $currentTime = [DateTime]::Now
+                if (($currentTime - $f.Tag.LastUpdateTime).TotalMilliseconds -lt 20) {
+                    return
+                }
+                $f.Tag.LastUpdateTime = $currentTime
 				
-				$cursorX = [System.Windows.Forms.Cursor]::Position.X
-				$cursorY = [System.Windows.Forms.Cursor]::Position.Y
+                $cursorX = [System.Windows.Forms.Cursor]::Position.X
+                $cursorY = [System.Windows.Forms.Cursor]::Position.Y
 				
-				$deltaX = $cursorX - $f.Tag.DragStart.X
-				$deltaY = $cursorY - $f.Tag.DragStart.Y
+                $deltaX = $cursorX - $f.Tag.DragStart.X
+                $deltaY = $cursorY - $f.Tag.DragStart.Y
 				
-				$newLeft = $f.Tag.DragStart.FormX + $deltaX
-				$newTop = $f.Tag.DragStart.FormY + $deltaY
+                $newLeft = $f.Tag.DragStart.FormX + $deltaX
+                $newTop = $f.Tag.DragStart.FormY + $deltaY
 				
-				$f.Left = $newLeft
-				$f.Top = $newTop
+                $f.Left = $newLeft
+                $f.Top = $newTop
 				
-				# Update timer data's real position to match
-				if ($f.Tag)
-				{
-					$timerKey = "macroPosition_$($f.Tag.InstanceId)"
-					if ($global:DashboardConfig.Resources.Timers.Contains($timerKey))
-					{
-						$timer = $global:DashboardConfig.Resources.Timers[$timerKey]
-						if ($timer -and $timer.Tag)
-						{
-							$timer.Tag.RealLeft = $newLeft
-							$timer.Tag.RealTop = $newTop
-						}
-					}
-				}
+                if ($f.Tag) {
+                    $timerKey = "macroPosition_$($f.Tag.InstanceId)"
+                    if ($global:DashboardConfig.Resources.Timers.Contains($timerKey)) {
+                        $timer = $global:DashboardConfig.Resources.Timers[$timerKey]
+                        if ($timer -and $timer.Tag) {
+                            $timer.Tag.RealLeft = $newLeft
+                            $timer.Tag.RealTop = $newTop
+                        }
+                    }
+                }
 				
-				# Update sliders based on new position
-				if ($f.Tag.SelectedWindow -and $f.Tag.SelectedWindow -ne [IntPtr]::Zero)
-				{
-					$rect = New-Object Custom.Native+RECT
-					if ([Custom.Native]::GetWindowRect($f.Tag.SelectedWindow, [ref]$rect))
-					{
-						UpdateMacroSliderValuesFromFormPosition $f.Tag $rect
-					}
-				}
-			}
-			catch
-			{
-				Write-Verbose ('MACRO: Error during mouse move: {0}' -f $_.Exception.Message)
-			}
-		}
-	}
+                if ($f.Tag.SelectedWindow -and $f.Tag.SelectedWindow -ne [IntPtr]::Zero) {
+                    $rect = New-Object Custom.Native+RECT
+                    if ([Custom.Native]::GetWindowRect($f.Tag.SelectedWindow, [ref]$rect)) {
+                        UpdateMacroSliderValuesFromFormPosition $f.Tag $rect
+                    }
+                }
+            }
+            catch {
+                Write-Verbose ('MACRO: Error during mouse move: {0}' -f $_.Exception.Message)
+            }
+        }
+    }
 	
-	$mouseUp = {
-		$f = $this.FindForm()
-		if ($f.Tag)
-		{
-			$f.Tag.IsDragging = $false
-			# Final slider update to ensure consistency
-			if ($f.Tag.SelectedWindow -and $f.Tag.SelectedWindow -ne [IntPtr]::Zero)
-			{
-				try
-				{
-					$rect = New-Object Custom.Native+RECT
-					if ([Custom.Native]::GetWindowRect($f.Tag.SelectedWindow, [ref]$rect))
-					{
-						UpdateMacroSliderValuesFromFormPosition $f.Tag $rect
-					}
-				}
-				catch {}
-			}
-		}
-	}
+    $mouseUp = {
+        $f = $this.FindForm()
+        if ($f.Tag) {
+            $f.Tag.IsDragging = $false
+            if ($f.Tag.SelectedWindow -and $f.Tag.SelectedWindow -ne [IntPtr]::Zero) {
+                try {
+                    $rect = New-Object Custom.Native+RECT
+                    if ([Custom.Native]::GetWindowRect($f.Tag.SelectedWindow, [ref]$rect)) {
+                        UpdateMacroSliderValuesFromFormPosition $f.Tag $rect
+                        UpdateMacroSettings $f.Tag -forceWrite
+                    }
+                }
+                catch {}
+            }
+        }
+    }
 
-	# Apply handlers to both the form and the header panel
-	$form.Add_MouseDown($mouseDown)
-	$form.Add_MouseMove($mouseMove)
-	$form.Add_MouseUp($mouseUp)
+    $form.Add_MouseDown($mouseDown)
+    $form.Add_MouseMove($mouseMove)
+    $form.Add_MouseUp($mouseUp)
 
-	if ($formData.HeaderPanel)
-	{
-		$formData.HeaderPanel.Add_MouseDown($mouseDown)
-		$formData.HeaderPanel.Add_MouseMove($mouseMove)
-		$formData.HeaderPanel.Add_MouseUp($mouseUp)
-	}
+    if ($formData.HeaderPanel) {
+        $formData.HeaderPanel.Add_MouseDown($mouseDown)
+        $formData.HeaderPanel.Add_MouseMove($mouseMove)
+        $formData.HeaderPanel.Add_MouseUp($mouseUp)
+    }
 
-	if ($formData.LabelWinTitle)
-	{
-		$formData.LabelWinTitle.Add_MouseDown($mouseDown)
-		$formData.LabelWinTitle.Add_MouseMove($mouseMove)
-		$formData.LabelWinTitle.Add_MouseUp($mouseUp)
-	}
+    if ($formData.LabelWinTitle) {
+        $formData.LabelWinTitle.Add_MouseDown($mouseDown)
+        $formData.LabelWinTitle.Add_MouseMove($mouseMove)
+        $formData.LabelWinTitle.Add_MouseUp($mouseUp)
+    }
 }
 
-function AddMacroEventHandlers
-{
+function AddMacroEventHandlers {
     param($formData)
 
     $formData.BtnKeySelect.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $data = $form.Tag
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $data = $form.Tag
 
-        $currentKey = $this.Text
-        $newKey = Show-KeyCaptureDialog $currentKey -OwnerForm $form
-        if ($newKey -and $newKey -ne $currentKey)
-        {
-            $this.Text = $newKey
-            if ($data.RunningTimer) { StopMacroSequence $data }
-            UpdateMacroSettings $data -forceWrite
-        }
-    })
+            $currentKey = $this.Text
+            $newKey = Show-KeyCaptureDialog $currentKey -OwnerForm $form
+            if ($newKey -and $newKey -ne $currentKey) {
+                $this.Text = $newKey
+                if ($data.RunningTimer) { StopMacroSequence $data }
+                UpdateMacroSettings $data -forceWrite
+            }
+        })
 
     $formData.BtnStart.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        StartMacroSequence $form.Tag
-    })
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            StartMacroSequence $form.Tag
+        })
 
     $formData.BtnStop.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        StopMacroSequence $form.Tag
-    })
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            StopMacroSequence $form.Tag
+        })
 
     $formData.BtnAdd.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $data = $form.Tag
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $data = $form.Tag
 
-        if ($data.IsCollapsed) { return }
-        if ($data.SequencePanels.Count -ge 15) { return }
+            if ($data.IsCollapsed) { return }
+            if ($data.SequencePanels.Count -ge 15) { return }
         
-        CreateSequencePanel $form
-        RepositionSequences $form
-        if ($data.RunningTimer) { StopMacroSequence $data }
-        UpdateMacroSettings $data -forceWrite
-    })
+            CreateSequencePanel $form
+            RepositionSequences $form
+            if ($data.RunningTimer) { StopMacroSequence $data }
+            UpdateMacroSettings $data -forceWrite
+        })
 
     $formData.BtnShowHide.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $data = $form.Tag
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $data = $form.Tag
 
-        if ($data.IsCollapsed)
-        {
-            $form.Height = $data.OriginalHeight
-            $data.IsCollapsed = $false
-            $this.Text = [char]0x25B2
-        }
-        else
-        {
-            $data.OriginalHeight = $form.Height
-            $form.Height = 26
-            $data.IsCollapsed = $true
-            $this.Text = [char]0x25BC
-        }
-    })
+            if ($data.IsCollapsed) {
+                $form.Height = $data.OriginalHeight
+                $data.IsCollapsed = $false
+                $this.Text = [char]0x25B2
+            }
+            else {
+                $data.OriginalHeight = $form.Height
+                $form.Height = 26
+                $data.IsCollapsed = $true
+                $this.Text = [char]0x25BC
+            }
+        })
 
     $formData.BtnClose.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $null = $data; $data = $form.Tag
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $null = $data; $data = $form.Tag
 
-        StopMacroForm $form
-    })
+            StopMacroForm $form
+        })
 
     $formData.BtnReset.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $data = $form.Tag
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $data = $form.Tag
         
-        if ((Show-DarkMessageBox "Are you sure you want to reset this Macro instance to default settings? This will remove all sequences and clear keys." "Reset Defaults" "YesNo" "Warning") -eq 'Yes')
-        {
-            # Stop macro if running
-            if ($data.RunningTimer) {
-                StopMacroSequence $data
-            }
-
-            # Clear Sequences
-            while ($data.SequencePanels.Count -gt 0) {
-                $p = $data.SequencePanels[0]
-                $form.Controls.Remove($p)
-                $data.SequencePanels.RemoveAt(0)
-                $p.Dispose()
-            }
-
-            # Unregister Global Hotkeys if any
-            if ($data.GlobalHotkeyId) {
-                 $ownerKey = "global_toggle_$($data.InstanceId)"
-                 try { UnregisterHotkeyInstance -Id $data.GlobalHotkeyId -OwnerKey $ownerKey } catch {}
-                 $data.GlobalHotkeyId = $null
-                 $data.GlobalHotkey = $null
-            }
-
-            # Unregister Hotkey if any
-            if ($data.HotkeyId) {
-                 try { UnregisterHotkeyInstance -Id $data.HotkeyId -OwnerKey "macroinst_$($data.InstanceId)" } catch {}
-                 $data.HotkeyId = $null
-                 $data.Hotkey = $null
-            }
-
-            # Reset Controls
-            $data.BtnKeySelect.Text = ""
-            $data.Interval.Text = "1000"
-            $data.Name.Text = "Main"
-            $data.BtnHotKey.Text = "Hotkey"
-            $data.BtnHotkeyToggle.Checked = $true
-            $data.BtnLoopToggle.Checked = $true
-            $data.BtnWaitToggle.Checked = $true
-            $data.BtnHoldKeyToggle.Checked = $false
-            $data.TxtHoldKeyInterval.Text = "50"
-            $data.PositionSliderX.Value = 0
-            $data.PositionSliderY.Value = 0
-
-            # Clear Config specific to this profile
-            $profilePrefix = $null
-            if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue)
-            {
-                $profilePrefix = FindOrCreateProfile $data.WindowTitle
-            }
-
-            if ($profilePrefix) {
-                $configSuffix = ""
-                $parts = $data.InstanceId -split '_'
-                if ($parts.Count -gt 2)
-                {
-                    $configSuffix = "_Sub" + $parts[-1]
+            if ((Show-DarkMessageBox "Are you sure you want to reset this Macro instance to default settings? This will remove all sequences and clear keys." "Reset Defaults" "YesNo" "Warning") -eq 'Yes') {
+                if ($data.RunningTimer) {
+                    StopMacroSequence $data
                 }
-                $p = "$profilePrefix$configSuffix"
+
+                while ($data.SequencePanels.Count -gt 0) {
+                    $p = $data.SequencePanels[0]
+                    $form.Controls.Remove($p)
+                    $data.SequencePanels.RemoveAt(0)
+                    $p.Dispose()
+                }
+
+                if ($data.GlobalHotkeyId) {
+                    $ownerKey = "global_toggle_$($data.InstanceId)"
+                    try { UnregisterHotkeyInstance -Id $data.GlobalHotkeyId -OwnerKey $ownerKey } catch {}
+                    $data.GlobalHotkeyId = $null
+                    $data.GlobalHotkey = $null
+                }
+
+                if ($data.HotkeyId) {
+                    try { UnregisterHotkeyInstance -Id $data.HotkeyId -OwnerKey "macroinst_$($data.InstanceId)" } catch {}
+                    $data.HotkeyId = $null
+                    $data.Hotkey = $null
+                }
+
+                $data.BtnKeySelect.Text = ""
+                $data.Interval.Text = "1000"
+                $data.Name.Text = "Main"
+                $data.BtnHotKey.Text = "Hotkey"
+                $data.BtnHotkeyToggle.Checked = $true
+                $data.BtnLoopToggle.Checked = $true
+                $data.BtnWaitToggle.Checked = $true
+                $data.BtnHoldKeyToggle.Checked = $false
+                $data.TxtHoldKeyInterval.Text = "50"
+                $minX = $data.PositionSliderX.Minimum
+                $maxX = $data.PositionSliderX.Maximum
+                $minY = $data.PositionSliderY.Minimum
+                $maxY = $data.PositionSliderY.Maximum
+                $data.PositionSliderX.Value = [Math]::Max($minX, [Math]::Min($maxX, $data.Form.Left))
+                $data.PositionSliderY.Value = [Math]::Max($minY, [Math]::Min($maxY, $data.Form.Top))
+
+                $profilePrefix = $null
+                if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue) {
+                    $profilePrefix = FindOrCreateProfile $data.WindowTitle
+                }
+
+                if ($profilePrefix) {
+                    $configSuffix = ""
+                    $parts = $data.InstanceId -split '_'
+                    if ($parts.Count -gt 2) {
+                        $configSuffix = "_Sub" + $parts[-1]
+                    }
+                    $p = "$profilePrefix$configSuffix"
                 
-                $keysToClear = [System.Collections.ArrayList]@()
-                foreach ($k in $global:DashboardConfig.Config['Macro'].Keys) {
-                    if ($k -match "_$p$") {
-                        $keysToClear.Add($k)
+                    $keysToClear = [System.Collections.ArrayList]@()
+                    foreach ($k in $global:DashboardConfig.Config['Macro'].Keys) {
+                        if ($k -match "_$p$") {
+                            $keysToClear.Add($k)
+                        }
+                    }
+                    foreach ($k in $keysToClear) {
+                        $global:DashboardConfig.Config['Macro'].Remove($k)
                     }
                 }
-                foreach ($k in $keysToClear) {
-                    $global:DashboardConfig.Config['Macro'].Remove($k)
-                }
-            }
 
-            # Save clean state
-            UpdateMacroSettings $data -forceWrite
-            RepositionSequences $form
-        }
-    })
+                UpdateMacroSettings $data -forceWrite
+                RepositionSequences $form
+            }
+        })
 
     $formData.BtnAddInstance.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $data = $form.Tag
-        $row = $data.Row
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $data = $form.Tag
+            $row = $data.Row
 
-        if (-not $row -or -not $row.Tag) { return }
+            if (-not $row -or -not $row.Tag) { return }
 
-        $baseInstanceId = "Macro_" + $row.Cells[2].Value.ToString()
+            $rowIdentity = Get-RowIdentity -Row $row
+            $safeIdentity = $rowIdentity -replace '[^a-zA-Z0-9_\-]', '_'
+            $baseInstanceId = "Macro_$safeIdentity"
 
-        $nextIndex = 1
-        $foundGap = $false
+            $nextIndex = 1
+            $foundGap = $false
         
-        while (-not $foundGap)
-        {
-            $testId = "${baseInstanceId}_${nextIndex}"
-            if (-not $global:DashboardConfig.Resources.FtoolForms.Contains($testId) -or 
-                $global:DashboardConfig.Resources.FtoolForms[$testId].IsDisposed)
-            {
-                $foundGap = $true
-            }
-            else
-            {
-                $nextIndex++
-            }
-        }
-        
-        $newInstanceId = "${baseInstanceId}_${nextIndex}"
-
-        $anchorForm = $form
-        
-        for ($i = $nextIndex - 1; $i -ge 0; $i--)
-        {
-            $prevId = if ($i -eq 0) { $baseInstanceId } else { "${baseInstanceId}_${i}" }
-            
-            if ($global:DashboardConfig.Resources.FtoolForms.Contains($prevId))
-            {
-                $candidate = $global:DashboardConfig.Resources.FtoolForms[$prevId]
-                if ($candidate -and -not $candidate.IsDisposed -and $candidate.Visible)
-                {
-                    $anchorForm = $candidate
-                    break
+            while (-not $foundGap) {
+                $testId = "${baseInstanceId}_${nextIndex}"
+                if (-not $global:DashboardConfig.Resources.FtoolForms.Contains($testId) -or 
+                    $global:DashboardConfig.Resources.FtoolForms[$testId].IsDisposed) {
+                    $foundGap = $true
+                }
+                else {
+                    $nextIndex++
                 }
             }
-        }
-
-        $newForm = CreateMacroForm -instanceId $newInstanceId -targetWindowRect $null -windowTitle $data.WindowTitle -row $row
         
-        if ($newForm -and $newForm -is [System.Windows.Forms.Form])
-        {
-            $newForm.Left = $anchorForm.Right + 10
-            $newForm.Top = $anchorForm.Top
-            $global:DashboardConfig.Resources.FtoolForms[$newInstanceId] = $newForm
-            $newForm.Show()
-            $newForm.BringToFront()
-            # Ensure Hotkeys UI reflects any new instance-related registrations
-            if (Get-Command RegisterConfiguredHotkeys -ErrorAction SilentlyContinue) { try { RegisterConfiguredHotkeys } catch {} }
-            if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
-        }
-        else
-        {
-            Write-Verbose "Error: CreateMacroForm returned unexpected type: $($newForm.GetType().FullName)"
-        }
-    })
+            $newInstanceId = "${baseInstanceId}_${nextIndex}"
+
+            $anchorForm = $form
+        
+            for ($i = $nextIndex - 1; $i -ge 0; $i--) {
+                $prevId = if ($i -eq 0) { $baseInstanceId } else { "${baseInstanceId}_${i}" }
+            
+                if ($global:DashboardConfig.Resources.FtoolForms.Contains($prevId)) {
+                    $candidate = $global:DashboardConfig.Resources.FtoolForms[$prevId]
+                    if ($candidate -and -not $candidate.IsDisposed -and $candidate.Visible) {
+                        $anchorForm = $candidate
+                        break
+                    }
+                }
+            }
+
+            $newForm = CreateMacroForm -instanceId $newInstanceId -targetWindowRect $null -windowTitle $data.WindowTitle -row $row
+        
+            if ($newForm -and $newForm -is [System.Windows.Forms.Form]) {
+                $newForm.Left = $anchorForm.Right + 10
+                $newForm.Top = $anchorForm.Top
+                $global:DashboardConfig.Resources.FtoolForms[$newInstanceId] = $newForm
+                $newForm.Show()
+                $newForm.BringToFront()
+                if (Get-Command RegisterConfiguredHotkeys -ErrorAction SilentlyContinue) { try { RegisterConfiguredHotkeys } catch {} }
+                if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
+            }
+            else {
+                Write-Verbose "Error: CreateMacroForm returned unexpected type: $($newForm.GetType().FullName)"
+            }
+        })
 
 
     $formData.BtnHotKey.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $data = $form.Tag
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $data = $form.Tag
 
-        $currentHotkeyText = $this.Text
-        if ($currentHotkeyText -eq 'Hotkey') { $currentHotkeyText = $null }
-        $oldId = $data.HotkeyId
+            $currentHotkeyText = $this.Text
+            if ($currentHotkeyText -eq 'Hotkey') { $currentHotkeyText = $null }
+            $oldId = $data.HotkeyId
 
-        $newHotkey = Show-KeyCaptureDialog $currentHotkeyText -OwnerForm $form
+            $newHotkey = Show-KeyCaptureDialog $currentHotkeyText -OwnerForm $form
         
-        if ($newHotkey -and $newHotkey -ne $currentHotkeyText)
-        {
-            $data.Hotkey = $newHotkey
-                try
-                {
+            if ($newHotkey -and $newHotkey -ne $currentHotkeyText) {
+                $data.Hotkey = $newHotkey
+                try {
                     $scriptBlock = [scriptblock]::Create("ToggleMacroInstance -InstanceId '$($data.InstanceId)'")
                     $ownerKey = "macroinst_$($data.InstanceId)"
-                    # Friendly label for UI
                     $ownerLabel = $null
                     if ($data.PSObject.Properties['Name'] -and -not [string]::IsNullOrEmpty($data.Name)) { $ownerLabel = $data.Name }
                     elseif ($data.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($data.WindowTitle)) { $ownerLabel = $data.WindowTitle }
@@ -1887,47 +1866,43 @@ function AddMacroEventHandlers
                     $data.HotkeyId = SetHotkey -KeyCombinationString $newHotkey -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel -OldHotkeyId $oldId
                     $this.Text = $newHotkey
                 }
-            catch
-            {
+                catch {
+                    $data.HotkeyId = $null
+                    $this.Text = 'Hotkey'
+                }
+                UpdateMacroSettings $data -forceWrite
+            }
+            elseif (-not $newHotkey -and $oldId) {
+                try { UnregisterHotkeyInstance -Id $oldId -OwnerKey "macroinst_$($data.InstanceId)" } catch {}
                 $data.HotkeyId = $null
                 $this.Text = 'Hotkey'
+                UpdateMacroSettings $data -forceWrite
             }
-            UpdateMacroSettings $data -forceWrite
-        }
-        elseif (-not $newHotkey -and $oldId)
-        {
-            try { UnregisterHotkeyInstance -Id $oldId -OwnerKey "macroinst_$($data.InstanceId)" } catch {}
-            $data.HotkeyId = $null
-            $this.Text = 'Hotkey'
-            UpdateMacroSettings $data -forceWrite
-        }
-    })
+        })
 
     $formData.BtnHotkeyToggle.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $data = $form.Tag
-        $toggleOn = $this.Checked
-        ToggleMacroHotkeys -InstanceId $data.InstanceId -ToggleState $toggleOn
-        UpdateMacroSettings $data -forceWrite
-    })
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $data = $form.Tag
+            $toggleOn = $this.Checked
+            ToggleMacroHotkeys -InstanceId $data.InstanceId -ToggleState $toggleOn
+            UpdateMacroSettings $data -forceWrite
+        })
 
     $formData.BtnInstanceHotkeyToggle.Add_Click({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $data = $form.Tag
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $data = $form.Tag
         
-        $currentHotkeyText = $data.GlobalHotkey
-        $oldHotkeyIdToUnregister = $data.GlobalHotkeyId
-        $ownerKey = "global_toggle_$($data.InstanceId)"
+            $currentHotkeyText = $data.GlobalHotkey
+            $oldHotkeyIdToUnregister = $data.GlobalHotkeyId
+            $ownerKey = "global_toggle_$($data.InstanceId)"
         
-        $newHotkey = Show-KeyCaptureDialog $currentHotkeyText -OwnerForm $form
+            $newHotkey = Show-KeyCaptureDialog $currentHotkeyText -OwnerForm $form
         
-        if ($newHotkey -and $newHotkey -ne $currentHotkeyText)
-        {
-            $data.GlobalHotkey = $newHotkey
-                try
-                {
+            if ($newHotkey -and $newHotkey -ne $currentHotkeyText) {
+                $data.GlobalHotkey = $newHotkey
+                try {
                     $script = @"
 if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)')) {
     `$f = `$global:DashboardConfig.Resources.FtoolForms['$($data.InstanceId)']
@@ -1940,38 +1915,36 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
     }
 }
 "@
-                $scriptBlock = [scriptblock]::Create($script)
-                # Friendly label for UI
-                $ownerLabel = $null
-                if ($data.PSObject.Properties['Name'] -and -not [string]::IsNullOrEmpty($data.Name)) { $ownerLabel = $data.Name }
-                elseif ($data.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($data.WindowTitle)) { $ownerLabel = $data.WindowTitle }
-                else { $ownerLabel = "Macro: $($data.InstanceId)" }
-                $data.GlobalHotkeyId = SetHotkey -KeyCombinationString $data.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel -OldHotkeyId $oldHotkeyIdToUnregister
+                    $scriptBlock = [scriptblock]::Create($script)
+                    $ownerLabel = $null
+                    if ($data.PSObject.Properties['Name'] -and -not [string]::IsNullOrEmpty($data.Name)) { $ownerLabel = $data.Name }
+                    elseif ($data.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($data.WindowTitle)) { $ownerLabel = $data.WindowTitle }
+                    else { $ownerLabel = "Macro: $($data.InstanceId)" }
+                    $data.GlobalHotkeyId = SetHotkey -KeyCombinationString $data.GlobalHotkey -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel -OldHotkeyId $oldHotkeyIdToUnregister
+                }
+                catch { $data.GlobalHotkeyId = $null; $data.GlobalHotkey = $currentHotkeyText }
+                UpdateMacroSettings $data -forceWrite
             }
-            catch { $data.GlobalHotkeyId = $null; $data.GlobalHotkey = $currentHotkeyText }
-            UpdateMacroSettings $data -forceWrite
-        }
-        elseif (-not $newHotkey -and $oldHotkeyIdToUnregister)
-        {
-            try { UnregisterHotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $ownerKey } catch {}
-            try { UnregisterHotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $data.InstanceId } catch {}
-            $data.GlobalHotkeyId = $null
-            $data.GlobalHotkey = $null
-            UpdateMacroSettings $data -forceWrite
-        }
-    })
+            elseif (-not $newHotkey -and $oldHotkeyIdToUnregister) {
+                try { UnregisterHotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $ownerKey } catch {}
+                try { UnregisterHotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $data.InstanceId } catch {}
+                $data.GlobalHotkeyId = $null
+                $data.GlobalHotkey = $null
+                UpdateMacroSettings $data -forceWrite
+            }
+        })
 
     $formData.Interval.Add_TextChanged({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        UpdateMacroSettings $form.Tag -forceWrite
-    })
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            UpdateMacroSettings $form.Tag -forceWrite
+        })
 
     $formData.Name.Add_TextChanged({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        UpdateMacroSettings $form.Tag -forceWrite
-    })
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            UpdateMacroSettings $form.Tag -forceWrite
+        })
 
     $formData.BtnLoopToggle.Add_Click({ UpdateMacroSettings $this.FindForm().Tag -forceWrite })
     $formData.BtnWaitToggle.Add_Click({ UpdateMacroSettings $this.FindForm().Tag -forceWrite })
@@ -1979,26 +1952,22 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
     $formData.TxtHoldKeyInterval.Add_TextChanged({ UpdateMacroSettings $this.FindForm().Tag -forceWrite })
 
     $formData.PositionSliderX.Add_ValueChanged({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $data = $form.Tag
-        # Only update settings if not currently dragging (to avoid conflicts)
-        if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging)
-        {
-            UpdateMacroSettings $data -forceWrite
-        }
-    })
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $data = $form.Tag
+            if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging) {
+                UpdateMacroSettings $data -forceWrite
+            }
+        })
 
     $formData.PositionSliderY.Add_ValueChanged({
-        $form = $this.FindForm()
-        if (-not $form -or -not $form.Tag) { return }
-        $data = $form.Tag
-        # Only update settings if not currently dragging (to avoid conflicts)
-        if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging)
-        {
-            UpdateMacroSettings $data -forceWrite
-        }
-    })
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $data = $form.Tag
+            if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging) {
+                UpdateMacroSettings $data -forceWrite
+            }
+        })
 }
 
 #endregion

@@ -1,3 +1,4 @@
+<# wiki.psm1 #>
 function Show-Wiki
 {
 	[CmdletBinding()]
@@ -10,9 +11,7 @@ function Show-Wiki
 	$WikiState = @{
 		LocalData = $null
 		OnlineData = $null
-		# Stores unsaved edits: Key = NodeFullPath, Value = @{ Text = "..."; Scroll = 0 }
 		UnsavedBuffer = @{} 
-		# Flat list of node names for autocomplete
 		NodeList = @()
 	}
 	$SourceUsed = 'Connecting...'
@@ -269,7 +268,6 @@ public class WikiScrollNative {
     $pnlEditFields.Controls.Add($txtEditNote)
     if ([Custom.Native] -as [Type]) { [Custom.Native]::UseImmersiveDarkMode($txtEditNote.Handle) }
 
-    # Autocomplete ListBox
     $lstAutocomplete = New-Object System.Windows.Forms.ListBox
     $lstAutocomplete.Visible = $false
     $lstAutocomplete.Size = New-Object System.Drawing.Size(200, 150)
@@ -577,7 +575,6 @@ public class WikiScrollNative {
 		return @()
 	}
 
-    # Helper to flatten node list for autocomplete
     $PopulateNodeList = {
         param($Data)
         $list = New-Object System.Collections.Generic.List[string]
@@ -870,10 +867,8 @@ public class WikiScrollNative {
         $finalHtml = $finalHtml -replace '\[([^\]]+)\]\(wiki:([^)]+)\)', '<a href="http://wiki/$2">$1</a>'
         $finalHtml = $finalHtml -replace '\[([^\]]+)\]\(([^)]+)\)', '<a href="$2">$1</a>'
 
-        # Handle Video formats (MP4, WEBM) inside [img] tags
         $finalHtml = $finalHtml -replace '\[img\]\s*(\S+\.(?:mp4|webm))', '<video src="$1" autoplay loop muted playsinline style="max-width: 100%; border-radius: 4px;"></video>'
 
-        # Handle standard Images
         $finalHtml = $finalHtml -replace '\[img\]\s*([^\s<]+)', '<img src="$1" />'
 
         $finalHtml = $finalHtml -replace '\[imgs\]([^<\s]+)', '<img src="$1" style="width: 25%;" />'
@@ -918,11 +913,9 @@ public class WikiScrollNative {
         $urlVal = ""
         $noteVal = ""
         
-        # Check for unsaved changes first
         if ($chkEdit.Checked -and $WikiState.UnsavedBuffer.ContainsKey($node.FullPath)) {
             $buffer = $WikiState.UnsavedBuffer[$node.FullPath]
             $descVal = $buffer.Text
-            # We can retrieve other props from original data if needed, but text is priority
             if ($data -is [System.Collections.IDictionary] -or $data -is [System.Management.Automation.PSCustomObject]) {
                 if ($data.url) { $urlVal = $data.url } elseif ($data.URL) { $urlVal = $data.URL }
                 if ($data.note) { $noteVal = $data.note }
@@ -941,12 +934,11 @@ public class WikiScrollNative {
         if ($chkEdit.Checked) {
             $txtDescription.Text = $descVal
             $txtDescription.Visible = $true
-            $webDescription.Visible = $true # Visible in edit mode for live preview
+            $webDescription.Visible = $true 
             $txtEditTitle.Text = $node.Name
             $txtEditUrl.Text = $urlVal
             $txtEditNote.Text = $noteVal
             
-            # Restore scroll position if available
             if ($WikiState.UnsavedBuffer.ContainsKey($node.FullPath)) {
                 $scrollPos = $WikiState.UnsavedBuffer[$node.FullPath].Scroll
                 if ($scrollPos -gt 0) {
@@ -955,7 +947,6 @@ public class WikiScrollNative {
                 }
             }
             
-            # Trigger initial preview render
             $htmlContent = & $ConvertMarkdownToHtml $descVal
             & $UpdateLineOffsets
             $fullHtml = @"
@@ -992,12 +983,10 @@ $htmlContent
             $txtDescription.Visible = $false
             $webDescription.Visible = $true
 
-            # Force sync reset when switching to view mode
             $SyncState.LastTxtScroll = -1
 
             $htmlContent = & $ConvertMarkdownToHtml $displayText
             
-            # Added meta tag for IE Edge mode to support GIFs
             $fullHtml = @"
 <html>
 <head>
@@ -1047,36 +1036,29 @@ $htmlContent
         $btnSmartSync.Visible = $isLocalView -and $hasOnlineData
     }.GetNewClosure()
 
-    # --- Autocomplete Logic ---
     $txtDescription.Add_KeyUp({
         param($s, $e)
         
-        # Hide if not relevant keys
         if ($e.KeyCode -in 'Up','Down','Enter','Tab','Escape') { return }
 
         $caret = $txtDescription.SelectionStart
         if ($caret -eq 0) { $lstAutocomplete.Visible = $false; return }
 
-        # Get text up to caret
         $text = $txtDescription.Text.Substring(0, $caret)
         
-        # Regex to find [[... or wiki:... at the end
         if ($text -match '(?<trigger>\[\[|wiki:)(?<query>[^\]\)]*)$') {
             $trigger = $matches['trigger']
             $query = $matches['query']
             
-            # Filter nodes
             $matchesList = $WikiState.NodeList | Where-Object { $_ -like "*$query*" } | Select-Object -First 10
             
             if ($matchesList) {
                 $lstAutocomplete.Items.Clear()
                 foreach ($m in $matchesList) { $lstAutocomplete.Items.Add($m) | Out-Null }
                 
-                # Position ListBox
                 $pt = $txtDescription.GetPositionFromCharIndex($caret)
-                $pt.Y += 20 # Move below line
+                $pt.Y += 20
                 
-                # Adjust if out of bounds (basic)
                 if ($pt.X + $lstAutocomplete.Width -gt $txtDescription.Width) { $pt.X = $txtDescription.Width - $lstAutocomplete.Width }
                 
                 $lstAutocomplete.Location = $pt
@@ -1108,7 +1090,7 @@ $htmlContent
             }
             elseif ($e.KeyCode -in 'Tab','Enter') {
                 $e.Handled = $true
-                $e.SuppressKeyPress = $true # Prevent newline/tab in text
+                $e.SuppressKeyPress = $true
                 
                 $selected = $lstAutocomplete.SelectedItem
                 if ($selected) {
@@ -1119,11 +1101,10 @@ $htmlContent
                     $txtDescription.Select($start, $len)
                     $txtDescription.SelectedText = $selected
                     
-                    # Close brackets if [[
                     if ($info.Trigger -eq '[[') {
                         $txtDescription.SelectedText = "]]"
                     } else {
-                        $txtDescription.SelectedText = ")" # Close paren for wiki: link
+                        $txtDescription.SelectedText = ")" 
                     }
                     
                     $lstAutocomplete.Visible = $false
@@ -1156,29 +1137,24 @@ $htmlContent
         }
     }.GetNewClosure())
 
-    # --- Live Preview Logic ---
     
     $generalScrollTimer = New-Object System.Windows.Forms.Timer
-    $generalScrollTimer.Interval = 50 # Faster tick for smoother sync
+    $generalScrollTimer.Interval = 50 
     $Disposables.Add($generalScrollTimer)
 
-    # Helper: robustly find the element that controls scrolling
     $GetWebScrollable = {
         if (-not $webDescription.Document) { return $null }
         
         $html = $webDescription.Document.GetElementsByTagName("HTML")[0]
         $body = $webDescription.Document.Body
         
-        # If one is scrolled, use it
         if ($html -and $html.ScrollTop -gt 0) { return $html }
         if ($body -and $body.ScrollTop -gt 0) { return $body }
         
-        # Default to HTML in standards mode (which we use), fallback to Body
         if ($html) { return $html }
         return $body
     }.GetNewClosure()
     
-    # 1. Editor -> Web Sync (Timer based)
     $generalScrollTimer.Add_Tick({
         if ($SyncState.IsScrolling) { return }
         if (-not $chkEdit.Checked) { return }
@@ -1190,12 +1166,10 @@ $htmlContent
             if ($firstLine -ne $SyncState.LastTxtScroll) {
                 $SyncState.LastTxtScroll = $firstLine
                 
-                # Lock to prevent the Web->Editor event from firing back
                 $SyncState.IsScrolling = $true 
                 
                 if ($webDescription.Document) {
                     $targetEl = $null
-                    # Search backwards from current line to find an anchor
                     for ($i = $firstLine; $i -ge 0; $i--) {
                         $el = $webDescription.Document.GetElementById("line_$i")
                         if ($el) {
@@ -1217,7 +1191,6 @@ $htmlContent
     }.GetNewClosure())
     $generalScrollTimer.Start()
 
-    # 2. Web -> Editor Sync (Event based)
     $AttachWebScroll = {
         if ($webDescription.Document -and $webDescription.Document.Window) {
             $webDescription.Document.Window.AttachEventHandler("onscroll", {
@@ -1227,8 +1200,7 @@ $htmlContent
                 try {
                     $SyncState.IsScrolling = $true
                     
-                    # Use GetElementFromPoint to find which line is at the top
-                    $pt = New-Object System.Drawing.Point(30, 20) # Offset slightly to hit content
+                    $pt = New-Object System.Drawing.Point(30, 20) 
                     $el = $webDescription.Document.GetElementFromPoint($pt)
                     
                     $foundLine = -1
@@ -1254,7 +1226,6 @@ $htmlContent
                             [WikiScrollNative]::SendMessage($txtDescription.Handle, [WikiScrollNative]::EM_LINESCROLL, 0, $linesToScroll) | Out-Null
                         }
                         
-                        # Update tracker so timer doesn't reverse it
                         $SyncState.LastTxtScroll = [WikiScrollNative]::SendMessage($txtDescription.Handle, [WikiScrollNative]::EM_GETFIRSTVISIBLELINE, 0, 0)
                     }
                 }
@@ -1271,7 +1242,6 @@ $htmlContent
         & $AttachWebScroll
     }.GetNewClosure())
 
-    # 3. Content Update (Debounced typing)
     $scrollSyncTimer.Add_Tick({
         $scrollSyncTimer.Stop()
         if ($chkEdit.Checked) {
@@ -1279,13 +1249,11 @@ $htmlContent
             $htmlContent = & $ConvertMarkdownToHtml $txtDescription.Text
             & $UpdateLineOffsets
             
-            # Pause sync while we mess with the DOM
             $SyncState.IsScrolling = $true 
 
             try {
                 if ($webDescription.Document -and $webDescription.Document.Body) {
                     
-                    # A. Capture Current Ratio (not pixels, in case height changes)
                     $scrollEl = & $GetWebScrollable
                     $prevRatio = 0.0
                     $hasScroll = $false
@@ -1298,12 +1266,9 @@ $htmlContent
                         }
                     }
 
-                    # B. Update InnerHtml (No Page Reload)
                     $webDescription.Document.Body.InnerHtml = $htmlContent
                     
-                    # C. Restore Position by Ratio
                     if ($hasScroll) {
-                        # Re-fetch element as DOM might have shifted
                         $scrollEl = & $GetWebScrollable
                         if ($scrollEl) {
                             $newMax = $scrollEl.ScrollRectangle.Height - $scrollEl.ClientRectangle.Height
@@ -1314,7 +1279,6 @@ $htmlContent
                     }
                 } 
                 else {
-                    # Initial Load - Add DOCTYPE for Standards Mode
                     $fullHtml = @"
 <!DOCTYPE html>
 <html>
@@ -1343,7 +1307,6 @@ $htmlContent
             } 
             catch {}
             finally {
-                # Allow sync to resume after a short delay to let rendering finish
                 $SyncState.IsScrolling = $false
             }
         }
@@ -1356,7 +1319,6 @@ $htmlContent
         }
     }.GetNewClosure())
 
-    # --- End Autocomplete ---
 
     $btnSyncNode.Add_Click({
         try {
@@ -1802,7 +1764,6 @@ $htmlContent
             $pnlEditFields.Visible = $true
             $pnlFormatting.Visible = $true
             
-            # Split screen logic
             $editPreviewSplitter.Top = 285
             $editPreviewSplitter.Height = ($contentPanel.Height - 295)
             $editPreviewSplitter.Panel1Collapsed = $false
@@ -1810,14 +1771,12 @@ $htmlContent
             
             if ([Custom.Native] -as [Type]) { [Custom.Native]::UseImmersiveDarkMode($txtDescription.Handle) }
             
-            # Trigger initial render for preview
-            $txtDescription.Text = $txtDescription.Text # Triggers TextChanged
+            $txtDescription.Text = $txtDescription.Text 
             
         } else {
             $chkEdit.BackColor = $Theme.Background
             $chkEdit.ForeColor = $Theme.SubTextColor
             
-            # Clear unsaved buffer on cancel/exit edit
             $WikiState.UnsavedBuffer.Clear()
 
             $pnlEditFields.Visible = $false
@@ -1861,11 +1820,9 @@ $htmlContent
         }
     }.GetNewClosure())
 
-    # --- Persistence Logic: BeforeSelect ---
     $treeView.Add_BeforeSelect({
         param($src, $e)
         if ($chkEdit.Checked -and $treeView.SelectedNode) {
-            # Save current text to buffer before switching
             $path = $treeView.SelectedNode.FullPath
             $WikiState.UnsavedBuffer[$path] = @{
                 Text = $txtDescription.Text
@@ -2024,7 +1981,6 @@ $htmlContent
                 }
             }
             
-            # Clear unsaved buffer for this node
             if ($WikiState.UnsavedBuffer.ContainsKey($node.FullPath)) {
                 $WikiState.UnsavedBuffer.Remove($node.FullPath)
             }
@@ -2323,7 +2279,6 @@ $htmlContent
 	$WikiState.LocalData = $LocalWikiData
 	& $PopulateTree $null $WikiState.LocalData $treeView
     
-    # Pre-populate autocomplete list
     $WikiState.NodeList = & $PopulateNodeList $WikiState.LocalData
 
 	$chkEdit.Enabled = ($null -ne $WikiState.LocalData)
@@ -2518,7 +2473,6 @@ $htmlContent
                         $capturedForm.Tag = $capturedState.OnlineData
 						& $capturedPopulate $null $capturedState.OnlineData $capturedTree
                         
-                        # Populate autocomplete list
                         $capturedState.NodeList = & $capturedPopulateNodeList $capturedState.LocalData
                     }
 
