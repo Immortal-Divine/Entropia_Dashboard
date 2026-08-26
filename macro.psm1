@@ -1,5 +1,7 @@
 <# macro.psm1 #>
 
+$script:_MacroKeyScriptStr = $null
+
 #region Helper Functions
 
 function InitMacroRunspace {
@@ -19,7 +21,8 @@ function InitMacroRunspace {
         }
     }
 
-    $pool = [runspacefactory]::CreateRunspacePool(1, 5, $iss, $Host)
+    $maxThreads = [Math]::Max(15, [Environment]::ProcessorCount * 2)
+    $pool = [runspacefactory]::CreateRunspacePool(1, $maxThreads, $iss, $Host)
     $pool.ThreadOptions = 'ReuseThread'
     $pool.Open()
     
@@ -142,7 +145,16 @@ function Get-MacroKeyScriptBlock {
 }
 
 function Invoke-MacroKeyAction {
-    param($formData, $keyString, [int]$holdTime = 5)
+    param(
+        $formData,
+        $keyString = $null,
+        [int]$holdTime = 50,
+        $cachedVk = $null,
+        $cachedIsMouse = $null,
+        $cachedMods = $null,
+        $cachedIsAlt = $null,
+        $cachedIsCtrl = $null
+    )
 
     if ($formData.SelectedWindow -eq [IntPtr]::Zero) { return $null }
 
@@ -163,35 +175,39 @@ function Invoke-MacroKeyAction {
         }
     }
 
-    $parsedKey = ParseKeyString -KeyCombinationString $keyString
-    if (-not $parsedKey -or -not $parsedKey.Primary) { return $null }
-
-    $primaryKeyName = $parsedKey.Primary
-    $modifierNames = $parsedKey.Modifiers
-    $keyMappings = GetVirtualKeyMappings
-    $virtualKeyCode = $keyMappings[$primaryKeyName]
-
-    if (-not $virtualKeyCode) { return $null }
-
-    $isMouse = ($virtualKeyCode -ge 0x01 -and $virtualKeyCode -le 0x06)
-    $mods = @()
-    $isAlt = $false
-    $isCtrl = $false
-
-    foreach ($modName in $modifierNames) {
-        switch ($modName.ToUpper()) {
-            'CTRL' { $mods += 0x11; $isCtrl = $true }
-            'ALT' { $mods += 0x12; $isAlt = $true }
-            'SHIFT' { $mods += 0x10 }
-        }
+    if ($null -ne $cachedVk) {
+        $virtualKeyCode = $cachedVk
+        $isMouse        = $cachedIsMouse
+        $mods           = $cachedMods
+        $isAlt          = $cachedIsAlt
+        $isCtrl         = $cachedIsCtrl
     }
-    
-    if (-not $isMouse) { if ($isAlt) { $isAlt = $false }; if ($isCtrl) { $isCtrl = $false } }
+    else {
+        $parsedKey = ParseKeyString -KeyCombinationString $keyString
+        if (-not $parsedKey -or -not $parsedKey.Primary) { return $null }
+        $keyMappings    = GetVirtualKeyMappings
+        $virtualKeyCode = $keyMappings[$parsedKey.Primary]
+        if (-not $virtualKeyCode) { return $null }
+        $isMouse = ($virtualKeyCode -ge 0x01 -and $virtualKeyCode -le 0x06)
+        $mods = @(); $isAlt = $false; $isCtrl = $false
+        foreach ($modName in $parsedKey.Modifiers) {
+            switch ($modName.ToUpper()) {
+                'CTRL'  { $mods += 0x11; $isCtrl = $true }
+                'ALT'   { $mods += 0x12; $isAlt  = $true }
+                'SHIFT' { $mods += 0x10 }
+            }
+        }
+        if (-not $isMouse) { $isAlt = $false; $isCtrl = $false }
+    }
+
+    if (-not $script:_MacroKeyScriptStr) {
+        $script:_MacroKeyScriptStr = (Get-MacroKeyScriptBlock).ToString()
+    }
 
     $ps = [System.Management.Automation.PowerShell]::Create()
     try {
         $ps.RunspacePool = $formData.RunspacePool
-        $ps.AddScript((Get-MacroKeyScriptBlock).ToString()) | Out-Null
+        $ps.AddScript($script:_MacroKeyScriptStr) | Out-Null
         $ps.AddArgument($formData.SelectedWindow) | Out-Null
         $ps.AddArgument($virtualKeyCode) | Out-Null
         $ps.AddArgument($holdTime) | Out-Null
@@ -323,8 +339,10 @@ function CreateMacroPositionTimer {
                 $timerData.RealLeft = $newRealLeft
                 $timerData.RealTop = $newRealTop
 
-                $form.Left = [int]$newRealLeft
-                $form.Top = [int]$newRealTop
+                $targetIntLeft = [int]$newRealLeft
+                $targetIntTop = [int]$newRealTop
+                if ($form.Left -ne $targetIntLeft) { $form.Left = $targetIntLeft }
+                if ($form.Top -ne $targetIntTop) { $form.Top = $targetIntTop }
 
                 $formHandle = $form.Handle
                 $flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
@@ -471,6 +489,50 @@ function StartMacroSequence {
         return
     }
 
+    $keyMappings = GetVirtualKeyMappings
+    $stepDataList = @()
+    foreach ($step in $steps) {
+        $parsedKey = ParseKeyString -KeyCombinationString $step.Key
+        if ($parsedKey -and $parsedKey.Primary) {
+            $vk     = $keyMappings[$parsedKey.Primary]
+            $mouse  = ($vk -ge 0x01 -and $vk -le 0x06)
+            $mds    = @(); $alt = $false; $ctrl = $false
+            foreach ($modName in $parsedKey.Modifiers) {
+                switch ($modName.ToUpper()) {
+                    'CTRL'  { $mds += 0x11; $ctrl = $true }
+                    'ALT'   { $mds += 0x12; $alt  = $true }
+                    'SHIFT' { $mds += 0x10 }
+                }
+            }
+            if (-not $mouse) { $alt = $false; $ctrl = $false }
+            
+            $holdTime = 0
+            if ($step.HoldEnabled) {
+                if (-not [int]::TryParse($step.HoldInterval, [ref]$holdTime)) { $holdTime = 5 }
+            }
+
+            $reverseMods = @($mds | Sort-Object -Descending)
+            
+            $stepDataList += @{
+                Vk          = [int]$vk
+                IsMouse     = [bool]$mouse
+                Mods        = [int[]]$mds
+                ReverseMods = [int[]]$reverseMods
+                IsAlt       = [bool]$alt
+                IsCtrl      = [bool]$ctrl
+                HoldEnabled = [bool]$step.HoldEnabled
+                HoldTime    = [int]$holdTime
+                WaitEnabled = [bool]$step.WaitEnabled
+                Interval    = [int][Math]::Max(1, $step.Interval)
+            }
+        }
+    }
+
+    if ($stepDataList.Count -eq 0) {
+        Show-DarkMessageBox 'No valid key mappings could be resolved.' 'Macro Error' 'Ok' 'Warning'
+        return
+    }
+
     $formData.ActiveSteps = $steps
     $formData.CurrentStepIndex = 0
     
@@ -480,10 +542,10 @@ function StartMacroSequence {
     else {
         foreach ($job in $formData.ActiveJobs) {
             try {
-                if ($job.PowerShell.InvocationStateInfo.State -eq 'Running') {
+                if ($job.PowerShell -and $job.PowerShell.InvocationStateInfo.State -eq 'Running') {
                     $job.PowerShell.Stop()
                 }
-                $job.PowerShell.Dispose()
+                if ($job.PowerShell) { $job.PowerShell.Dispose() }
             }
             catch {}
         }
@@ -510,128 +572,93 @@ function StartMacroSequence {
     }
     $formData.Stopping = $false
 
-    $timer = New-Object System.Windows.Forms.Timer
-    $timer.Tag = $formData
-    
-    $tickAction = {
+    $isLoop = $formData.BtnLoopToggle.Checked
+
+    $seqTimer = New-Object System.Windows.Forms.Timer
+    $seqTimer.Interval = 10
+    $seqTimer.Tag = @{
+        StepDataList = $stepDataList
+        StepIndex    = 0
+        State        = 'Delay'
+        DelaySW      = [System.Diagnostics.Stopwatch]::StartNew()
+        CurrentJob   = $null
+        FormData     = $formData
+        IsLoop       = $isLoop
+    }
+
+    $seqTimer.Add_Tick({
         param($s, $e)
-        $fData = $s.Tag
-        
-        $s.Stop()
+        $td    = $s.Tag
+        $fData = $td.FormData
 
-        if (-not $fData.IsMacroRunning) { return }
+        if (-not $fData.IsMacroRunning -or $fData.Stopping) { $s.Stop(); return }
+        if (-not $fData.Form -or $fData.Form.IsDisposed) { $s.Stop(); $s.Dispose(); return }
 
-        if ($fData.Stopping) {
-            StopMacroSequence $fData -NaturalEnd
-            return
-        }
-
-        if (-not $fData.Form -or $fData.Form.IsDisposed) {
-            $s.Dispose()
-            return
-        }
-
-        if ($fData.ActiveJobs) {
-            $completed = @()
-            foreach ($job in $fData.ActiveJobs) {
-                if ($job.AsyncResult.IsCompleted) {
-                    $completed += $job
+        if ($fData.ActiveJobs -and $fData.ActiveJobs.Count -gt 0) {
+            for ($i = $fData.ActiveJobs.Count - 1; $i -ge 0; $i--) {
+                $j = $fData.ActiveJobs[$i]
+                if ($j -and $j.AsyncResult -and $j.AsyncResult.IsCompleted) {
+                    try {
+                        DisposeManagedRunspace @{ PowerShell = $j.PowerShell; AsyncResult = $j.AsyncResult }
+                    } catch {}
+                    $fData.ActiveJobs.RemoveAt($i)
                 }
             }
-            foreach ($job in $completed) {
-                try { $job.PowerShell.EndInvoke($job.AsyncResult); $job.PowerShell.Dispose() } catch {}
-                $fData.ActiveJobs.Remove($job)
-            }
         }
 
-        $idx = $fData.CurrentStepIndex
-        if ($idx -lt $fData.ActiveSteps.Count) {
-            $step = $fData.ActiveSteps[$idx]
-            
-            $holdTime = $null
-            if ($step.HoldEnabled) {
-                if (-not [int]::TryParse($step.HoldInterval, [ref]$holdTime)) { $holdTime = 5 }
-            }
+        $step = $td.StepDataList[$td.StepIndex]
 
-            $job = Invoke-MacroKeyAction -formData $fData -keyString $step.Key -holdTime $holdTime
-            
-            if ($job) {
-                $fData.ActiveJobs.Add($job) | Out-Null
-            }
+        if ($td.State -eq 'Delay') {
+            if ($td.DelaySW.ElapsedMilliseconds -ge $step['Interval']) {
+                $job = Invoke-MacroKeyAction `
+                    -formData      $fData `
+                    -holdTime      $step['HoldTime'] `
+                    -cachedVk      $step['Vk'] `
+                    -cachedIsMouse $step['IsMouse'] `
+                    -cachedMods    $step['Mods'] `
+                    -cachedIsAlt   $step['IsAlt'] `
+                    -cachedIsCtrl  $step['IsCtrl']
 
-            $nextIdx = ($idx + 1) % $fData.ActiveSteps.Count
-            $fData.CurrentStepIndex = $nextIdx
-            
-            $isSingleRun = -not $fData.BtnLoopToggle.Checked
-            $shouldStop = ($isSingleRun -and $nextIdx -eq 0)
+                if ($job) { $fData.ActiveJobs.Add($job) | Out-Null }
+                $td.CurrentJob = $job
 
-            if ($step.WaitEnabled -and $job) {
-                $pollTimer = New-Object System.Windows.Forms.Timer
-                $pollTimer.Interval = 2
-                $pollTimer.Tag = @{ 
-                    Job          = $job; 
-                    MainTimer    = $s; 
-                    NextInterval = $step.Interval; 
-                    ShouldStop   = $shouldStop;
-                    FormData     = $fData
-                }
-                
-                $pollTimer.Add_Tick({
-                        $pt = $this
-                        $d = $pt.Tag
-                    
-                        if (-not $d.FormData.IsMacroRunning) {
-                            $pt.Stop()
-                            $pt.Dispose()
+                if ($step['WaitEnabled']) {
+                    $td.State = 'Holding'
+                } else {
+                    $td.StepIndex++
+                    if ($td.StepIndex -ge $td.StepDataList.Count) {
+                        if ($td.IsLoop) { $td.StepIndex = 0 }
+                        else {
+                            $td.State = 'Done'
                             return
                         }
-
-                        if ($d.Job.AsyncResult.IsCompleted) {
-                            $pt.Stop()
-                        
-                            try {
-                                $d.Job.PowerShell.EndInvoke($d.Job.AsyncResult)
-                                $d.Job.PowerShell.Dispose()
-                            }
-                            catch {}
-                        
-                            $d.FormData.ActiveJobs.Remove($d.Job)
-
-                            if ($d.FormData.IsMacroRunning) {
-                                if ($d.ShouldStop) {
-                                    StopMacroSequence $d.FormData -NaturalEnd
-                                }
-                                else {
-                                    $d.MainTimer.Interval = $d.NextInterval
-                                    $d.MainTimer.Start()
-                                }
-                            }
-                            $pt.Dispose()
-                        }
-                    })
-                $pollTimer.Start()
-            }
-            else {
-                if ($fData.IsMacroRunning) {
-                    if ($shouldStop) {
-                        $fData.Stopping = $true
-                        $s.Interval = $step.Interval
-                        $s.Start()
-                        return
                     }
-                    $s.Interval = $step.Interval
-                    $s.Start()
+                    $td.State   = 'Delay'
+                    $td.DelaySW = [System.Diagnostics.Stopwatch]::StartNew()
                 }
             }
+        } elseif ($td.State -eq 'Holding') {
+            if (-not $td.CurrentJob -or $td.CurrentJob.AsyncResult.IsCompleted) {
+                $td.StepIndex++
+                if ($td.StepIndex -ge $td.StepDataList.Count) {
+                    if ($td.IsLoop) { $td.StepIndex = 0 }
+                    else { $s.Stop(); StopMacroSequence $fData -NaturalEnd; return }
+                }
+                $td.State   = 'Delay'
+                $td.DelaySW = [System.Diagnostics.Stopwatch]::StartNew()
+            }
+        } elseif ($td.State -eq 'Done') {
+            if (-not $td.CurrentJob -or $td.CurrentJob.AsyncResult.IsCompleted) {
+                $s.Stop()
+                StopMacroSequence $fData -NaturalEnd
+                return
+            }
         }
-    }
-    
-    $timer.Add_Tick($tickAction)
+    })
 
-    $formData.RunningTimer = $timer
-    $global:DashboardConfig.Resources.Timers["MacroTimer_$($formData.InstanceId)"] = $timer
-
-    & $tickAction $timer $null
+    $seqTimer.Start()
+    $formData.RunningTimer = $seqTimer
+    $global:DashboardConfig.Resources.Timers["MacroTimer_$($formData.InstanceId)"] = $seqTimer
 }
 
 function StopMacroSequence {
@@ -653,17 +680,19 @@ function StopMacroSequence {
         $global:DashboardConfig.Resources.Timers.Remove("MacroTimer_$($formData.InstanceId)")
     }
 
-    if (-not $NaturalEnd) {
-        if ($formData.ActiveJobs) {
-            foreach ($job in $formData.ActiveJobs) {
-                try {
-                    if ($job.PowerShell) { $job.PowerShell.Stop(); $job.PowerShell.Dispose() }
+    if ($formData.ActiveJobs) {
+        foreach ($job in $formData.ActiveJobs) {
+            try {
+                if (-not $NaturalEnd -and $job.PowerShell -and $job.PowerShell.InvocationStateInfo.State -eq 'Running') {
+                    $job.PowerShell.Stop()
                 }
-                catch {}
+                DisposeManagedRunspace @{ PowerShell = $job.PowerShell; AsyncResult = $job.AsyncResult }
             }
-            $formData.ActiveJobs.Clear()
+            catch {}
         }
+        $formData.ActiveJobs.Clear()
     }
+
     $formData.BtnStart.Enabled = $true
     $formData.BtnStart.Visible = $true
     $formData.BtnStop.Enabled = $false
@@ -999,6 +1028,183 @@ function UpdateMacroSettings {
     }
 }
 
+function Import-MgpMacro {
+    param(
+        $formData,
+        [string]$filePath
+    )
+
+    if (-not (Test-Path $filePath)) { return }
+
+    $lines = Get-Content $filePath -ErrorAction SilentlyContinue
+    if (-not $lines) { return }
+
+    $sections = [ordered]@{}
+    $currentSection = $null
+
+    foreach ($line in $lines) {
+        $trimmed = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith(';')) { continue }
+
+        if ($trimmed -match '^\[(.*)\]$') {
+            $currentSection = $matches[1].Trim()
+            $sections[$currentSection] = [System.Collections.ArrayList]::new()
+        }
+        elseif ($null -ne $currentSection) {
+            $sections[$currentSection].Add($trimmed) | Out-Null
+        }
+    }
+
+    if ($sections.Count -eq 0) { return }
+
+    $sectionKeys = @($sections.Keys)
+    for ($secIdx = 0; $secIdx -lt $sectionKeys.Count; $secIdx++) {
+        $secName = $sectionKeys[$secIdx]
+        $secLines = $sections[$secName]
+
+        $targetData = $null
+        if ($secIdx -eq 0) {
+            $targetData = $formData
+        }
+        else {
+            $row = $formData.Row
+            if ($row -and $row.Tag) {
+                $rowIdentity = Get-RowIdentity -Row $row
+                $safeIdentity = $rowIdentity -replace '[^a-zA-Z0-9_\-]', '_'
+                $baseInstanceId = "Macro_$safeIdentity"
+
+                $nextIndex = 1
+                while ($global:DashboardConfig.Resources.FtoolForms.Contains("${baseInstanceId}_${nextIndex}") -and -not $global:DashboardConfig.Resources.FtoolForms["${baseInstanceId}_${nextIndex}"].IsDisposed) {
+                    $nextIndex++
+                }
+                $newInstanceId = "${baseInstanceId}_${nextIndex}"
+                $newForm = CreateMacroForm -instanceId $newInstanceId -targetWindowRect $null -windowTitle $formData.WindowTitle -row $row
+                if ($newForm) {
+                    $newForm.Left = $formData.Form.Right + 10 + (($secIdx - 1) * 20)
+                    $newForm.Top = $formData.Form.Top
+                    $global:DashboardConfig.Resources.FtoolForms[$newInstanceId] = $newForm
+                    $newForm.Show()
+                    $newForm.BringToFront()
+                    $targetData = $newForm.Tag
+                }
+            }
+        }
+
+        if (-not $targetData) { continue }
+
+        if ($targetData.RunningTimer) { StopMacroSequence $targetData }
+
+        $bindedKey = $null
+        $repeatVal = $false
+        $parsedSteps = [System.Collections.ArrayList]::new()
+
+        $currentStep = $null
+        $expectingInterval = $false
+
+        foreach ($l in $secLines) {
+            if ($l -match '(?i)^bindedkey=\s*\{?([^}]+)\}?') {
+                $bindedKey = $matches[1].Trim()
+            }
+            elseif ($l -match '(?i)^loop=\s*(1|true)') {
+                $repeatVal = $true
+            }
+            elseif ($l -match '(?i)^repeat=\s*(\d+)') {
+                $repeatVal = ([int]$matches[1] -gt 1)
+            }
+            elseif ($l -match '(?i)^e=\s*\{([^}]+)\s+down\}') {
+                $kName = $matches[1].Trim()
+                $currentStep = [PSCustomObject]@{
+                    Key          = $kName
+                    HoldEnabled  = $true
+                    HoldInterval = '50'
+                    Interval     = '1000'
+                    WaitEnabled  = $true
+                    Name         = "Step $($parsedSteps.Count + 1)"
+                }
+                $expectingInterval = $false
+            }
+            elseif ($l -match '(?i)^e=\s*\{([^}]+)\s+up\}') {
+                $expectingInterval = $true
+            }
+            elseif ($l -match '(?i)^e=\s*(\d+)\s+D') {
+                $ms = $matches[1]
+                if ($null -ne $currentStep) {
+                    if ($expectingInterval) {
+                        $currentStep.Interval = $ms
+                        $parsedSteps.Add($currentStep) | Out-Null
+                        $currentStep = $null
+                        $expectingInterval = $false
+                    }
+                    else {
+                        $currentStep.HoldInterval = $ms
+                        if ([int]$ms -gt 0) {
+                            $currentStep.HoldEnabled = $true
+                        }
+                    }
+                }
+            }
+            elseif ($l -match '(?i)^e=wait\s*(1|true)') {
+                if ($null -ne $currentStep) { $currentStep.WaitEnabled = $true }
+            }
+            elseif ($l -match '(?i)^e=hold\s*(1|true)') {
+                if ($null -ne $currentStep) { $currentStep.HoldEnabled = $true }
+            }
+        }
+
+        if ($null -ne $currentStep) {
+            $parsedSteps.Add($currentStep) | Out-Null
+        }
+
+        $targetData.Name.Text = $secName
+        if ($bindedKey) {
+            $targetData.BtnHotKey.Text = $bindedKey
+            $targetData.Hotkey = $bindedKey
+            try {
+                $scriptBlock = [scriptblock]::Create("ToggleMacroInstance -InstanceId '$($targetData.InstanceId)'")
+                $ownerKey = "macroinst_$($targetData.InstanceId)"
+                $ownerLabel = if ($targetData.Name.Text) { $targetData.Name.Text } else { "Macro: $($targetData.InstanceId)" }
+                $targetData.HotkeyId = SetHotkey -KeyCombinationString $bindedKey -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel -OldHotkeyId $targetData.HotkeyId
+            } catch {}
+        }
+
+        $targetData.BtnLoopToggle.Checked = $repeatVal
+
+        while ($targetData.SequencePanels.Count -gt 0) {
+            $p = $targetData.SequencePanels[0]
+            $targetData.Form.Controls.Remove($p)
+            $targetData.SequencePanels.RemoveAt(0)
+            $p.Dispose()
+        }
+
+        if ($parsedSteps.Count -gt 0) {
+            $first = $parsedSteps[0]
+            $targetData.BtnKeySelect.Text = $first.Key
+            $targetData.Interval.Text = $first.Interval
+            $targetData.BtnHoldKeyToggle.Checked = $first.HoldEnabled
+            $targetData.TxtHoldKeyInterval.Text = $first.HoldInterval
+            $targetData.BtnWaitToggle.Checked = $first.WaitEnabled
+
+            for ($s = 1; $s -lt $parsedSteps.Count; $s++) {
+                $st = $parsedSteps[$s]
+                $seqData = CreateSequencePanel $targetData.Form
+                $seqData.BtnKeySelect.Text = $st.Key
+                $seqData.Interval.Text = $st.Interval
+                $seqData.Name.Text = $st.Name
+                $seqData.BtnHoldKeyToggle.Checked = $st.HoldEnabled
+                $seqData.TxtHoldKeyInterval.Text = $st.HoldInterval
+                $seqData.BtnWaitToggle.Checked = $st.WaitEnabled
+            }
+        }
+        else {
+            $targetData.BtnHoldKeyToggle.Checked = $false
+            $targetData.BtnWaitToggle.Checked = $false
+        }
+
+        RepositionSequences $targetData.Form
+        UpdateMacroSettings $targetData -forceWrite
+    }
+}
+
 #endregion
 
 #region Core Functions
@@ -1154,25 +1360,28 @@ function CreateMacroForm {
         $macroForm.Controls.Add($headerPanel)
 
         $labelText = if ($row.Cells[1].Value) { $row.Cells[1].Value.ToString() } else { "" }
-        $labelWinTitle = SetUIElement -type 'Label' -visible $true -width 105 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $labelText -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
+        $labelWinTitle = SetUIElement -type 'Label' -visible $true -width 90 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $labelText -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
         $headerPanel.Controls.Add($labelWinTitle)
 
-        $btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 15 -top 2 -left 105 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
+        $btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 15 -top 2 -left 90 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
         $headerPanel.Controls.Add($btnInstanceHotkeyToggle)
 
-        $btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 15 -top 3 -left 120 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific macro instance."
+        $btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 15 -top 3 -left 105 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific macro instance."
         $headerPanel.Controls.Add($btnHotkeyToggle)
 
-        $btnAddInstance = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 150 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2398) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Instance`nCreates another macro window for this specific client."
+        $btnImport = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 138 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2193) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Import MGP`nSelect a .mgp file to import macro sequences."
+        $headerPanel.Controls.Add($btnImport)
+
+        $btnAddInstance = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 153 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2398) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Instance`nCreates another macro window for this specific client."
         $headerPanel.Controls.Add($btnAddInstance)
         
-        $btnAdd = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 165 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Sequence`nAdds a new key sequence step to the macro list."
+        $btnAdd = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 168 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Sequence`nAdds a new key sequence step to the macro list."
         $headerPanel.Controls.Add($btnAdd)
     
-        $btnShowHide = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 180 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Minimize/Expand`nCollapse or expand the macro window to save screen space."
+        $btnShowHide = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 183 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Minimize/Expand`nCollapse or expand the macro window to save screen space."
         $headerPanel.Controls.Add($btnShowHide)
         
-        $btnReset = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 195 -bg @(100, 100, 100) -fg @(255, 255, 255) -text ([char]0x21BB) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Reset`nReset all settings for this instance to default."
+        $btnReset = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 198 -bg @(100, 100, 100) -fg @(255, 255, 255) -text ([char]0x21BB) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Reset`nReset all settings for this instance to default."
         $headerPanel.Controls.Add($btnReset)
 
         $btnClose = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 215 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Close`nStops the macro and closes this window."
@@ -1204,19 +1413,13 @@ function CreateMacroForm {
 
         $btnStart = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 40 -left 3 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Start`nBegin executing the macro sequence."
         $panelSettings.Controls.Add($btnStart)
-    
-        $btnStart.Add_Click({
-                $form = $this.FindForm()
-                if (-not $form -or -not $form.Tag) { return }
-                StartMacroSequence $form.Tag
-            })
-    
+
         $btnStop = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 40 -left 3 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Stop`nStop the currently running macro sequence."
         $btnStop.Enabled = $false
         $btnStop.Visible = $false
         $panelSettings.Controls.Add($btnStop)
 
-        $btnLoopToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 45 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Loop`nToggle looping. If enabled, the macro repeats until stopped."
+        $btnLoopToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 45 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Loop`nToggle looping. If enabled, the macro repeats until stopped.`nLoops below 100ms can block the Mouse UI, stop with hotkey instead."
         $panelSettings.Controls.Add($btnLoopToggle)
 
         $btnWaitToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 80 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Wait Mode`nIf enabled, the macro waits for the key hold duration to finish before proceeding."
@@ -1285,6 +1488,7 @@ function CreateMacroForm {
         InstanceId              = $instanceId
         HeaderPanel             = $headerPanel
         LabelWinTitle           = $labelWinTitle
+		OriginalTitle 			= $labelText
         SelectedWindow          = $row.Tag.MainWindowHandle
         BtnKeySelect            = $btnKeySelect
         Interval                = $interval
@@ -1298,6 +1502,7 @@ function CreateMacroForm {
         BtnHotKey               = $btnHotKey
         BtnInstanceHotkeyToggle = $btnInstanceHotkeyToggle
         BtnHotkeyToggle         = $btnHotkeyToggle
+        BtnImport               = $btnImport
         BtnAdd                  = $btnAdd
         BtnAddInstance          = $btnAddInstance
         BtnClose                = $btnClose
@@ -1364,10 +1569,14 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.Instance
     if ($formData.IsCollapsed) {
         $macroForm.Height = 26
         $formData.BtnShowHide.Text = [char]0x25BC
+        
+        $namePrefix = if ([string]::IsNullOrWhiteSpace($name.Text)) { "" } else { "$($name.Text) - " }
+        $labelWinTitle.Text = "$namePrefix$labelText"
     }
     else {
         $macroForm.Height = $formData.OriginalHeight
         $formData.BtnShowHide.Text = [char]0x25B2
+        $labelWinTitle.Text = $labelText
     }
     
     return $macroForm
@@ -1684,22 +1893,31 @@ function AddMacroEventHandlers {
         })
 
     $formData.BtnShowHide.Add_Click({
-            $form = $this.FindForm()
-            if (-not $form -or -not $form.Tag) { return }
-            $data = $form.Tag
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag) { return }
+        $data = $form.Tag
 
-            if ($data.IsCollapsed) {
-                $form.Height = $data.OriginalHeight
-                $data.IsCollapsed = $false
-                $this.Text = [char]0x25B2
+        if ($data.IsCollapsed) {
+            $form.Height = $data.OriginalHeight
+            $data.IsCollapsed = $false
+            $this.Text = [char]0x25B2
+
+            if ($data.LabelWinTitle) {
+                $data.LabelWinTitle.Text = $data.OriginalTitle
             }
-            else {
-                $data.OriginalHeight = $form.Height
-                $form.Height = 26
-                $data.IsCollapsed = $true
-                $this.Text = [char]0x25BC
+        }
+        else {
+            $data.OriginalHeight = $form.Height
+            $form.Height = 26
+            $data.IsCollapsed = $true
+            $this.Text = [char]0x25BC
+
+            if ($data.LabelWinTitle -and $data.Name) {
+                $namePrefix = if ([string]::IsNullOrWhiteSpace($data.Name.Text)) { "" } else { "$($data.Name.Text) - " }
+                $data.LabelWinTitle.Text = "$namePrefix$($data.OriginalTitle)"
             }
-        })
+        }
+    })
 
     $formData.BtnClose.Add_Click({
             $form = $this.FindForm()
@@ -1966,6 +2184,19 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
             $data = $form.Tag
             if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging) {
                 UpdateMacroSettings $data -forceWrite
+            }
+        })
+
+	$formData.BtnImport.Add_Click({
+            $form = $this.FindForm()
+            if (-not $form -or -not $form.Tag) { return }
+            $data = $form.Tag
+
+            $ofd = New-Object System.Windows.Forms.OpenFileDialog
+            $ofd.Filter = "MGP Files (*.mgp)|*.mgp|All Files (*.*)|*.*"
+            $ofd.Title = "Select MGP Macro File to Import"
+            if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                Import-MgpMacro -formData $data -filePath $ofd.FileName
             }
         })
 }

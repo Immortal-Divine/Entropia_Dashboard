@@ -75,14 +75,12 @@ namespace Custom
 			base.WndProc(ref m);
 		}
 	}
-    // --- FIXED DARK TREEVIEW ---
+
 	public class DarkTreeView : TreeView
 	{
-		// API to force Dark Scrollbars (Windows 10 1809+)
 		[DllImport("dwmapi.dll")]
 		private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
-		// API to set Explorer style (cleaner look)
 		[DllImport("uxtheme.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
 		private static extern int SetWindowTheme(IntPtr hwnd, string pszSubAppName, string pszSubIdList);
 
@@ -91,15 +89,14 @@ namespace Custom
 
 		public DarkTreeView()
 		{
-			this.DrawMode = TreeViewDrawMode.OwnerDrawText; // Essential for background color control
-			this.DoubleBuffered = true;                     // Prevents flickering
+			this.DrawMode = TreeViewDrawMode.OwnerDrawText;
+			this.DoubleBuffered = true;
 			this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
 			
-			// Default Dark Styles
 			this.BackColor = Color.FromArgb(22, 26, 38); 
 			this.ForeColor = Color.White;
 			this.BorderStyle = BorderStyle.None;
-			this.HideSelection = false; // Keep highlight when clicking buttons
+			this.HideSelection = false;
             this.FullRowSelect = true;
             this.ShowLines = false;
             this.ShowPlusMinus = true;
@@ -109,10 +106,8 @@ namespace Custom
 		{
 			base.OnHandleCreated(e);
 			
-			// 1. Apply Explorer Style (Adds fade animations and cleaner chevrons)
 			SetWindowTheme(this.Handle, "Explorer", null);
 
-			// 2. Apply Native Dark Mode to Scrollbars
 			int darkMode = 1;
 			if (DwmSetWindowAttribute(this.Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, 4) != 0)
             {
@@ -120,20 +115,15 @@ namespace Custom
             }
 		}
 
-        // Fix for black text glitch on selection loss
         protected override void OnDrawNode(DrawTreeNodeEventArgs e)
         {
-            // If the script defines a DrawNode event, this allows it to run.
-            // If not, we provide a safe default draw to prevent "invisible text".
             if (e.Node == null) return;
 
             Font font = e.Node.NodeFont ?? e.Node.TreeView.Font;
             Color fore = e.Node.TreeView.ForeColor;
 
-            // Handle Selection Highlight
             if ((e.State & TreeNodeStates.Selected) != 0)
             {
-                // Dark Blue/Gray Highlight
                 using (SolidBrush brush = new SolidBrush(Color.FromArgb(45, 50, 65)))
                 {
                     e.Graphics.FillRectangle(brush, e.Bounds);
@@ -148,11 +138,9 @@ namespace Custom
                 }
             }
 
-            // Draw Text
             TextRenderer.DrawText(e.Graphics, e.Node.Text, font, e.Bounds, fore, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
         }
 	}
-    // ---------------------------
 
 	public class DarkMessageBox : Form
 	{
@@ -185,7 +173,6 @@ namespace Custom
 
 			this._isSuccess = isSuccess;
 			
-			// Form Setup
 			this.Text = caption;
 			this.BackColor = _backColor;
 			this.ForeColor = _textColor;
@@ -201,7 +188,6 @@ namespace Custom
 			this.AutoSizeMode = AutoSizeMode.GrowAndShrink;
 			this.MinimumSize = new Size(350, 150);
 
-			// Layout Container
 			TableLayoutPanel mainLayout = new TableLayoutPanel
 			{
 				Dock = DockStyle.Fill,
@@ -215,18 +201,16 @@ namespace Custom
 			mainLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 			this.Controls.Add(mainLayout);
 
-			// Icon Handling (Modern Drawn Icons)
 			if (icon != MessageBoxIcon.None || _isSuccess)
 			{
 				PictureBox iconBox = new PictureBox {
 					Size = new Size(32, 32),
 					Margin = new Padding(0, 0, 20, 0),
-					Image = GetModernIcon(icon, _isSuccess) // Pass the flag here
+					Image = GetModernIcon(icon, _isSuccess)
 				};
 				mainLayout.Controls.Add(iconBox, 0, 0);
 			}
 
-			// Message Label
 			Label messageLabel = new Label
 			{
 				Text = text,
@@ -239,7 +223,6 @@ namespace Custom
 			};
 			mainLayout.Controls.Add(messageLabel, 1, 0);
 
-			// Button Panel
 			FlowLayoutPanel buttonPanel = new FlowLayoutPanel
 			{
 				FlowDirection = FlowDirection.RightToLeft,
@@ -428,7 +411,6 @@ namespace Custom
             this.TopMost = true;
 			this.Font = new Font("Segoe UI", 9.5f);
 
-			// Layout Container
 			TableLayoutPanel mainLayout = new TableLayoutPanel
 			{
 				Dock = DockStyle.Fill,
@@ -436,9 +418,9 @@ namespace Custom
 				RowCount = 3,
 				Padding = new Padding(20)
 			};
-			mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // Label
-			mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // TextBox
-			mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f)); // Buttons
+			mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+			mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+			mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 			this.Controls.Add(mainLayout);
 
             Label lbl = new Label();
@@ -466,7 +448,6 @@ namespace Custom
 			};
             mainLayout.Controls.Add(_textBox, 0, 1);
 
-			// Button Panel
 			FlowLayoutPanel buttonPanel = new FlowLayoutPanel
 			{
 				FlowDirection = FlowDirection.RightToLeft,
@@ -565,13 +546,11 @@ namespace Custom
 					DateTime startTime = p.StartTime;
 					IntPtr hWnd = p.MainWindowHandle;
 
-					// Check if process is same as cached one
 					bool isSameProcess = false;
 					lock (_startTimeCache) {
 						if (_startTimeCache.ContainsKey(pid) && _startTimeCache[pid] == startTime) isSameProcess = true;
 					}
 
-					// 1. Resolve Handle
 					if (hWnd == IntPtr.Zero) {
 						if (isSameProcess) {
 							lock (_handleCache) {
@@ -581,7 +560,6 @@ namespace Custom
 						if (hWnd == IntPtr.Zero) hWnd = SafeWindowCore.FindBestWindow(pid);
 					}
 
-					// 2. Resolve Profile
 					string profile = "";
 					if (isSameProcess) {
 						lock (_profileCache) { if (_profileCache.ContainsKey(pid)) profile = _profileCache[pid]; }
@@ -601,7 +579,6 @@ namespace Custom
 						}
 					}
 
-					// 3. Resolve Title & Responsiveness
 					string title = p.ProcessName;
 					if (isSameProcess) {
 						lock (_titleCache) { if (_titleCache.ContainsKey(pid)) title = _titleCache[pid]; }
@@ -629,10 +606,9 @@ namespace Custom
 						IsMinimized = isMinimized
 					};
 
-					// Update temporary caches for next cycle
 					lock (locker) {
 						newHandleCache[pid] = hWnd;
-						newPathCache[pid] = profile; // We reuse profile cache as proxy for path check
+						newPathCache[pid] = profile;
 						newProfileCache[pid] = profile;
 						newTitleCache[pid] = title;
 						newStartTimeCache[pid] = startTime;
@@ -643,7 +619,6 @@ namespace Custom
 				finally { p.Dispose(); }
 			});
 
-			// Swap caches
 			_handleCache = newHandleCache;
 			_profileCache = newProfileCache;
 			_titleCache = newTitleCache;
@@ -691,6 +666,39 @@ namespace Custom
 
 	public static class Native
 	{
+		[DllImport("user32.dll", SetLastError = true)]
+		public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+		[DllImport("user32.dll", SetLastError = true)]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		public static extern bool IsIconic(IntPtr hWnd);
+
+		public static void SendClick(IntPtr hWnd, int x, int y)
+		{
+			Point pt = new Point(x, y);
+			ClientToScreen(hWnd, ref pt);
+			SetCursorPos(pt.X, pt.Y);
+			System.Threading.Thread.Sleep(10);
+
+			IntPtr lParam = (IntPtr)(((uint)(y & 0xFFFF) << 16) | (uint)(x & 0xFFFF));
+			IntPtr lParamScreen = (IntPtr)(((uint)(pt.Y & 0xFFFF) << 16) | (uint)(pt.X & 0xFFFF));
+
+			const uint WM_MOUSEMOVE     = 0x0200;
+			const uint WM_LBUTTONDOWN   = 0x0201;
+			const uint WM_LBUTTONUP     = 0x0202;
+			const uint WM_MOUSEACTIVATE = 0x0021;
+			const uint WM_SETFOCUS      = 0x0007;
+			const int  HTCLIENT         = 1;
+
+			SendMessage(hWnd, (int)WM_MOUSEACTIVATE, (int)hWnd, (int)(((uint)WM_LBUTTONDOWN << 16) | HTCLIENT));
+			SendMessage(hWnd, (int)WM_SETFOCUS, 0, 0);
+
+			SendMessage(hWnd, (int)WM_MOUSEMOVE, 0, (int)lParam);
+			SendMessage(hWnd, (int)WM_LBUTTONDOWN, 1, (int)lParam);
+			System.Threading.Thread.Sleep(15);
+			SendMessage(hWnd, (int)WM_LBUTTONUP, 0, (int)lParam);
+		}
+
 
 		[DllImport("dwmapi.dll")]
 		private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
@@ -779,8 +787,6 @@ namespace Custom
 			var pidCounts = new Dictionary<int, int>();
 			var pidIpMap = new Dictionary<int, Dictionary<string, int>>();
 			
-			// AF_INET = 2, AF_INET6 = 23
-			// TCP_TABLE_OWNER_PID_ALL = 5
 			int[] families = new int[] { 2, 23 };
 
 			foreach (int family in families)
@@ -795,17 +801,17 @@ namespace Custom
 					try
 					{
 						ret = GetExtendedTcpTable(tcpTablePtr, ref buffSize, false, family, 5, 0);
-						if (ret == 0) // Success
+						if (ret == 0)
 						{
 							int entryCount = Marshal.ReadInt32(tcpTablePtr);
 							IntPtr rowPtr = (IntPtr)((long)tcpTablePtr + 4);
 
-							if (family == 2) // IPv4
+							if (family == 2)
 							{
 								for (int i = 0; i < entryCount; i++)
 								{
 									int state = Marshal.ReadInt32(rowPtr, 0);
-									if (state == 5) // Established
+									if (state == 5)
 									{
 										int pid = Marshal.ReadInt32(rowPtr, 20);
 										uint remoteAddr = (uint)Marshal.ReadInt32(rowPtr, 12);
@@ -818,12 +824,12 @@ namespace Custom
 									rowPtr = (IntPtr)((long)rowPtr + 24);
 								}
 							}
-							else // IPv6
+							else
 							{
 								for (int i = 0; i < entryCount; i++)
 								{
 									int state = Marshal.ReadInt32(rowPtr, 48);
-									if (state == 5) // Established
+									if (state == 5)
 									{
 										int pid = Marshal.ReadInt32(rowPtr, 52);
 										byte[] remoteIpBytes = new byte[16];
@@ -839,7 +845,7 @@ namespace Custom
 							}
 							break;
 						}
-						else if (ret == 122) // ERROR_INSUFFICIENT_BUFFER
+						else if (ret == 122)
 						{
 							continue;
 						}
@@ -853,7 +859,6 @@ namespace Custom
 				}
 			}
 
-			// Final aggregation: Only count connections to IPs that have at least 2 connections
 			foreach (var pidEntry in pidIpMap)
 			{
 				int totalValidConnections = 0;
@@ -1067,7 +1072,6 @@ namespace Custom
 		public const uint GW_HWNDNEXT = 2;
 		public const uint GW_HWNDPREV = 3;
 
-		
 		public const int SW_HIDE = 0;
 		public const int SW_SHOW = 5;
 		public const int SW_MAXIMIZE = 3;
@@ -1108,7 +1112,6 @@ namespace Custom
 		[return: MarshalAs(UnmanagedType.Bool)]
 		public static extern bool CloseHandle(IntPtr hObject);
 
-		
 		public const uint PROCESS_QUERY_INFORMATION = 0x0400;
 		public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 		public const uint PROCESS_SET_QUOTA = 0x0100;
@@ -1118,27 +1121,22 @@ namespace Custom
 			IntPtr hProcess = IntPtr.Zero;
 			try
 			{
-				
 				hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,false, processId);
 				if (hProcess == IntPtr.Zero)
 				{
-					
 					hProcess = OpenProcess(PROCESS_QUERY_INFORMATION,false, processId);
 				}
 
 				if (hProcess == IntPtr.Zero)
 				{
-					
 					return null;
 				}
 
 				uint capacity = 260; 
 				StringBuilder sb = new StringBuilder((int)capacity);
 				
-				
 				if (!QueryFullProcessImageName(hProcess,0, sb, ref capacity))
 				{
-					
 					if (Marshal.GetLastWin32Error() == 122) 
 					{
 						sb.Capacity = (int)capacity; 
@@ -1156,12 +1154,10 @@ namespace Custom
 			}
 			catch
 			{
-				
 				return null;
 			}
 			finally
 			{
-				
 				if (hProcess != IntPtr.Zero)
 				{
 					CloseHandle(hProcess);
@@ -1175,7 +1171,6 @@ namespace Custom
 		public const byte VK_MENU = 0x12; 
 		public const uint KEYEVENTF_EXTENDEDKEY = 0x0001; 
 		public const uint KEYEVENTF_KEYUP = 0x0002; 
-		
 		
 		public const uint RDW_INVALIDATE = 0x0001;
 		public const uint RDW_ALLCHILDREN = 0x0080;
@@ -1193,13 +1188,11 @@ namespace Custom
 
 	public static class TaskbarTool
 	{
-		
 		[ComImport]
 		[Guid("56FDF344-FD6D-11d0-958D-006097C9A090")]
 		[ClassInterface(ClassInterfaceType.None)]
 		private class TaskbarList { }
 
-		
 		[ComImport]
 		[Guid("602D4995-B13A-429b-A66E-1935E44F4317")]
 		[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -1520,7 +1513,6 @@ namespace Custom
 				{
 					Rectangle clip = new Rectangle(rect.X,rect.Y, (int)Math.Round(((float)this.Value / this.Maximum) * rect.Width), rect.Height);
 				
-				
 					using (SolidBrush b = new SolidBrush(Color.FromArgb(0, 120, 215)))
 					{
 						g.FillRectangle(b,clip);
@@ -1533,9 +1525,7 @@ namespace Custom
 					SizeF len = g.MeasureString(text,f);
 					Point location = new Point((int)((rect.Width / 2) - (len.Width / 2)), (int)((rect.Height / 2) - (len.Height / 2)));
 				
-				
 					g.DrawString(text,f, Brushes.Black, location.X + 1, location.Y + 1);
-				
 					g.DrawString(text,f, Brushes.White, location);
 				}
 			}
@@ -1855,7 +1845,6 @@ namespace Custom
 
 					if (vkCode != 0)
 					{
-						
 						uint modifiers = 0;
 						if ((GetAsyncKeyState(0x12) & 0x8000) != 0) modifiers |= MOD_ALT;
 						if ((GetAsyncKeyState(0x11) & 0x8000) != 0) modifiers |= MOD_CONTROL;
@@ -2033,7 +2022,6 @@ namespace Custom
 			{
 				if (m.Msg == WM_HOTKEY)
 				{
-
 					if (_isProcessingHotkey) {
 						return;
 					}
@@ -2156,118 +2144,118 @@ namespace Custom
 
 	public class ColorWriter
 	{
-					public static void WriteColored(string message, string color)
-					{
-						ConsoleColor originalColor = Console.ForegroundColor;
-						switch(color.ToLower()) {
-							case "darkgray": Console.ForegroundColor = ConsoleColor.DarkGray; break;
-							case "yellow": Console.ForegroundColor = ConsoleColor.Yellow; break;
-							case "red": Console.ForegroundColor = ConsoleColor.Red; break;
-							case "cyan": Console.ForegroundColor = ConsoleColor.Cyan; break;
-							case "green": Console.ForegroundColor = ConsoleColor.Green; break;
-							default: Console.ForegroundColor = ConsoleColor.DarkGray; break;
-						}
-						Console.WriteLine(message);
-						Console.ForegroundColor = originalColor;
-					}
+		public static void WriteColored(string message, string color)
+		{
+			ConsoleColor originalColor = Console.ForegroundColor;
+			switch(color.ToLower()) {
+				case "darkgray": Console.ForegroundColor = ConsoleColor.DarkGray; break;
+				case "yellow": Console.ForegroundColor = ConsoleColor.Yellow; break;
+				case "red": Console.ForegroundColor = ConsoleColor.Red; break;
+				case "cyan": Console.ForegroundColor = ConsoleColor.Cyan; break;
+				case "green": Console.ForegroundColor = ConsoleColor.Green; break;
+				default: Console.ForegroundColor = ConsoleColor.DarkGray; break;
+			}
+			Console.WriteLine(message);
+			Console.ForegroundColor = originalColor;
+		}
 	}
 
 	public class SafeWindowCore 
 	{
-			[DllImport("user32.dll", SetLastError = true)]
-			public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, StringBuilder lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+		[DllImport("user32.dll", SetLastError = true)]
+		public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, StringBuilder lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
 
-			[DllImport("user32.dll")]
-			[return: MarshalAs(UnmanagedType.Bool)]
-			private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+		[DllImport("user32.dll")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
-			[DllImport("user32.dll", SetLastError = true)]
-			private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+		[DllImport("user32.dll", SetLastError = true)]
+		private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
-			[DllImport("user32.dll")]
-			[return: MarshalAs(UnmanagedType.Bool)]
-			private static extern bool IsWindowVisible(IntPtr hWnd);
+		[DllImport("user32.dll")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		private static extern bool IsWindowVisible(IntPtr hWnd);
 
-			[DllImport("user32.dll", EntryPoint = "GetWindowLong")]
-			private static extern IntPtr GetWindowLongPtr32(IntPtr hWnd, int nIndex);
+		[DllImport("user32.dll", EntryPoint = "GetWindowLong")]
+		private static extern IntPtr GetWindowLongPtr32(IntPtr hWnd, int nIndex);
 
-			[DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
-			private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+		[DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
+		private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
 
-			[DllImport("user32.dll", SetLastError = true)]
-			private static extern bool GetWindowInfo(IntPtr hWnd, ref WINDOWINFO pwi);
+		[DllImport("user32.dll", SetLastError = true)]
+		private static extern bool GetWindowInfo(IntPtr hWnd, ref WINDOWINFO pwi);
 
-			[DllImport("user32.dll")]
-			private static extern IntPtr GetForegroundWindow();
+		[DllImport("user32.dll")]
+		private static extern IntPtr GetForegroundWindow();
 
-			private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+		private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
-			[StructLayout(LayoutKind.Sequential)]
-			public struct WINDOWINFO 
-			{
-				public uint cbSize;
-				public RECT rcWindow;
-				public RECT rcClient;
-				public uint dwStyle;
-				public uint dwExStyle;
-				public uint dwWindowStatus;
-				public uint cxWindowBorders;
-				public uint cyWindowBorders;
-				public ushort atomWindowType;
-				public ushort wCreatorVersion;
-			}
-			[StructLayout(LayoutKind.Sequential)]
-			public struct RECT {
-				public int Left, Top, Right, Bottom;
-			}
+		[StructLayout(LayoutKind.Sequential)]
+		public struct WINDOWINFO 
+		{
+			public uint cbSize;
+			public RECT rcWindow;
+			public RECT rcClient;
+			public uint dwStyle;
+			public uint dwExStyle;
+			public uint dwWindowStatus;
+			public uint cxWindowBorders;
+			public uint cyWindowBorders;
+			public ushort atomWindowType;
+			public ushort wCreatorVersion;
+		}
+		[StructLayout(LayoutKind.Sequential)]
+		public struct RECT {
+			public int Left, Top, Right, Bottom;
+		}
 
-			public static string GetText(IntPtr hWnd) {
-				if (hWnd == IntPtr.Zero) return null;
-				const uint WM_GETTEXT = 0x000D;
-				const uint SMTO_ABORTIFHUNG = 0x0002;
-				UIntPtr result;
-				StringBuilder sb = new StringBuilder(512);
-				IntPtr ret = SendMessageTimeout(hWnd, WM_GETTEXT, (UIntPtr)512, sb, SMTO_ABORTIFHUNG, 50, out result);
-				if (ret == IntPtr.Zero) return null;
-				return sb.ToString();
-			}
+		public static string GetText(IntPtr hWnd) {
+			if (hWnd == IntPtr.Zero) return null;
+			const uint WM_GETTEXT = 0x000D;
+			const uint SMTO_ABORTIFHUNG = 0x0002;
+			UIntPtr result;
+			StringBuilder sb = new StringBuilder(512);
+			IntPtr ret = SendMessageTimeout(hWnd, WM_GETTEXT, (UIntPtr)512, sb, SMTO_ABORTIFHUNG, 50, out result);
+			if (ret == IntPtr.Zero) return null;
+			return sb.ToString();
+		}
 
-			public static IntPtr FindBestWindow(int pid) {
-				IntPtr bestHandle = IntPtr.Zero;
-				EnumWindows(delegate(IntPtr hWnd, IntPtr lParam) {
-					uint windowPid;
-					GetWindowThreadProcessId(hWnd, out windowPid);
-					if (windowPid == pid) {
-						if (IsWindowVisible(hWnd)) {
-							bestHandle = hWnd;
-							return false;
-						}
+		public static IntPtr FindBestWindow(int pid) {
+			IntPtr bestHandle = IntPtr.Zero;
+			EnumWindows(delegate(IntPtr hWnd, IntPtr lParam) {
+				uint windowPid;
+				GetWindowThreadProcessId(hWnd, out windowPid);
+				if (windowPid == pid) {
+					if (IsWindowVisible(hWnd)) {
+						bestHandle = hWnd;
+						return false;
 					}
-					return true;
-				}, IntPtr.Zero);
-				return bestHandle;
-			}
-
-			public static bool IsMinimized(IntPtr hWnd) {
-				const int GWL_STYLE = -16;
-				const long WS_MINIMIZE = 0x20000000;
-				IntPtr ptrVal;
-				if (IntPtr.Size == 8) ptrVal = GetWindowLongPtr64(hWnd, GWL_STYLE);
-				else ptrVal = GetWindowLongPtr32(hWnd, GWL_STYLE);
-				long style = ptrVal.ToInt64();
-				return (style & WS_MINIMIZE) == WS_MINIMIZE;
-			}
-
-			public static bool IsWindowFlashing(IntPtr hWnd) {
-				if (hWnd == IntPtr.Zero) return false;
-				if (GetForegroundWindow() == hWnd) return false;
-				WINDOWINFO pwi = new WINDOWINFO();
-				pwi.cbSize = (uint)Marshal.SizeOf(pwi);
-				if (GetWindowInfo(hWnd, ref pwi)) {
-					return (pwi.dwWindowStatus & 0x0001) != 0;
 				}
-				return false;
+				return true;
+			}, IntPtr.Zero);
+			return bestHandle;
+		}
+
+		public static bool IsMinimized(IntPtr hWnd) {
+			const int GWL_STYLE = -16;
+			const long WS_MINIMIZE = 0x20000000;
+			IntPtr ptrVal;
+			if (IntPtr.Size == 8) ptrVal = GetWindowLongPtr64(hWnd, GWL_STYLE);
+			else ptrVal = GetWindowLongPtr32(hWnd, GWL_STYLE);
+			long style = ptrVal.ToInt64();
+			return (style & WS_MINIMIZE) == WS_MINIMIZE;
+		}
+
+		public static bool IsWindowFlashing(IntPtr hWnd) {
+			if (hWnd == IntPtr.Zero) return false;
+			if (GetForegroundWindow() == hWnd) return false;
+			WINDOWINFO pwi = new WINDOWINFO();
+			pwi.cbSize = (uint)Marshal.SizeOf(pwi);
+			if (GetWindowInfo(hWnd, ref pwi)) {
+				return (pwi.dwWindowStatus & 0x0001) != 0;
 			}
+			return false;
+		}
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -2324,8 +2312,7 @@ namespace Custom
 
 			return (IntPtr)wParam;
 		}
-	}
-	
+	}	
 }
 "@ 
 #endregion
@@ -2337,7 +2324,6 @@ function InitializeClassesModule
 	param()
 	try
 	{
-		
 		if ('Custom.Native' -as [Type])
 		{
 			Write-Verbose 'System integration classes already initialized.'

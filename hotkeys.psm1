@@ -738,8 +738,10 @@ function UnregisterHotkeyInstance {
 	}
 }
 
+$script:_VkMapCache = $null
 function GetVirtualKeyMappings {
-	return @{
+	if ($script:_VkMapCache) { return $script:_VkMapCache }
+	$script:_VkMapCache = @{
 		'LEFT_MOUSE' = 0x01
 		'RIGHT_MOUSE' = 0x02
 		'CANCEL' = 0x03 
@@ -829,6 +831,7 @@ function GetVirtualKeyMappings {
 		'ATTN' = 0xF6; 'CRSEL' = 0xF7; 'EXSEL' = 0xF8; 'ERASE_EOF' = 0xF9; 'PLAY' = 0xFA; 'ZOOM' = 0xFB
 		'PA1' = 0xFD; 'OEM_CLEAR' = 0xFE
 	}
+	return $script:_VkMapCache
 }
 
 function NormalizeKeyString {

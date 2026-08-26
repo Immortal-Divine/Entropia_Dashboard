@@ -2,6 +2,178 @@
 
 $ProxyUrl = 'https://worldboss.entropia-dashboard.workers.dev/'
 
+$script:ChestDatabase = @(
+    @{
+        ID          = "pirate"
+        Name        = "Heroic Pirate Cave Treasure"
+        Description = "Select your Fragment"
+        Site1Button  = @{ X = -100; Y = 50;  Delay = 5 }
+        Site2Button = @{ X = 100;  Y = 50;  Delay = 5 }
+        AcceptButton = @{ X = 0;    Y = 150; Delay = 5 }
+        RewardSites = @(
+            @{
+                SiteName     = "Fragment"
+                DefaultIndex = 0
+                Options      = @(
+                    @{ Name = "Green"; X = -150; Y = -110; Delay = 5 }
+                    @{ Name = "Yellow"; X = -150; Y = -70;  Delay = 5 }
+                    @{ Name = "Red"; X = -150; Y = -30;  Delay = 5 }
+                    @{ Name = "Blue"; X = -150; Y = 10;   Delay = 5 }
+                )
+            },
+            @{
+                SiteName     = "Treasure"
+                DefaultIndex = 0
+                Options      = @(
+                    @{ Name = "Heroic Pirate Cave Treasure"; X = -75; Y = -110; Delay = 5 }
+                )
+            }
+        )
+    },
+    @{
+        ID          = "astral"
+        Name        = "Heroic Astral Forest Treasure"
+        Description = "Heroic Astral Forest Treasure"
+        Site1Button  = @{ X = -100; Y = 50;  Delay = 5 }
+        Site2Button = @{ X = 100;  Y = 50;  Delay = 5 }
+        AcceptButton = @{ X = 0;    Y = 150; Delay = 5 }
+        RewardSites = @(
+            @{
+                SiteName     = "Astral Stone"
+                DefaultIndex = 0
+                Options      = @(
+                    @{ Name = "Magic Stone"; X = -150; Y = -110; Delay = 5 }
+                )
+            },
+            @{
+                SiteName     = "Astral Treasure"
+                DefaultIndex = 0
+                Options      = @(
+                    @{ Name = "Heroic Astral Forest Treasure"; X = -75; Y = -110; Delay = 5 }
+                )
+            }
+        )
+    },
+	@{
+        ID          = "heaven"
+        Name        = "Heroic Heaven Treasure"
+        Description = "Heroic Heaven Treasure"
+        Site1Button  = @{ X = -100; Y = 50;  Delay = 5 }
+        Site2Button = @{ X = 100;  Y = 50;  Delay = 5 }
+        AcceptButton = @{ X = 0;    Y = 150; Delay = 5 }
+        RewardSites = @(
+            @{
+                SiteName     = "Infinity Point Treasure"
+                DefaultIndex = 0
+                Options      = @(
+                    @{ Name = "Infinity Treasure"; X = -150; Y = -110; Delay = 5 }
+                )
+            },
+            @{
+                SiteName     = "Treasure"
+                DefaultIndex = 0
+                Options      = @(
+                    @{ Name = "Heroic Heaven Treasure"; X = -75; Y = -110; Delay = 5 }
+                )
+            }
+        )
+    },
+	@{
+        ID          = "azmore"
+        Name        = "Heroic Azmore Treasure"
+        Description = "Heroic Azmore Treasure"
+        Site1Button  = @{ X = -100; Y = 50;  Delay = 5 }
+        Site2Button = @{ X = 100;  Y = 50;  Delay = 5 }
+        AcceptButton = @{ X = 0;    Y = 150; Delay = 5 }
+        RewardSites = @(
+            @{
+                SiteName     = "Treasure"
+                DefaultIndex = 0
+                Options      = @(
+                    @{ Name = "Heroic Azmore Treasure"; X = -150; Y = -110; Delay = 5 }
+                )
+            },
+            @{
+                SiteName     = "Flower"
+                DefaultIndex = 0
+                Options      = @(
+                    @{ Name = "Ice Flower"; X = -75; Y = -110; Delay = 5 }
+                )
+            }
+        )
+    },
+	@{
+        ID          = "cavern"
+        Name        = "Heroic Destruction Treasure"
+        Description = "Heroic Destruction Treasure"
+        Site1Button  = @{ X = -100; Y = 50;  Delay = 5 }
+        Site2Button = @{ X = 100;  Y = 50;  Delay = 5 }
+        AcceptButton = @{ X = 0;    Y = 150; Delay = 5 }
+        RewardSites = @(
+            @{
+                SiteName     = "Treasure"
+                DefaultIndex = 0
+                Options      = @(
+                    @{ Name = "Heroic Destruction Treasure"; X = -150; Y = -110; Delay = 5 }
+                )
+            },
+            @{
+                SiteName     = "Flower"
+                DefaultIndex = 0
+                Options      = @(
+                    @{ Name = "Fire Flower"; X = -75; Y = -110; Delay = 5 }
+                )
+            }
+        )
+    },
+    @{
+        ID          = "rps"
+        Name        = "Rock Paper Scissors"
+        Description = "Rock Paper Scissors Preset"
+        NoKey       = $true
+        RewardSites = @(
+            @{
+                SiteName     = "Start Round"
+                DefaultIndex = 0
+                Hidden       = $true
+                Options      = @(
+                    @{ Name = "Click 1"; X = 0; Y = 110; Delay = 2000 }
+                )
+            },
+            @{
+                SiteName     = "Loss"
+                DefaultIndex = 0
+                Hidden       = $true
+                Options      = @(
+                    @{ Name = "Click 2"; X = 0; Y = 40; Delay = 5 }
+                )
+            },
+            @{
+                SiteName     = "Win"
+                DefaultIndex = 0
+                Hidden       = $true
+                Options      = @(
+                    @{ Name = "Click 3"; X = 340; Y = 155; Delay = 5 }
+                )
+            },
+            @{
+                SiteName     = "Rotating Hand"
+                DefaultIndex = 1
+                Options      = @(
+                    @{ Name = "True"; X = -40; Y = 75; Delay = 5 },
+                    @{ Name = "False"; Ignore = $true }
+                )
+            }
+        )
+    }
+)
+
+$script:SyncState = [hashtable]::Synchronized(@{ IsRunning = $false })
+$script:WindowMap = @{}
+$script:RewardDropdowns = [System.Collections.Generic.List[psobject]]::new()
+$script:WorkerRunspace = $null
+$script:PowerShellInstance = $null
+
 if (-not $global:DashboardConfig.State.WorldBossListener)
 {
 	$global:DashboardConfig.State.WorldBossListener = @{
@@ -15,8 +187,500 @@ if (-not $global:DashboardConfig.State.WorldBossListener)
         BossStates    = @{}
 	}
 }
-function Stop-WorldBossListener
-{
+
+$OpenChestsWorker = {
+    param($HWnd, $QueueJobs, $SyncState, $FormRef, $LblStatusRef)
+
+    $totalJobs = $QueueJobs.Count
+    $jobIndex = 0
+
+    foreach ($job in $QueueJobs) {
+        if (-not $SyncState.IsRunning -or -not [Custom.Native]::IsWindow($HWnd)) { break }
+        $jobIndex++
+        $jobName = $job.PresetName
+        $loopCount = $job.LoopCount
+        $clickSequence = $job.ClickSequence
+        $itemKeyData = $job.ItemKeyData
+
+        for ($i = 1; $i -le $loopCount; $i++) {
+            if (-not $SyncState.IsRunning -or -not [Custom.Native]::IsWindow($HWnd)) { break }
+
+            if ([Custom.Native]::IsIconic($HWnd)) {
+                $FormRef.Invoke([System.Windows.Forms.MethodInvoker]{ 
+                    if ($LblStatusRef) { $LblStatusRef.Text = "Status: Target window is MINIMIZED! Paused." }
+                })
+                Stop-ChestOpener
+                break
+            }
+
+            if ($itemKeyData) {
+                if (-not $SyncState.IsRunning) { break }
+                $FormRef.Invoke([System.Windows.Forms.MethodInvoker]{
+                    if ($LblStatusRef) { $LblStatusRef.Text = "Status: Job $jobIndex/$totalJobs ($jobName) - Chest $i/$loopCount`nOpening Selection Window..." }
+                })
+
+                $vk = [int]$itemKeyData.VirtualKeyCode
+                $mods = $itemKeyData.Modifiers
+
+                if ($vk -ge 0x01 -and $vk -le 0x06) {
+                    $msgDown = 0; $msgUp = 0
+                    switch ($vk) {
+                        0x01 { $msgDown = 0x0201; $msgUp = 0x0202 }
+                        0x02 { $msgDown = 0x0204; $msgUp = 0x0205 }
+                        0x04 { $msgDown = 0x0207; $msgUp = 0x0208 }
+                        0x05 { $msgDown = 0x020B; $msgUp = 0x020C }
+                        0x06 { $msgDown = 0x020B; $msgUp = 0x020C }
+                    }
+                    if ($msgDown -ne 0) {
+                        [Custom.Ftool]::fnPostMessage($HWnd, $msgDown, 1, 0)
+                        Start-Sleep -Milliseconds 30
+                        [Custom.Ftool]::fnPostMessage($HWnd, $msgUp, 0, 0)
+                    }
+                } else {
+                    if ($mods) {
+                        if ($mods -contains 'Ctrl')  { [Custom.Ftool]::fnPostMessage($HWnd, 0x0100, 0x11, 1) }
+                        if ($mods -contains 'Alt')   { [Custom.Ftool]::fnPostMessage($HWnd, 0x0100, 0x12, 1) }
+                        if ($mods -contains 'Shift') { [Custom.Ftool]::fnPostMessage($HWnd, 0x0100, 0x10, 1) }
+                    }
+
+                    [Custom.Ftool]::fnPostMessage($HWnd, 0x0100, $vk, 1)
+                    Start-Sleep -Milliseconds 30
+                    [Custom.Ftool]::fnPostMessage($HWnd, 0x0101, $vk, [int]0xC0000000)
+
+                    if ($mods) {
+                        if ($mods -contains 'Shift') { [Custom.Ftool]::fnPostMessage($HWnd, 0x0101, 0x10, [int]0xC0000000) }
+                        if ($mods -contains 'Alt')   { [Custom.Ftool]::fnPostMessage($HWnd, 0x0101, 0x12, [int]0xC0000000) }
+                        if ($mods -contains 'Ctrl')  { [Custom.Ftool]::fnPostMessage($HWnd, 0x0101, 0x11, [int]0xC0000000) }
+                    }
+                }
+                Start-Sleep -Milliseconds 300
+            }
+
+            $rect = New-Object Custom.Native+RECT
+            if (-not [Custom.Native]::GetClientRect($HWnd, [ref]$rect)) { break }
+
+            $centerX = [math]::Floor(($rect.Right - $rect.Left) / 2)
+            $centerY = [math]::Floor(($rect.Bottom - $rect.Top) / 2)
+
+            foreach ($step in $clickSequence) {
+                if (-not $SyncState.IsRunning) { break }
+
+                $stepName = $step["Name"]
+                $FormRef.Invoke([System.Windows.Forms.MethodInvoker]{
+                    if ($LblStatusRef) { $LblStatusRef.Text = "Status: Job $jobIndex/$totalJobs ($jobName) - Chest $i/$loopCount`nExecuting: $stepName" }
+                })
+
+                $clickX = $centerX + [int]$step["X"]
+                $clickY = $centerY + [int]$step["Y"]
+                $delay  = [Math]::Max(10, [int]$step["Delay"])
+
+                $screenPt = New-Object System.Drawing.Point($clickX, $clickY)
+                [void][Custom.Native]::ClientToScreen($HWnd, [ref]$screenPt)
+                [void][Custom.Native]::SetCursorPos($screenPt.X, $screenPt.Y)
+                Start-Sleep -Milliseconds 5
+
+                [void][Custom.Native]::SendClick($HWnd, $clickX, $clickY)
+                Start-Sleep -Milliseconds $delay
+            }
+        }
+    }
+
+    $FormRef.Invoke([System.Windows.Forms.MethodInvoker]{
+        $SyncState.IsRunning = $false
+        if ($LblStatusRef) { $LblStatusRef.Text = "Status: IDLE (Chest Opening Loop Completed)" }
+    })
+}
+
+function Update-ChestQueueGrid {
+    $UI = $global:DashboardConfig.UI
+    if (-not $UI -or -not $UI.ChestQueueGrid) { return }
+
+    $grid = $UI.ChestQueueGrid
+    $grid.Rows.Clear()
+
+    if (-not $global:DashboardConfig.Resources.ChestQueue) { return }
+
+    $i = 1
+    foreach ($item in $global:DashboardConfig.Resources.ChestQueue) {
+        [void]$grid.Rows.Add(@($i, $item.PresetName, $item.ChestKey, $item.LoopCount))
+        $i++
+    }
+}
+
+function Add-ChestToQueue {
+    $UI = $global:DashboardConfig.UI
+    if (-not $UI -or -not $UI.ChestPresetSelector -or $UI.ChestPresetSelector.SelectedIndex -lt 0) { return }
+
+    $chestData = $script:ChestDatabase[$UI.ChestPresetSelector.SelectedIndex]
+    $clickSequence = [System.Collections.Generic.List[hashtable]]::new()
+    $chosenRewardNames = @()
+
+    for ($idx = 0; $idx -lt $script:RewardDropdowns.Count; $idx++) {
+        $item          = $script:RewardDropdowns[$idx]
+        $siteRef       = $item.SiteRef
+        $selectedIndex = $item.ComboBox.SelectedIndex
+        $chosenReward  = if ($selectedIndex -ge 0 -and $selectedIndex -lt $siteRef["Options"].Count) { $siteRef["Options"][$selectedIndex] } else { $null }
+
+        if ($chosenReward -and $chosenReward.Ignore) {
+            continue
+        }
+
+        $siteBtn = if ($siteRef.SiteButton) { $siteRef.SiteButton } else { $chestData["Site$($idx + 1)Button"] }
+        if ($siteBtn) {
+            $clickSequence.Add(@{ X = [int]$siteBtn.X; Y = [int]$siteBtn.Y; Delay = [int]$siteBtn.Delay; Name = "Site $($idx + 1) Tab" })
+        }
+        if ($chosenReward) {
+            $chosenRewardNames += $chosenReward.Name
+            $clickSequence.Add(@{ X = [int]$chosenReward.X; Y = [int]$chosenReward.Y; Delay = [int]$chosenReward.Delay; Name = "Site $($idx + 1) Reward ($($chosenReward.Name))" })
+        }
+    }
+
+    if ($chestData.AcceptButton) {
+        $acceptBtn = $chestData.AcceptButton
+        $clickSequence.Add(@{ X = [int]$acceptBtn.X; Y = [int]$acceptBtn.Y; Delay = [int]$acceptBtn.Delay; Name = "Accept Button" })
+    }
+
+    $loopCount = 1
+    if ($UI.ChestCountInput -and [int]::TryParse($UI.ChestCountInput.Text, [ref]$loopCount)) {
+        $loopCount = [Math]::Max(1, $loopCount)
+    }
+
+    $itemKeyStr = if ($UI.ChestItemHotkeyBtn -and $UI.ChestItemHotkeyBtn.Text -ne 'Hotkey' -and $UI.ChestItemHotkeyBtn.Text -ne 'none') { $UI.ChestItemHotkeyBtn.Text } else { '-' }
+    if ($chestData.NoKey -or $chestData.ID -eq 'rps') {
+        $itemKeyStr = '-'
+    }
+    
+    $itemKeyData = $null
+    if ($itemKeyStr -ne '-') {
+        $parsedItemKey = ParseKeyString -KeyCombinationString $itemKeyStr
+        if ($parsedItemKey -and $parsedItemKey.Primary) {
+            $vkMap = GetVirtualKeyMappings
+            $vkCode = $vkMap[$parsedItemKey.Primary]
+            if ($vkCode) {
+                $itemKeyData = @{
+                    VirtualKeyCode = $vkCode
+                    Modifiers      = $parsedItemKey.Modifiers
+                }
+            }
+        }
+    }
+
+    $queueItem = [PSCustomObject]@{
+        PresetID       = $chestData.ID
+        PresetName     = $chestData.Name
+        ChestKey       = $itemKeyStr
+        ItemKeyData    = $itemKeyData
+        LoopCount      = $loopCount
+        ClickSequence  = $clickSequence
+        RewardsSummary = ($chosenRewardNames -join ', ')
+    }
+
+    if (-not $global:DashboardConfig.Resources.ChestQueue) {
+        $global:DashboardConfig.Resources.ChestQueue = [System.Collections.ArrayList]::new()
+    }
+    [void]$global:DashboardConfig.Resources.ChestQueue.Add($queueItem)
+
+    Update-ChestQueueGrid
+    if ($UI.ChestStatusLabel) {
+        $UI.ChestStatusLabel.Text = "Status: Added '$($chestData.Name)' to queue."
+    }
+}
+
+function Remove-ChestFromQueue {
+    $UI = $global:DashboardConfig.UI
+    if (-not $UI -or -not $UI.ChestQueueGrid -or -not $global:DashboardConfig.Resources.ChestQueue) { return }
+
+    $grid = $UI.ChestQueueGrid
+    if ($grid.SelectedRows.Count -eq 0) { return }
+
+    $idx = $grid.SelectedRows[0].Index
+    if ($idx -ge 0 -and $idx -lt $global:DashboardConfig.Resources.ChestQueue.Count) {
+        $global:DashboardConfig.Resources.ChestQueue.RemoveAt($idx)
+        Update-ChestQueueGrid
+    }
+}
+
+function Reset-ChestQueue {
+    $UI = $global:DashboardConfig.UI
+    if ($global:DashboardConfig.Resources.ChestQueue) {
+        $global:DashboardConfig.Resources.ChestQueue.Clear()
+    }
+    Update-ChestQueueGrid
+    if ($UI -and $UI.ChestStatusLabel) {
+        $UI.ChestStatusLabel.Text = "Status: Queue cleared."
+    }
+}
+
+function Update-ChestOpenerWindowList {
+    $UI = $global:DashboardConfig.UI
+    if (-not $UI -or -not $UI.ChestWindowSelector) { return }
+
+    $UI.ChestWindowSelector.Items.Clear()
+    $script:WindowMap.Clear()
+
+    $processName = 'neuz'
+    if ($global:DashboardConfig.Config['ProcessName'] -and $global:DashboardConfig.Config['ProcessName']['ProcessName']) {
+        $processName = $global:DashboardConfig.Config['ProcessName']['ProcessName']
+    }
+
+    $processes = Get-Process -Name $processName -ErrorAction SilentlyContinue
+    foreach ($proc in $processes) {
+        if ($proc.MainWindowHandle -ne [IntPtr]::Zero) {
+            $title = if (-not [string]::IsNullOrWhiteSpace($proc.MainWindowTitle)) { $proc.MainWindowTitle } else { "$processName ($($proc.Id))" }
+            $displayText = "[$($proc.Id)] $title"
+            $script:WindowMap[$displayText] = $proc.MainWindowHandle
+            $UI.ChestWindowSelector.Items.Add($displayText) | Out-Null
+        }
+    }
+
+    if ($UI.ChestWindowSelector.Items.Count -gt 0) {
+        $UI.ChestWindowSelector.SelectedIndex = 0
+    }
+}
+
+function Update-ChestRewardControls {
+    $UI = $global:DashboardConfig.UI
+    if (-not $UI -or -not $UI.ChestRewardsPanel -or -not $UI.ChestPresetSelector) { return }
+
+    $pnl = $UI.ChestRewardsPanel
+    $pnl.Controls.Clear()
+    $script:RewardDropdowns.Clear()
+
+    if ($UI.ChestPresetSelector.SelectedIndex -lt 0) { return }
+    $chestData = $script:ChestDatabase[$UI.ChestPresetSelector.SelectedIndex]
+
+    if (-not $chestData.RewardSites) { return }
+
+    $topOffset = 5
+    foreach ($site in $chestData.RewardSites) {
+        $cmb = New-Object Custom.DarkComboBox
+        $cmb.DropDownStyle = 'DropDownList'
+        $cmb.Font = New-Object System.Drawing.Font('Segoe UI', 8)
+
+        foreach ($opt in $site.Options) {
+            $cmb.Items.Add($opt.Name) | Out-Null
+        }
+
+        if ($site.DefaultIndex -ge 0 -and $site.DefaultIndex -lt $cmb.Items.Count) {
+            $cmb.SelectedIndex = $site.DefaultIndex
+        } elseif ($cmb.Items.Count -gt 0) {
+            $cmb.SelectedIndex = 0
+        }
+
+        if (-not $site.Hidden) {
+            $pnlRow = New-Object System.Windows.Forms.Panel
+            $pnlRow.Size = New-Object System.Drawing.Size(325, 30)
+            $pnlRow.Location = New-Object System.Drawing.Point(5, $topOffset)
+            $pnlRow.BackColor = [System.Drawing.Color]::FromArgb(30, 32, 37)
+
+            $lbl = New-Object System.Windows.Forms.Label
+            $lbl.Text = "$($site.SiteName):"
+            $lbl.Location = New-Object System.Drawing.Point(5, 6)
+            $lbl.Size = New-Object System.Drawing.Size(90, 18)
+            $lbl.ForeColor = [System.Drawing.Color]::FromArgb(225, 228, 232)
+            $lbl.Font = New-Object System.Drawing.Font('Segoe UI', 8)
+
+            $cmb.Location = New-Object System.Drawing.Point(100, 3)
+            $cmb.Size = New-Object System.Drawing.Size(215, 22)
+
+            $pnlRow.Controls.Add($lbl)
+            $pnlRow.Controls.Add($cmb)
+            $pnl.Controls.Add($pnlRow)
+
+            $topOffset += 35
+        }
+
+        $script:RewardDropdowns.Add([PSCustomObject]@{
+            SiteName = $site.SiteName
+            ComboBox = $cmb
+            SiteRef  = $site
+        })
+    }
+}
+
+function Initialize-ChestOpener {
+    $UI = $global:DashboardConfig.UI
+    if (-not $UI -or -not $UI.ChestPresetSelector) { return }
+
+    if ($UI.ChestPresetSelector.Items.Count -eq 0) {
+        foreach ($chest in $script:ChestDatabase) {
+            $UI.ChestPresetSelector.Items.Add($chest.Name) | Out-Null
+        }
+        if ($UI.ChestPresetSelector.Items.Count -gt 0) {
+            $UI.ChestPresetSelector.SelectedIndex = 0
+        }
+    }
+    Update-ChestOpenerWindowList
+    Update-ChestRewardControls
+    Update-ChestQueueGrid
+
+    $savedHotkey = $null
+    $savedItemHotkey = $null
+    if ($global:DashboardConfig.Config -and $global:DashboardConfig.Config.Contains('ChestOpener')) {
+        if ($global:DashboardConfig.Config['ChestOpener'].Contains('Hotkey')) {
+            $savedHotkey = $global:DashboardConfig.Config['ChestOpener']['Hotkey']
+        }
+        if ($global:DashboardConfig.Config['ChestOpener'].Contains('ItemHotkey')) {
+            $savedItemHotkey = $global:DashboardConfig.Config['ChestOpener']['ItemHotkey']
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($savedItemHotkey) -and $UI.ChestItemHotkeyBtn) {
+        $UI.ChestItemHotkeyBtn.Text = $savedItemHotkey
+    }
+
+    $btnHotkey = if ($UI.ChestHotkeyBtn) { $UI.ChestHotkeyBtn } elseif ($UI.ChestHotkeySelector) { $UI.ChestHotkeySelector } else { $null }
+    if (-not [string]::IsNullOrWhiteSpace($savedHotkey) -and $btnHotkey) {
+        if ($btnHotkey.PSObject.Properties['Text']) {
+            $btnHotkey.Text = $savedHotkey
+        }
+        $scriptBlock = {
+            if ($script:SyncState.IsRunning) {
+                Stop-ChestOpener
+            } else {
+                Start-ChestOpener
+            }
+        }
+        $oldId = $global:DashboardConfig.State['ChestHotkeyId']
+        try {
+            $global:DashboardConfig.State['ChestHotkeyId'] = SetHotkey -KeyCombinationString $savedHotkey -Action $scriptBlock -OwnerKey 'ChestOpener' -OwnerLabel 'Chest Opener' -OldHotkeyId $oldId
+        } catch {
+            Write-Warning "ChestOpener: Failed to register hotkey $savedHotkey : $_"
+        }
+    }
+}
+
+function Start-ChestOpener {
+    $UI = $global:DashboardConfig.UI
+    if (-not $UI -or -not $UI.ChestWindowSelector) { return }
+
+    if (-not $UI.ChestWindowSelector.SelectedItem) {
+        Show-DarkMessageBox "Select target game window." "Error" "OK" "Error"
+        return
+    }
+
+    $selectedWindowStr = $UI.ChestWindowSelector.SelectedItem.ToString()
+    if (-not $script:WindowMap.ContainsKey($selectedWindowStr)) {
+        Show-DarkMessageBox "Selected window mapping not found." "Error" "OK" "Error"
+        return
+    }
+
+    $hWnd = $script:WindowMap[$selectedWindowStr]
+    if (-not [Custom.Native]::IsWindow($hWnd)) {
+        Show-DarkMessageBox "Selected window handle is invalid or closed." "Error" "OK" "Error"
+        return
+    }
+
+    $queueJobs = [System.Collections.Generic.List[psobject]]::new()
+
+    if ($global:DashboardConfig.Resources.ChestQueue -and $global:DashboardConfig.Resources.ChestQueue.Count -gt 0) {
+        foreach ($job in $global:DashboardConfig.Resources.ChestQueue) {
+            $queueJobs.Add($job)
+        }
+    }
+    else {
+        if ($UI.ChestPresetSelector.SelectedIndex -lt 0) {
+            Show-DarkMessageBox "Select a chest preset." "Error" "OK" "Error"
+            return
+        }
+
+        $chestData     = $script:ChestDatabase[$UI.ChestPresetSelector.SelectedIndex]
+        $clickSequence = [System.Collections.Generic.List[hashtable]]::new()
+
+        for ($idx = 0; $idx -lt $script:RewardDropdowns.Count; $idx++) {
+            $item          = $script:RewardDropdowns[$idx]
+            $siteRef       = $item.SiteRef
+            $selectedIndex = $item.ComboBox.SelectedIndex
+            $chosenReward  = if ($selectedIndex -ge 0 -and $selectedIndex -lt $siteRef["Options"].Count) { $siteRef["Options"][$selectedIndex] } else { $null }
+
+            if ($chosenReward -and $chosenReward.Ignore) {
+                continue
+            }
+
+            $siteBtn = if ($siteRef.SiteButton) { $siteRef.SiteButton } else { $chestData["Site$($idx + 1)Button"] }
+            if ($siteBtn) {
+                $clickSequence.Add(@{ X = [int]$siteBtn.X; Y = [int]$siteBtn.Y; Delay = [int]$siteBtn.Delay; Name = "Site $($idx + 1) Tab" })
+            }
+            if ($chosenReward) {
+                $clickSequence.Add(@{ X = [int]$chosenReward.X; Y = [int]$chosenReward.Y; Delay = [int]$chosenReward.Delay; Name = "Site $($idx + 1) Reward ($($chosenReward.Name))" })
+            }
+        }
+
+        if ($chestData.AcceptButton) {
+            $acceptBtn = $chestData.AcceptButton
+            $clickSequence.Add(@{ X = [int]$acceptBtn.X; Y = [int]$acceptBtn.Y; Delay = [int]$acceptBtn.Delay; Name = "Accept Button" })
+        }
+
+        $loopCount = 1
+        if ($UI.ChestCountInput -and [int]::TryParse($UI.ChestCountInput.Text, [ref]$loopCount)) {
+            $loopCount = [Math]::Max(1, $loopCount)
+        }
+
+        $itemKeyData = $null
+        $itemKeyStr = if (-not $chestData.NoKey -and $chestData.ID -ne 'rps' -and $UI.ChestItemHotkeyBtn -and $UI.ChestItemHotkeyBtn.Text -ne 'Hotkey' -and $UI.ChestItemHotkeyBtn.Text -ne 'none') { $UI.ChestItemHotkeyBtn.Text } else { $null }
+        if ($itemKeyStr) {
+            $parsedItemKey = ParseKeyString -KeyCombinationString $itemKeyStr
+            if ($parsedItemKey -and $parsedItemKey.Primary) {
+                $vkMap = GetVirtualKeyMappings
+                $vkCode = $vkMap[$parsedItemKey.Primary]
+                if ($vkCode) {
+                    $itemKeyData = @{
+                        VirtualKeyCode = $vkCode
+                        Modifiers      = $parsedItemKey.Modifiers
+                    }
+                }
+            }
+        }
+
+        $singleJob = [PSCustomObject]@{
+            PresetName    = $chestData.Name
+            LoopCount     = $loopCount
+            ClickSequence = $clickSequence
+            ItemKeyData   = $itemKeyData
+        }
+        $queueJobs.Add($singleJob)
+    }
+
+    $script:SyncState.IsRunning = $true
+    if ($UI.StartChestBtn) { $UI.StartChestBtn.Enabled = $false }
+    if ($UI.StopChestBtn)  { $UI.StopChestBtn.Enabled  = $true }
+
+    $script:WorkerRunspace = [runspacefactory]::CreateRunspace()
+    $script:WorkerRunspace.Open()
+    $ps = [powershell]::Create()
+    $ps.Runspace = $script:WorkerRunspace
+    [void]$ps.AddScript($OpenChestsWorker).AddArgument($hWnd).AddArgument($queueJobs).AddArgument($script:SyncState).AddArgument($UI.ExtraForm).AddArgument($UI.ChestStatusLabel)
+    
+    $script:PowerShellInstance = $ps
+    [void]$ps.BeginInvoke()
+}
+
+function Stop-ChestOpener {
+    $UI = $global:DashboardConfig.UI
+    $script:SyncState.IsRunning = $false
+    
+    if ($UI -and $UI.StartChestBtn) { $UI.StartChestBtn.Enabled = $true }
+    if ($UI -and $UI.StopChestBtn)  { $UI.StopChestBtn.Enabled  = $false }
+    if ($UI -and $UI.ChestStatusLabel -and $UI.ChestStatusLabel.Text -notmatch "Stopped via Hotkey") { 
+        $UI.ChestStatusLabel.Text = "Status: IDLE" 
+    }
+
+    if ($script:PowerShellInstance) {
+        try { $script:PowerShellInstance.Stop(); $script:PowerShellInstance.Dispose() } catch {}
+        $script:PowerShellInstance = $null
+    }
+    if ($script:WorkerRunspace) {
+        try { $script:WorkerRunspace.Close(); $script:WorkerRunspace.Dispose() } catch {}
+        $script:WorkerRunspace = $null
+    }
+}
+
+function Start-ChestOpenerHotkeyTimer {
+    # Hotkey is handled natively by SetHotkey via hotkeys.psm1
+    return
+}
+
+function Stop-WorldBossListener {
 	if ($global:DashboardConfig.State.WorldBossListener.Timer)
 	{
 		$global:DashboardConfig.State.WorldBossListener.Timer.Stop()
@@ -57,6 +721,7 @@ function Stop-WorldBossListener
 		Write-Verbose 'WorldBoss Listener Stopped.'
 	}
 }
+
 function ParseTimeSpanString
 {
 	[CmdletBinding()]
@@ -133,8 +798,7 @@ function ParseTimeSpanString
 	return $ts
 }
 
-function Invoke-TestButtonAction
-{
+function Invoke-TestButtonAction {
 	param($Status, $Percent, $Type, $BossName, $ImageUrl, $Key)
     
 	[System.Windows.Forms.MessageBox]::Show("Test: $Status Clicked")
@@ -159,8 +823,7 @@ function Invoke-TestButtonAction
 	}
 }
 
-function Send-BossUpdate
-{
+function Send-BossUpdate {
     param(
         $BossName,
         $Status,
@@ -225,8 +888,7 @@ function Send-BossUpdate
     }
 }
 
-function Send-Message
-{
+function Send-Message {
 	param(
 		$code,
 		$bossName
@@ -378,7 +1040,6 @@ function ProcessSpawnEvent {
 
     $shouldNotify = $false
 
-
     if ($State.BossStates.ContainsKey($trackingKey)) {
         $cached = $State.BossStates[$trackingKey]
 
@@ -401,7 +1062,6 @@ function ProcessSpawnEvent {
         hpStatus = $hpStatus;
         lastUpdateTime = $updateTime
     }
-
 
     if ($shouldNotify) {
         $notifKey = $trackingKey.GetHashCode()
@@ -508,8 +1168,7 @@ function ProcessSpawnEvent {
     }
 }
 
-function Start-WorldBossListener
-{
+function Start-WorldBossListener {
     $enabled = $false
     if ($global:DashboardConfig.UI.WorldBossListener) {
         $enabled = $global:DashboardConfig.UI.WorldBossListener.Checked
@@ -617,7 +1276,6 @@ function Start-WorldBossListener
                                         if ($b.hpStatus -eq 'Died') { $dead += $b } else { $alive += $b }
                                     }
 
-
                                     if ($upcoming.Count -gt 0) {
                                         $output += " [ UPCOMING ]"
 											foreach ($b in $upcoming) {
@@ -661,7 +1319,6 @@ function Start-WorldBossListener
 
                         $kheldorSpawns = @($response.kheldor.activeSpawns)
 
-
                         $allActiveAndRelevantSpawns = $kheldorSpawns
                         $knownIds = $allActiveAndRelevantSpawns | ForEach-Object { if ($_.id) { $_.id } else { $_.name } }
                         $localIds = $state.BossStates.Keys
@@ -671,7 +1328,6 @@ function Start-WorldBossListener
                         foreach ($rId in $recentlyFinishedIds) {
                             $state.BossStates[$rId].hpStatus = "Died"
                             $state.BossStates[$rId].hpPercent = 0
-                            
                         }
 
                         foreach ($spawn in $allActiveAndRelevantSpawns) {
@@ -751,9 +1407,7 @@ function Start-WorldBossListener
     Write-Verbose 'WorldBoss Listener Started.'
 }
 
-
-function RefreshNoteGrid
-{
+function RefreshNoteGrid {
 	if ($global:DashboardConfig.UI.NoteGrid)
 	{
 		$grid = $global:DashboardConfig.UI.NoteGrid
@@ -825,8 +1479,7 @@ function RefreshNoteGrid
 	}
 }
 
-function Show-NoteDialog
-{
+function Show-NoteDialog {
 	param($NoteData)
     
 	$script:noteDialogResult = $null
@@ -966,8 +1619,7 @@ function Show-NoteDialog
 	else { return $null }
 }
 
-function AddNote
-{
+function AddNote {
 	try
 	{
 		$data = Show-NoteDialog
@@ -984,8 +1636,7 @@ function AddNote
 	catch { Write-Verbose "AddNote Error: $_" }
 }
 
-function EditNote
-{
+function EditNote {
 	$grid = $global:DashboardConfig.UI.NoteGrid
 	if ($grid.SelectedRows.Count -gt 0)
 	{
@@ -1012,8 +1663,7 @@ function EditNote
 	}
 }
 
-function RemoveNote
-{
+function RemoveNote {
 	$grid = $global:DashboardConfig.UI.NoteGrid
 	if ($grid.SelectedRows.Count -gt 0)
 	{
@@ -1030,8 +1680,7 @@ function RemoveNote
 	}
 }
 
-function Stop-NoteTimer
-{
+function Stop-NoteTimer {
 	if ($global:DashboardConfig.State.NoteTimer)
 	{
 		$global:DashboardConfig.State.NoteTimer.Stop()
@@ -1400,7 +2049,6 @@ if (-not $global:DashboardConfig.State.NoteTimer)
 								$notifKey = $key.GetHashCode()
 								if ($notifKey -gt 0) { $notifKey = - $notifKey }
                             
-                            
 								$editAction = [scriptblock]::Create("
                                 if (Get-Command EditNote -ErrorAction SilentlyContinue -Verbose:`$False) {
                                     `$grid = `$global:DashboardConfig.UI.NoteGrid
@@ -1479,8 +2127,8 @@ if (-not $global:DashboardConfig.State.NoteTimer)
 	$noteTimer.Start()
 	$global:DashboardConfig.State.NoteTimer = $noteTimer
 }
-function UpdateUpgradeItemSelection
-{
+
+function UpdateUpgradeItemSelection {
 	try
 	{
 		$UI = $global:DashboardConfig.UI
@@ -1550,8 +2198,7 @@ function UpdateUpgradeItemSelection
 	}
 }
 
-function UpdateUpgradeTypeSelection
-{
+function UpdateUpgradeTypeSelection {
 	try
 	{
 		$UI = $global:DashboardConfig.UI
@@ -1566,8 +2213,7 @@ function UpdateUpgradeTypeSelection
 	}
 }
 
-function CalculateUpgradeTotalMaterials
-{
+function CalculateUpgradeTotalMaterials {
 	try
 	{
 		$UI = $global:DashboardConfig.UI
@@ -1675,8 +2321,7 @@ function CalculateUpgradeTotalMaterials
 	}
 }
 
-function AddUpgradeItem
-{
+function AddUpgradeItem {
 	try
 	{
 		$UI = $global:DashboardConfig.UI
@@ -1688,7 +2333,6 @@ function AddUpgradeItem
 			$null -eq $UI.UpgradeItemSelector -or
 			$null -eq $UI.UpgradeCartGrid
 		) { return }
-
 
 		if ($null -eq $UI.UpgradeLvlStart.SelectedItem -or $null -eq $UI.UpgradeLvlEnd.SelectedItem)
 		{
@@ -1779,8 +2423,7 @@ function AddUpgradeItem
 	}
 }
 
-function RemoveUpgradeItem
-{
+function RemoveUpgradeItem {
 	try
 	{
 		$UI = $global:DashboardConfig.UI
@@ -1870,8 +2513,7 @@ function RemoveUpgradeItem
 	}
 }
 
-function ResetUpgradeCalculator
-{
+function ResetUpgradeCalculator {
 	try
 	{
 		$UI = $global:DashboardConfig.UI
@@ -1891,8 +2533,7 @@ function ResetUpgradeCalculator
 	}
 }
 
-function HandleUpgradeCartRowsAdded
-{
+function HandleUpgradeCartRowsAdded {
 	$UI = $global:DashboardConfig.UI
 	if ($null -eq $UI -or $null -eq $UI.UpgradeCartGrid -or $UI.UpgradeCartGrid.Rows.Count -eq 0) { return }
 	$UI.UpgradeCartGrid.FirstDisplayedScrollingRowIndex = $UI.UpgradeCartGrid.Rows.Count - 1

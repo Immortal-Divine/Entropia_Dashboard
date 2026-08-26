@@ -129,6 +129,139 @@ function ShowInputBox
 	}
 }
 
+function Register-ButtonFadeEffect {
+	param(
+		[System.Windows.Forms.Button]$Button,
+		[System.Drawing.Color]$NormalStartColor,
+		[System.Drawing.Color]$NormalEndColor,
+		[System.Drawing.Color]$HoverStartColor,
+		[System.Drawing.Color]$HoverEndColor,
+		[System.Drawing.Color]$LeftPressedStartColor,
+		[System.Drawing.Color]$LeftPressedEndColor,
+		[System.Drawing.Color]$RightPressedStartColor,
+		[System.Drawing.Color]$RightPressedEndColor
+	)
+
+	$state = [PSCustomObject]@{
+		TargetStartColor = $NormalStartColor
+		TargetEndColor   = $NormalEndColor
+		CurrentStartR    = [double]$NormalStartColor.R
+		CurrentStartG    = [double]$NormalStartColor.G
+		CurrentStartB    = [double]$NormalStartColor.B
+		CurrentEndR      = [double]$NormalEndColor.R
+		CurrentEndG      = [double]$NormalEndColor.G
+		CurrentEndB      = [double]$NormalEndColor.B
+	}
+
+	$timer = New-Object System.Windows.Forms.Timer
+	$timer.Interval = 15
+
+	$timer.Add_Tick({
+			$targetStart = $state.TargetStartColor
+			$targetEnd = $state.TargetEndColor
+
+			$diffStartR = $targetStart.R - $state.CurrentStartR
+			$diffStartG = $targetStart.G - $state.CurrentStartG
+			$diffStartB = $targetStart.B - $state.CurrentStartB
+
+			$diffEndR = $targetEnd.R - $state.CurrentEndR
+			$diffEndG = $targetEnd.G - $state.CurrentEndG
+			$diffEndB = $targetEnd.B - $state.CurrentEndB
+
+			$step = 0.15
+			$close = $true
+
+			if ([Math]::Abs($diffStartR) -lt 1 -and [Math]::Abs($diffStartG) -lt 1 -and [Math]::Abs($diffStartB) -lt 1) {
+				$state.CurrentStartR = $targetStart.R
+				$state.CurrentStartG = $targetStart.G
+				$state.CurrentStartB = $targetStart.B
+			}
+			else {
+				$state.CurrentStartR += $diffStartR * $step
+				$state.CurrentStartG += $diffStartG * $step
+				$state.CurrentStartB += $diffStartB * $step
+				$close = $false
+			}
+
+			if ([Math]::Abs($diffEndR) -lt 1 -and [Math]::Abs($diffEndG) -lt 1 -and [Math]::Abs($diffEndB) -lt 1) {
+				$state.CurrentEndR = $targetEnd.R
+				$state.CurrentEndG = $targetEnd.G
+				$state.CurrentEndB = $targetEnd.B
+			}
+			else {
+				$state.CurrentEndR += $diffEndR * $step
+				$state.CurrentEndG += $diffEndG * $step
+				$state.CurrentEndB += $diffEndB * $step
+				$close = $false
+			}
+
+			$Button.Invalidate()
+			if ($close) {
+				$timer.Stop()
+			}
+		}.GetNewClosure())
+
+	$Button.Add_MouseEnter({
+			$state.TargetStartColor = $HoverStartColor
+			$state.TargetEndColor = $HoverEndColor
+			$timer.Start()
+		}.GetNewClosure())
+
+	$Button.Add_MouseLeave({
+			$state.TargetStartColor = $NormalStartColor
+			$state.TargetEndColor = $NormalEndColor
+			$timer.Start()
+		}.GetNewClosure())
+
+	$Button.Add_MouseDown({
+			if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+				$state.TargetStartColor = $LeftPressedStartColor
+				$state.TargetEndColor = $LeftPressedEndColor
+				$timer.Start()
+			}
+			elseif ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
+				$state.TargetStartColor = $RightPressedStartColor
+				$state.TargetEndColor = $RightPressedEndColor
+				$timer.Start()
+			}
+		}.GetNewClosure())
+
+	$Button.Add_MouseUp({
+			if ($Button.ClientRectangle.Contains($Button.PointToClient([System.Windows.Forms.Control]::MousePosition))) {
+				$state.TargetStartColor = $HoverStartColor
+				$state.TargetEndColor = $HoverEndColor
+			}
+			else {
+				$state.TargetStartColor = $NormalStartColor
+				$state.TargetEndColor = $NormalEndColor
+			}
+			$timer.Start()
+		}.GetNewClosure())
+
+	$Button.Add_Paint({
+			param($src, $e)
+			$rect = [System.Drawing.Rectangle]::new(0, 0, $src.Width, $src.Height)
+			$color1 = [System.Drawing.Color]::FromArgb([int]$state.CurrentStartR, [int]$state.CurrentStartG, [int]$state.CurrentStartB)
+			$color2 = [System.Drawing.Color]::FromArgb([int]$state.CurrentEndR, [int]$state.CurrentEndG, [int]$state.CurrentEndB)
+			
+			$bgBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new($rect, $color1, $color2, [System.Drawing.Drawing2D.LinearGradientMode]::Vertical)
+			$e.Graphics.FillRectangle($bgBrush, $rect)
+			$bgBrush.Dispose()
+
+			$textBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(240, 240, 240))
+			$textFormat = [System.Drawing.StringFormat]::new()
+			$textFormat.Alignment = [System.Drawing.StringAlignment]::Center
+			$textFormat.LineAlignment = [System.Drawing.StringAlignment]::Center
+			$e.Graphics.DrawString($src.Text, $src.Font, $textBrush, [System.Drawing.RectangleF]::new(0, 0, $src.Width, $src.Height), $textFormat)
+			$textBrush.Dispose()
+			$textFormat.Dispose()
+
+			$borderPen = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(60, 60, 60))
+			$e.Graphics.DrawRectangle($borderPen, 0, 0, $src.Width - 1, $src.Height - 1)
+			$borderPen.Dispose()
+		}.GetNewClosure())
+}
+
 function ShowSettingsForm
 {
 
@@ -344,6 +477,24 @@ function HideExtraForm
 	if (-not ($global:DashboardConfig.UI -and $global:DashboardConfig.UI.ExtraForm))
 	{
 		return
+	}
+
+	if ($global:DashboardConfig.State['ChestHotkeyId'])
+	{
+		try
+		{
+			if (Get-Command Stop-ChestOpener -ErrorAction SilentlyContinue -Verbose:$False) { Stop-ChestOpener }
+		}
+		catch {}
+		try
+		{
+			if (Get-Command UnregisterHotkeyInstance -ErrorAction SilentlyContinue -Verbose:$False)
+			{
+				UnregisterHotkeyInstance -Id $global:DashboardConfig.State['ChestHotkeyId'] -OwnerKey 'ChestOpener'
+			}
+		}
+		catch {}
+		$global:DashboardConfig.State['ChestHotkeyId'] = $null
 	}
 
 	if ($global:fadeOutTimer) { $global:fadeOutTimer.Dispose() }
@@ -1134,6 +1285,54 @@ function SetNeuzResolution
 	}
 }
 
+function GetNeuzGraphicsAPI
+{
+	param([string]$ProfilePath)
+	if ([string]::IsNullOrWhiteSpace($ProfilePath)) { return $null }
+	$neuzIni = Join-Path $ProfilePath 'neuz.ini'
+	if (Test-Path $neuzIni)
+	{
+		try
+		{
+			$content = Get-Content $neuzIni -Raw
+			if ($content -match '(?m)^\s*GraphicsAPI\s+(\d+)')
+			{
+				if ($Matches[1] -eq '1') { return 'DirectX 10' }
+				else { return 'DirectX 9' }
+			}
+		}
+		catch {}
+	}
+	return $null
+}
+
+function SetNeuzGraphicsAPI
+{
+	param([string]$ProfilePath, [string]$DirectXString)
+	if ([string]::IsNullOrWhiteSpace($ProfilePath) -or [string]::IsNullOrWhiteSpace($DirectXString)) { return }
+	$neuzIni = Join-Path $ProfilePath 'neuz.ini'
+	if (-not (Test-Path $neuzIni)) { return }
+
+	try
+	{
+		$apiValue = if ($DirectXString -match '10') { '1' } else { '0' }
+		$content = Get-Content $neuzIni -Raw
+		if ($content -match '(?m)^\s*GraphicsAPI\s+\d+')
+		{
+			$content = $content -replace '(?m)(^\s*GraphicsAPI\s+)\d+', "`${1}$apiValue"
+		}
+		else
+		{
+			$content += "`r`nGraphicsAPI $apiValue"
+		}
+		Set-Content -Path $neuzIni -Value $content -Encoding ASCII -Force
+	}
+	catch
+	{
+		Write-Verbose "Failed to set GraphicsAPI in $neuzIni $_"
+	}
+}
+
 function SyncProfilesToConfig
 {
 	[CmdletBinding()]
@@ -1230,7 +1429,7 @@ function SyncUIToConfig
 		$runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 		$appName = "EntropiaDashboard"
 
-		$taskName = $appName # Assuming $appName is defined in your script
+		$taskName = $appName
 
 		if ($UI.AutoStartWithWindows.Checked) {
 			
@@ -1255,7 +1454,6 @@ function SyncUIToConfig
 
 		} else {
 			
-			# Remove the task if the user unchecks the option
 			if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
 				Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
 			}
@@ -1341,6 +1539,11 @@ function SyncUIToConfig
 			if ($resSelection)
 			{
 				SetNeuzResolution -ProfilePath $profPath -ResolutionString $resSelection
+			}
+			$dxSelection = $UI.DirectXSelector.SelectedItem
+			if ($dxSelection)
+			{
+				SetNeuzGraphicsAPI -ProfilePath $profPath -DirectXString $dxSelection
 			}
 		}
 
@@ -1564,10 +1767,21 @@ function SyncConfigToUI
 			{
 				$UI.ResolutionSelector.SelectedItem = $null
 			}
+
+			$currentDx = GetNeuzGraphicsAPI -ProfilePath $profPath
+			if ($currentDx -and $UI.DirectXSelector.Items.Contains($currentDx))
+			{
+				$UI.DirectXSelector.SelectedItem = $currentDx
+			}
+			else
+			{
+				$UI.DirectXSelector.SelectedItem = $null
+			}
 		}
 		else
 		{
 			$UI.ResolutionSelector.SelectedItem = $null
+			$UI.DirectXSelector.SelectedItem = $null
 		}
 
 		Write-Verbose "  UI: SyncConfigToUI - Loading settings for profile '$selectedLoginProfile'."
@@ -1879,17 +2093,17 @@ function InitializeUI
 	$topBar = SetUIElement @p
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; fg = @(240, 240, 240); id = 'TitleLabel'; text = 'Entropia Dashboard'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
 	$titleLabelForm = SetUIElement @p
-	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.8.1'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
+	$p = @{ type = 'Label'; width = 140; height = 10; top = 16; left = 10; fg = @(230, 230, 230); id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.8.2'; font = (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Italic)) }
 	$copyrightLabelForm = SetUIElement @p
-	$p = @{ type = 'Button'; width = 40; height = 30; left = 370; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'InfoForm'; text = 'Guide'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); tooltip = "Help / Info`nOpens the project website for documentation and support." }
+	$p = @{ type = 'Button'; width = 40; height = 30; left = 370; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'InfoForm'; text = 'Guide'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); tooltip = "Help / Info`nOpens the project website for documentation and support."; noCustomPaint = $true }
 	$btnInfoForm = SetUIElement @p
-	$p = @{ type = 'Button'; width = 30; height = 30; left = 410; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'MinForm'; text = '_'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)); tooltip = "Minimize`nMinimize the dashboard to the taskbar." }
+	$p = @{ type = 'Button'; width = 30; height = 30; left = 410; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'MinForm'; text = '_'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)); tooltip = "Minimize`nMinimize the dashboard to the taskbar."; noCustomPaint = $true }
 	$btnMinimizeForm = SetUIElement @p
-	$p = @{ type = 'Button'; width = 30; height = 30; left = 440; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'CloseForm'; text = [char]0x166D; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)); tooltip = "Exit`nClose the Entropia Dashboard application." }
+	$p = @{ type = 'Button'; width = 30; height = 30; left = 440; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'CloseForm'; text = [char]0x166D; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)); tooltip = "Exit`nClose the Entropia Dashboard application."; noCustomPaint = $true }
 	$btnCloseForm = SetUIElement @p
 
 
-	$p = @{ type = 'Button'; width = 125; height = 30; top = 40; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Launch'; text = 'Launch ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Launch`nRight Click: Open menu for launch options." }
+	$p = @{ type = 'Button'; width = 125; height = 30; top = 40; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Launch'; text = 'Launch ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Launch`nRight Click: Open menu for launch options."; noCustomPaint = $true }
 	$btnLaunch = SetUIElement @p
 
 	$LaunchContextMenu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -1898,30 +2112,80 @@ function InitializeUI
 	$LaunchContextMenu.Items.Add('Loading...') | Out-Null
 	$btnLaunch.ContextMenuStrip = $LaunchContextMenu
 
-	$p = @{ type = 'Button'; width = 125; height = 30; top = 40; left = 150; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Login'; text = 'Login'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Login`nLogs in selected clients using profile settings." }
+	$p = @{ type = 'Button'; width = 125; height = 30; top = 40; left = 150; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Login'; text = 'Login'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Login`nLogs in selected clients using profile settings."; noCustomPaint = $true }
 	$btnLogin = SetUIElement @p
-	$p = @{ type = 'Button'; width = 80; height = 30; top = 40; left = 285; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Settings'; text = 'Settings'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Settings`nOpen the configuration menu to adjust paths, profiles, and options." }
+	$p = @{ type = 'Button'; width = 80; height = 30; top = 40; left = 285; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Settings'; text = 'Settings'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Settings`nOpen the configuration menu to adjust paths, profiles, and options."; noCustomPaint = $true }
 	$btnSettings = SetUIElement @p
-	$p = @{ type = 'Button'; width = 80; height = 30; top = 40; left = 375; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'Terminate'; text = 'Terminate ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Terminate`nLeft Click: Instantly close selected clients.`nRight Click: Disconnect selected clients (TCP close)." }
+	$p = @{ type = 'Button'; width = 80; height = 30; top = 40; left = 375; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'Terminate'; text = 'Terminate ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Terminate`nLeft Click: Instantly close selected clients.`nRight Click: Disconnect selected clients (TCP close)."; noCustomPaint = $true }
 	$btnStop = SetUIElement @p
-	$p = @{ type = 'Button'; width = 125; height = 30; top = 75; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Ftool'; text = 'Ftool ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Ftool`nLeft Click: Open Ftool.`nRight Click: Save/Load template for selected client." }
+	$p = @{ type = 'Button'; width = 125; height = 30; top = 75; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Ftool'; text = 'Ftool ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Ftool`nLeft Click: Open Ftool.`nRight Click: Save/Load template for selected client."; noCustomPaint = $true }
 	$btnFtool = SetUIElement @p
 	$btnFtool.Add_Click({
 		if ($global:DashboardConfig.UI.DataGridMain.SelectedRows.Count -eq 0) { return }
 		$row = $global:DashboardConfig.UI.DataGridMain.SelectedRows[0]
 		FtoolSelectedRow $row
 	})
-	$p = @{ type = 'Button'; width = 125; height = 30; top = 75; left = 150; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Macro'; text = 'Macro ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Macro`nLeft Click: Open Macro.`nRight Click: Save/Load template for selected client." }
+	$p = @{ type = 'Button'; width = 125; height = 30; top = 75; left = 150; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Macro'; text = 'Macro ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Macro`nLeft Click: Open Macro.`nRight Click: Save/Load template for selected client."; noCustomPaint = $true }
 	$btnMacro = SetUIElement @p
 	$btnMacro.Add_Click({
 		if ($global:DashboardConfig.UI.DataGridMain.SelectedRows.Count -eq 0) { return }
 		$row = $global:DashboardConfig.UI.DataGridMain.SelectedRows[0]
 		MacroSelectedRow $row
 	})
-	$p = @{ type = 'Button'; width = 80; height = 30; top = 75; left = 285; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Extra'; text = 'Extra ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Extra`nLeft Click: Open the Extra panel for World Boss timers, Notes, and Notifications.`nRight Click: Open QuickCommands." }
+	$p = @{ type = 'Button'; width = 80; height = 30; top = 75; left = 285; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Extra'; text = 'Extra ' + [char]0x25BE; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Extra`nLeft Click: Open the Extra panel for World Boss timers, Notes, Tools, and Notifications.`nRight Click: Open QuickCommands."; noCustomPaint = $true }
 	$btnExtra = SetUIElement @p
-	$p = @{ type = 'Button'; width = 80; height = 30; top = 75; left = 375; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Wiki'; text = 'Wiki'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Wiki`nOpen the Wiki panel for Entropia." }
+	$p = @{ type = 'Button'; width = 80; height = 30; top = 75; left = 375; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Wiki'; text = 'Wiki'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Wiki`nOpen the Wiki panel for Entropia."; noCustomPaint = $true }
 	$btnWiki = SetUIElement @p
+
+	$grayNormalStart = [System.Drawing.Color]::FromArgb(50, 50, 50)
+	$grayNormalEnd   = [System.Drawing.Color]::FromArgb(35, 35, 35)
+	$grayHoverStart  = [System.Drawing.Color]::FromArgb(70, 70, 70)
+	$grayHoverEnd    = [System.Drawing.Color]::FromArgb(50, 50, 50)
+	$grayLeftStart   = [System.Drawing.Color]::FromArgb(90, 90, 90)
+	$grayLeftEnd     = [System.Drawing.Color]::FromArgb(70, 70, 70)
+	$grayRightStart  = [System.Drawing.Color]::FromArgb(80, 80, 110)
+	$grayRightEnd    = [System.Drawing.Color]::FromArgb(55, 55, 80)
+
+	$redNormalStart  = [System.Drawing.Color]::FromArgb(170, 30, 30)
+	$redNormalEnd    = [System.Drawing.Color]::FromArgb(130, 15, 15)
+	$redHoverStart   = [System.Drawing.Color]::FromArgb(200, 40, 40)
+	$redHoverEnd     = [System.Drawing.Color]::FromArgb(155, 20, 20)
+	$redLeftStart    = [System.Drawing.Color]::FromArgb(140, 15, 15)
+	$redLeftEnd      = [System.Drawing.Color]::FromArgb(100, 10, 10)
+	$redRightStart   = [System.Drawing.Color]::FromArgb(180, 30, 90)
+	$redRightEnd     = [System.Drawing.Color]::FromArgb(145, 15, 65)
+
+	$blueNormalStart = [System.Drawing.Color]::FromArgb(35, 90, 180)
+	$blueNormalEnd   = [System.Drawing.Color]::FromArgb(20, 60, 130)
+	$blueHoverStart  = [System.Drawing.Color]::FromArgb(50, 115, 220)
+	$blueHoverEnd    = [System.Drawing.Color]::FromArgb(35, 90, 180)
+	$blueLeftStart   = [System.Drawing.Color]::FromArgb(25, 70, 140)
+	$blueLeftEnd     = [System.Drawing.Color]::FromArgb(15, 45, 100)
+	$blueRightStart  = [System.Drawing.Color]::FromArgb(55, 100, 190)
+	$blueRightEnd    = [System.Drawing.Color]::FromArgb(40, 75, 145)
+
+	$greenNormalStart = [System.Drawing.Color]::FromArgb(40, 140, 70)
+	$greenNormalEnd   = [System.Drawing.Color]::FromArgb(25, 95, 45)
+	$greenHoverStart  = [System.Drawing.Color]::FromArgb(55, 175, 90)
+	$greenHoverEnd    = [System.Drawing.Color]::FromArgb(40, 140, 70)
+	$greenLeftStart   = [System.Drawing.Color]::FromArgb(30, 110, 55)
+	$greenLeftEnd     = [System.Drawing.Color]::FromArgb(20, 75, 35)
+	$greenRightStart  = [System.Drawing.Color]::FromArgb(60, 150, 85)
+	$greenRightEnd    = [System.Drawing.Color]::FromArgb(45, 110, 60)
+
+
+	Register-ButtonFadeEffect -Button $btnInfoForm -NormalStartColor $grayNormalStart -NormalEndColor $grayNormalEnd -HoverStartColor $grayHoverStart -HoverEndColor $grayHoverEnd -LeftPressedStartColor $grayLeftStart -LeftPressedEndColor $grayLeftEnd -RightPressedStartColor $grayRightStart -RightPressedEndColor $grayRightEnd
+	Register-ButtonFadeEffect -Button $btnMinimizeForm -NormalStartColor $grayNormalStart -NormalEndColor $grayNormalEnd -HoverStartColor $grayHoverStart -HoverEndColor $grayHoverEnd -LeftPressedStartColor $grayLeftStart -LeftPressedEndColor $grayLeftEnd -RightPressedStartColor $grayRightStart -RightPressedEndColor $grayRightEnd
+	Register-ButtonFadeEffect -Button $btnCloseForm -NormalStartColor $redNormalStart -NormalEndColor $redNormalEnd -HoverStartColor $redHoverStart -HoverEndColor $redHoverEnd -LeftPressedStartColor $redLeftStart -LeftPressedEndColor $redLeftEnd -RightPressedStartColor $redRightStart -RightPressedEndColor $redRightEnd
+	Register-ButtonFadeEffect -Button $btnLaunch   -NormalStartColor $grayNormalStart -NormalEndColor $grayNormalEnd -HoverStartColor $grayHoverStart -HoverEndColor $grayHoverEnd -LeftPressedStartColor $grayLeftStart -LeftPressedEndColor $grayLeftEnd -RightPressedStartColor $grayRightStart -RightPressedEndColor $grayRightEnd
+	Register-ButtonFadeEffect -Button $btnLogin    -NormalStartColor $grayNormalStart -NormalEndColor $grayNormalEnd -HoverStartColor $grayHoverStart -HoverEndColor $grayHoverEnd -LeftPressedStartColor $grayLeftStart -LeftPressedEndColor $grayLeftEnd -RightPressedStartColor $grayRightStart -RightPressedEndColor $grayRightEnd
+	Register-ButtonFadeEffect -Button $btnSettings -NormalStartColor $grayNormalStart -NormalEndColor $grayNormalEnd -HoverStartColor $grayHoverStart -HoverEndColor $grayHoverEnd -LeftPressedStartColor $grayLeftStart -LeftPressedEndColor $grayLeftEnd -RightPressedStartColor $grayRightStart -RightPressedEndColor $grayRightEnd
+	Register-ButtonFadeEffect -Button $btnStop -NormalStartColor $redNormalStart -NormalEndColor $redNormalEnd -HoverStartColor $redHoverStart -HoverEndColor $redHoverEnd -LeftPressedStartColor $redLeftStart -LeftPressedEndColor $redLeftEnd -RightPressedStartColor $redRightStart -RightPressedEndColor $redRightEnd
+	Register-ButtonFadeEffect -Button $btnFtool    -NormalStartColor $grayNormalStart -NormalEndColor $grayNormalEnd -HoverStartColor $grayHoverStart -HoverEndColor $grayHoverEnd -LeftPressedStartColor $grayLeftStart -LeftPressedEndColor $grayLeftEnd -RightPressedStartColor $grayRightStart -RightPressedEndColor $grayRightEnd
+	Register-ButtonFadeEffect -Button $btnMacro    -NormalStartColor $grayNormalStart -NormalEndColor $grayNormalEnd -HoverStartColor $grayHoverStart -HoverEndColor $grayHoverEnd -LeftPressedStartColor $grayLeftStart -LeftPressedEndColor $grayLeftEnd -RightPressedStartColor $grayRightStart -RightPressedEndColor $grayRightEnd
+	Register-ButtonFadeEffect -Button $btnExtra    -NormalStartColor $grayNormalStart -NormalEndColor $grayNormalEnd -HoverStartColor $grayHoverStart -HoverEndColor $grayHoverEnd -LeftPressedStartColor $grayLeftStart -LeftPressedEndColor $grayLeftEnd -RightPressedStartColor $grayRightStart -RightPressedEndColor $grayRightEnd
+	Register-ButtonFadeEffect -Button $btnWiki     -NormalStartColor $grayNormalStart -NormalEndColor $grayNormalEnd -HoverStartColor $grayHoverStart -HoverEndColor $grayHoverEnd -LeftPressedStartColor $grayLeftStart -LeftPressedEndColor $grayLeftEnd -RightPressedStartColor $grayRightStart -RightPressedEndColor $grayRightEnd
+
 	$p = @{ type = 'DataGridView'; width = 450; height = 300; top = 115; left = 10; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'DataGridMain'; text = ''; font = (New-Object System.Drawing.Font('Segoe UI', 9)) }
 	$DataGridMain = SetUIElement @p
 
@@ -1985,7 +2249,7 @@ function InitializeUI
 	$lblLauncher = SetUIElement @p
 	$p = @{ type = 'TextBox'; width = 250; height = 30; top = 50; left = 20; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'InputLauncher'; text = ''; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Main Launcher`nSelect the 'Launcher.exe' of your main game client.`nThis path is used as the base for all operations." }
 	$txtLauncher = SetUIElement @p
-	$p = @{ type = 'Button'; width = 55; height = 25; top = 20; left = 150; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Browse'; text = 'Browse'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Main Launcher`nSelect the 'Launcher.exe' of your main game client.`nThis path is used as the base for all operations." }
+	$p = @{ type = 'Button'; width = 55; height = 25; top = 20; left = 150; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'Browse'; text = 'Browse'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Main Launcher`nSelect the 'Launcher.exe' of your main game client.`nThis path is used as the base for all operations."; noCustomPaint = $true }
 	$btnBrowseLauncher = SetUIElement @p
 
 	$p = @{ type = 'Label'; width = 85; height = 20; top = 95; left = 20; bg = @(30, 30, 30, 0); fg = @(240, 240, 240); id = 'LabelProcess'; text = 'Process Name:'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Process Name`nThe name of the game process (usually 'neuz').`nUsed to detect running clients." }
@@ -2008,13 +2272,13 @@ function InitializeUI
 	$p = @{ type = 'TextBox'; width = 250; height = 30; top = 330; left = 20; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'InputJunction'; text = ''; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Profiles Folder`nThe directory where your client profiles (copies) will be stored." }
 	$txtJunction = SetUIElement @p
 
-	$p = @{ type = 'Button'; width = 55; height = 25; top = 300; left = 145; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'BrowseJunction'; text = 'Browse'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Browse Folder`nChoose the directory for storing client profiles." }
+	$p = @{ type = 'Button'; width = 55; height = 25; top = 300; left = 145; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'BrowseJunction'; text = 'Browse'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Browse Folder`nChoose the directory for storing client profiles."; noCustomPaint = $true }
 	$btnBrowseJunction = SetUIElement @p
 
-	$p = @{ type = 'Button'; width = 55; height = 25; top = 300; left = 215; bg = @(35, 175, 75); fg = @(240, 240, 240); id = 'StartJunction'; text = 'Create'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Create Profile`nCreates a lightweight copy (Junction) of your client.`nAllows separate settings for each profile." }
+	$p = @{ type = 'Button'; width = 55; height = 25; top = 300; left = 215; bg = @(35, 175, 75); fg = @(240, 240, 240); id = 'StartJunction'; text = 'Create'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Create Profile`nCreates a lightweight copy (Junction) of your client.`nAllows separate settings for each profile."; noCustomPaint = $true }
 	$btnStartJunction = SetUIElement @p
 
-	$p = @{ type = 'Button'; width = 120; height = 25; top = 365; left = 20; bg = @(60, 60, 100); fg = @(240, 240, 240); id = 'CopyNeuz'; text = 'Copy Neuz.exe'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Copy Neuz.exe`nCopies 'neuz.exe' from the main folder to all profiles.`nUse this after patching the main client to update profiles." }
+	$p = @{ type = 'Button'; width = 120; height = 25; top = 365; left = 20; bg = @(60, 60, 100); fg = @(240, 240, 240); id = 'CopyNeuz'; text = 'Copy Neuz.exe'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Copy Neuz.exe`nCopies 'neuz.exe' from the main folder to all profiles.`nUse this after patching the main client to update profiles."; noCustomPaint = $true }
 	$btnCopyNeuz = SetUIElement @p
 
 	$p = @{ type = 'CheckBox'; width = 200; height = 20; top = 395; left = 0; bg = @(30, 30, 30); fg = @(240, 240, 240); id = 'AutoStartWithWindows'; text = 'Auto Start with Windows'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Auto Start`nEnable this to have the Entropia Dashboard start automatically when you log into Windows." }
@@ -2055,13 +2319,13 @@ function InitializeUI
 	)
 	$ProfileGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]$profileGridCols)
 
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 235; left = 300; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'AddProfile'; text = 'Add'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Add Profile`nRegister an existing game folder as a profile manually." }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 235; left = 300; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'AddProfile'; text = 'Add'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Add Profile`nRegister an existing game folder as a profile manually."; noCustomPaint = $true }
 	$btnAddProfile = SetUIElement @p
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 235; left = 365; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'RenameProfile'; text = 'Rename'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Rename`nChange the display name of the selected profile." }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 235; left = 365; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'RenameProfile'; text = 'Rename'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Rename`nChange the display name of the selected profile."; noCustomPaint = $true }
 	$btnRenameProfile = SetUIElement @p
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 235; left = 430; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'RemoveProfile'; text = 'Remove'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Remove`nRemove the selected profile from the list (does not delete files)." }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 235; left = 430; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'RemoveProfile'; text = 'Remove'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Remove`nRemove the selected profile from the list (does not delete files)."; noCustomPaint = $true }
 	$btnRemoveProfile = SetUIElement @p
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 235; left = 495; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'DeleteProfile'; text = 'Delete'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Delete`nPermanently delete the selected profile and its files from the disk." }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 235; left = 495; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'DeleteProfile'; text = 'Delete'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Delete`nPermanently delete the selected profile and its files from the disk."; noCustomPaint = $true }
 	$btnDeleteProfile = SetUIElement @p
 
 	$p = @{ type = 'Label'; width = 220; height = 20; top = 270; left = 300; bg = @(30, 30, 30, 0); fg = @(240, 240, 240); id = 'LabelSetups'; text = 'Saved Setups:'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Saved Setups`nList of pre-configured client launch groups." }
@@ -2084,13 +2348,13 @@ function InitializeUI
 	)
 	$SetupGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]$setupGridCols)
 
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 480; left = 300; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'AddSetup'; text = 'Add'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Add Setup`nSave the currently selected clients in the main list as a new launch setup." }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 480; left = 300; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'AddSetup'; text = 'Add'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Add Setup`nSave the currently selected clients in the main list as a new launch setup."; noCustomPaint = $true }
 	$btnAddSetup = SetUIElement @p
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 480; left = 365; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'EditSetup'; text = 'Edit'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Edit Setup`nModify the clients included in the selected setup." }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 480; left = 365; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'EditSetup'; text = 'Edit'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Edit Setup`nModify the clients included in the selected setup."; noCustomPaint = $true }
 	$btnEditSetup = SetUIElement @p
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 480; left = 430; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'RenameSetup'; text = 'Rename'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Rename`nChange the name of the selected setup." }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 480; left = 430; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'RenameSetup'; text = 'Rename'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Rename`nChange the name of the selected setup."; noCustomPaint = $true }
 	$btnRenameSetup = SetUIElement @p
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 480; left = 495; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'DeleteSetup'; text = 'Delete'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Delete`nRemove the selected setup configuration." }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 480; left = 495; bg = @(150, 20, 20); fg = @(240, 240, 240); id = 'DeleteSetup'; text = 'Delete'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Delete`nRemove the selected setup configuration."; noCustomPaint = $true }
 	$btnDeleteSetup = SetUIElement @p
 
 	$tabGeneral.Controls.AddRange(@($lblLauncher, $txtLauncher, $btnBrowseLauncher, $lblProcessName, $txtProcessName, $lblMaxClients, $txtMaxClients, $lblLauncherTimeout, $txtLauncherTimeout, $lblJunction, $txtJunction, $btnBrowseJunction, $btnStartJunction, $btnCopyNeuz, $chkAutoStartWindows, $chkAutoStartSetup, $chkNeverRestartingLogin, $lblNotificationPosition, $ddlNotificationPosition, $lblProfiles, $ProfileGrid, $btnAddProfile, $btnRenameProfile, $btnRemoveProfile, $btnDeleteProfile, $lblSetups, $SetupGrid, $btnAddSetup, $btnEditSetup, $btnRenameSetup, $btnDeleteSetup))
@@ -2120,10 +2384,10 @@ function InitializeUI
 
 	$tabLoginSettings.Controls.AddRange(@($lblProfSel, $ddlLoginProfile))
 
-	$p = @{ type = 'Label'; width = 80; height = 20; top = 40; left = 10; bg = @(30,30,30,0); fg = @(240,240,240); text = 'Resolution:'; font = (New-Object System.Drawing.Font('Segoe UI', 9)) }
+	$p = @{ type = 'Label'; width = 75; height = 20; top = 40; left = 10; bg = @(30,30,30,0); fg = @(240,240,240); text = 'Resolution:'; font = (New-Object System.Drawing.Font('Segoe UI', 9)) }
 	$lblResolution = SetUIElement @p
 
-	$p = @{ type = 'Custom.DarkComboBox'; width = 430; height = 25; top = 37; left = 100; bg = @(40,40,40); fg = @(240,240,240); id = 'ResolutionSelector'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); dropDownStyle = 'DropDownList' }
+	$p = @{ type = 'Custom.DarkComboBox'; width = 180; height = 25; top = 37; left = 85; bg = @(40,40,40); fg = @(240,240,240); id = 'ResolutionSelector'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); dropDownStyle = 'DropDownList' }
 	$ddlResolution = SetUIElement @p
     
 	$resolutions = @(
@@ -2134,7 +2398,15 @@ function InitializeUI
 	)
 	foreach ($res in $resolutions) { $ddlResolution.Items.Add($res) | Out-Null }
 
-	$tabLoginSettings.Controls.AddRange(@($lblResolution, $ddlResolution))
+	$p = @{ type = 'Label'; width = 60; height = 20; top = 40; left = 285; bg = @(30,30,30,0); fg = @(240,240,240); text = 'DirectX:'; font = (New-Object System.Drawing.Font('Segoe UI', 9)) }
+	$lblDirectX = SetUIElement @p
+
+	$p = @{ type = 'Custom.DarkComboBox'; width = 185; height = 25; top = 37; left = 345; bg = @(40,40,40); fg = @(240,240,240); id = 'DirectXSelector'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); dropDownStyle = 'DropDownList' }
+	$ddlDirectX = SetUIElement @p
+	$dxVersions = @('DirectX 9', 'DirectX 10')
+	foreach ($dx in $dxVersions) { $ddlDirectX.Items.Add($dx) | Out-Null }
+
+	$tabLoginSettings.Controls.AddRange(@($lblResolution, $ddlResolution, $lblDirectX, $ddlDirectX))
 
 	$Pickers = @{}
 	$rowY = 45
@@ -2147,8 +2419,9 @@ function InitializeUI
 		$l = SetUIElement @p
 		$p = @{ type = 'TextBox'; width = 80; height = 20; top = $Top; left = ($leftOffset + 100); bg = @(40, 40, 40); fg = @(240, 240, 240); id = "txt$KeyName"; text = '0,0'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = $Tooltip }
 		$t = SetUIElement @p
-		$p = @{ type = 'Button'; width = 40; height = 20; top = $Top; left = ($leftOffset + 185); bg = @(60, 60, 100); fg = @(240, 240, 240); id = "btnPick$KeyName"; text = 'Set'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); tooltip = $Tooltip }
+		$p = @{ type = 'Button'; width = 40; height = 20; top = $Top; left = ($leftOffset + 185); bg = @(60, 60, 100); fg = @(240, 240, 240); id = "btnPick$KeyName"; text = 'Set'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); tooltip = $Tooltip; noCustomPaint = $true }
 		$b = SetUIElement @p
+		Register-ButtonFadeEffect -Button $b -NormalStartColor $blueNormalStart -NormalEndColor $blueNormalEnd -HoverStartColor $blueHoverStart -HoverEndColor $blueHoverEnd -LeftPressedStartColor $blueLeftStart -LeftPressedEndColor $blueLeftEnd -RightPressedStartColor $blueRightStart -RightPressedEndColor $blueRightEnd
 		return @{ Label = $l; Text = $t; Button = $b }
 	}
 
@@ -2236,7 +2509,7 @@ function InitializeUI
 	$lblMasterPause.TextAlign = 'MiddleRight'
 	$MasterHotkeysPanel.Controls.Add($lblMasterPause)
 
-	$p = @{ type = 'Button'; width = 80; height = 26; top = 12; left = 130; bg = @(45, 45, 48); fg = @(240, 240, 240); id = 'MasterPauseHotkeyBtn'; text = 'none'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Master Pause Hotkey`nAssign a global hotkey to pause all ftool/macro hotkeys at once." }
+	$p = @{ type = 'Button'; width = 80; height = 26; top = 12; left = 130; bg = @(45, 45, 48); fg = @(240, 240, 240); id = 'MasterPauseHotkeyBtn'; text = 'none'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Master Pause Hotkey`nAssign a global hotkey to pause all ftool/macro hotkeys at once."; noCustomPaint = $true }
 	$btnMasterPauseHotkey = SetUIElement @p
 	$MasterHotkeysPanel.Controls.Add($btnMasterPauseHotkey)
 
@@ -2245,7 +2518,7 @@ function InitializeUI
 	$lblMasterResume.TextAlign = 'MiddleRight'
 	$MasterHotkeysPanel.Controls.Add($lblMasterResume)
 
-	$p = @{ type = 'Button'; width = 80; height = 26; top = 12; left = 340; bg = @(45, 45, 48); fg = @(240, 240, 240); id = 'MasterResumeHotkeyBtn'; text = 'none'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Master Resume Hotkey`nAssign a global hotkey to resume all ftool/macro hotkeys at once." }
+	$p = @{ type = 'Button'; width = 80; height = 26; top = 12; left = 340; bg = @(45, 45, 48); fg = @(240, 240, 240); id = 'MasterResumeHotkeyBtn'; text = 'none'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Master Resume Hotkey`nAssign a global hotkey to resume all ftool/macro hotkeys at once."; noCustomPaint = $true }
 	$btnMasterResumeHotkey = SetUIElement @p
 	$MasterHotkeysPanel.Controls.Add($btnMasterResumeHotkey)
 
@@ -2272,16 +2545,16 @@ function InitializeUI
 	$HotkeysGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]$hotkeysGridCols)
 	$tabHotkeys.Controls.Add($HotkeysGrid)
 
-	$p = @{ type = 'Button'; width = 200; height = 40; top = 600; left = 195; bg = @(150, 50, 50); fg = @(240, 240, 240); id = 'UnregisterHotkey'; text = 'Unregister and delete selected Hotkeys permanently'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Unregister Hotkey`nDelete the selected hotkey assignment.`nDouble-click a row to edit the key instead." }
+	$p = @{ type = 'Button'; width = 200; height = 40; top = 600; left = 195; bg = @(150, 50, 50); fg = @(240, 240, 240); id = 'UnregisterHotkey'; text = 'Unregister and delete selected Hotkeys permanently'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Unregister Hotkey`nDelete the selected hotkey assignment.`nDouble-click a row to edit the key instead."; noCustomPaint = $true }
 	$btnUnregisterHotkey = SetUIElement @p
 	$tabHotkeys.Controls.Add($btnUnregisterHotkey)
 
 	#endregion
 
-	$p = @{ type = 'Button'; width = 120; height = 40; top = 735; left = 20; bg = @(35, 175, 75); fg = @(240, 240, 240); id = 'Save'; text = 'Save'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Save`nApply and save all changes to the configuration file." }
+	$p = @{ type = 'Button'; width = 120; height = 40; top = 735; left = 20; bg = @(35, 175, 75); fg = @(240, 240, 240); id = 'Save'; text = 'Save'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Save`nApply and save all changes to the configuration file."; noCustomPaint = $true }
 	$btnSave = SetUIElement @p
 
-	$p = @{ type = 'Button'; width = 120; height = 40; top = 735; left = 150; bg = @(210, 45, 45); fg = @(240, 240, 240); id = 'Cancel'; text = 'Cancel'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Cancel`nDiscard changes and close the settings window." }
+	$p = @{ type = 'Button'; width = 120; height = 40; top = 735; left = 150; bg = @(210, 45, 45); fg = @(240, 240, 240); id = 'Cancel'; text = 'Cancel'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 9)); tooltip = "Cancel`nDiscard changes and close the settings window."; noCustomPaint = $true }
 	$btnCancel = SetUIElement @p
 
 
@@ -2415,7 +2688,7 @@ function InitializeUI
 	$chkWorldBossListener = SetUIElement @p
 	$chkWorldBossListener.Name = 'WorldBossListener'
 
-	$p = @{ type = 'Button'; width = 80; height = 20; top = 57; left = 295; bg = @(40, 40, 40); fg = @(255, 255, 255); id = 'RefreshBosses'; text = 'Update '+[char]0x21BB; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Refresh Schedule`nTrigger the daily schedule notification again with updated data." }
+	$p = @{ type = 'Button'; width = 80; height = 20; top = 57; left = 295; bg = @(40, 40, 40); fg = @(255, 255, 255); id = 'RefreshBosses'; text = 'Update '+[char]0x21BB; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Refresh Schedule`nTrigger the daily schedule notification again with updated data."; noCustomPaint = $true }
 	$btnRefreshBosses = SetUIElement @p
 
 	$p = @{ type = 'Label'; text = 'KHELDOR'; font = (New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)); top = 85; left = 60; width = 140 }
@@ -2639,13 +2912,13 @@ function InitializeUI
 	)
 	$NoteGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]$noteCols)
 
-	$p = @{ type = 'Button'; width = 80; height = 25; top = 470; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'AddNote'; text = 'Add'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Add Note`nCreate a new note, timer, or reminder." }
+	$p = @{ type = 'Button'; width = 80; height = 25; top = 470; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'AddNote'; text = 'Add'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Add Note`nCreate a new note, timer, or reminder."; noCustomPaint = $true }
 	$btnAddNote = SetUIElement @p
 
-	$p = @{ type = 'Button'; width = 80; height = 25; top = 470; left = 105; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'EditNote'; text = 'Edit'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Edit Note`nModify the selected note." }
+	$p = @{ type = 'Button'; width = 80; height = 25; top = 470; left = 105; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'EditNote'; text = 'Edit'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Edit Note`nModify the selected note."; noCustomPaint = $true }
 	$btnEditNote = SetUIElement @p
 
-	$p = @{ type = 'Button'; width = 80; height = 25; top = 470; left = 195; bg = @(150, 50, 50); fg = @(240, 240, 240); id = 'RemoveNote'; text = 'Remove'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Remove Note`nDelete the selected note permanently." }
+	$p = @{ type = 'Button'; width = 80; height = 25; top = 470; left = 195; bg = @(150, 50, 50); fg = @(240, 240, 240); id = 'RemoveNote'; text = 'Remove'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Remove Note`nDelete the selected note permanently."; noCustomPaint = $true }
 	$btnRemoveNote = SetUIElement @p
 
 	$tabNotes.Controls.AddRange(@(
@@ -2676,10 +2949,10 @@ function InitializeUI
 	)
 	$NotificationGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]$notificationCols)
 
-	$p = @{ type = 'Button'; width = 120; height = 25; top = 470; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'ShowNotification'; text = 'Show Notification'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Show`nRe-display the selected notification toast." }
+	$p = @{ type = 'Button'; width = 120; height = 25; top = 470; left = 15; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'ShowNotification'; text = 'Show Notification'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Show`nRe-display the selected notification toast."; noCustomPaint = $true }
 	$btnShowNotification = SetUIElement @p
 
-	$p = @{ type = 'Button'; width = 130; height = 25; top = 470; left = 145; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'HideAllNotifications'; text = 'Hide all notifications'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Hide All`nClose all currently visible notification toasts." }
+	$p = @{ type = 'Button'; width = 130; height = 25; top = 470; left = 145; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'HideAllNotifications'; text = 'Hide all notifications'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Hide All`nClose all currently visible notification toasts."; noCustomPaint = $true }
 	$btnHideAllNotifications = SetUIElement @p
 
 	$tabNotifications.Controls.AddRange(@($NotificationGrid, $btnShowNotification, $btnHideAllNotifications))
@@ -2688,6 +2961,21 @@ function InitializeUI
 	#endregion
 
 	#region Tools
+
+	$toolsTabs = New-Object Custom.DarkTabControl
+	$toolsTabs.Location = New-Object System.Drawing.Point(0, 0)
+	$toolsTabs.Size = New-Object System.Drawing.Size(395, 525)
+	$toolsTabs.Anchor = 'Top, Bottom, Left, Right'
+
+	$tabUpgradeCalc = New-Object System.Windows.Forms.TabPage 'Upgrade Calc'
+	$tabUpgradeCalc.BackColor = $Theme.Background
+
+	$tabChestOpener = New-Object System.Windows.Forms.TabPage 'Chest Opener'
+	$tabChestOpener.BackColor = $Theme.Background
+
+	$toolsTabs.TabPages.Add($tabUpgradeCalc)
+	$toolsTabs.TabPages.Add($tabChestOpener)
+	$tabTools.Controls.Add($toolsTabs)
 
 	$p = @{ type = 'Label'; width = 150; text = 'UPGRADE CALCULATOR'; font = (New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)); top = 10; left = 15; fg = @(160, 165, 176); bg = @(15, 18, 25) }
 	$lblCalcTitle = SetUIElement @p
@@ -2710,10 +2998,10 @@ function InitializeUI
 	$p = @{ type = 'Custom.DarkComboBox'; width = 45; height = 25; top = 35; left = 295; bg = @(40,40,40); fg = @(240,240,240); id = 'UpgradeLvlEnd'; font = (New-Object System.Drawing.Font('Segoe UI', 8)) }
 	$ddlUpgradeLvlEnd = SetUIElement @p
 
-	$p = @{ type = 'Button'; width = 370; height = 25; top = 65; left = 15; bg = @(0, 120, 215); fg = @(255, 255, 255); id = 'AddUpgrade'; text = 'Add to List'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
+	$p = @{ type = 'Button'; width = 350; height = 25; top = 65; left = 15; bg = @(0, 120, 215); fg = @(255, 255, 255); id = 'AddUpgrade'; text = 'Add to List'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)); noCustomPaint = $true }
 	$btnAddUpgrade = SetUIElement @p
 
-	$p = @{ type = 'DataGridView'; width = 370; height = 140; top = 100; left = 15; bg = @(22, 26, 38); fg = @(255, 255, 255); id = 'UpgradeCartGrid'; font = (New-Object System.Drawing.Font('Segoe UI', 8)) }
+	$p = @{ type = 'DataGridView'; width = 350; height = 120; top = 98; left = 15; bg = @(22, 26, 38); fg = @(255, 255, 255); id = 'UpgradeCartGrid'; font = (New-Object System.Drawing.Font('Segoe UI', 8)) }
 	$UpgradeCartGrid = SetUIElement @p
 	$UpgradeCartGrid.ColumnHeadersHeight = 25
 	$UpgradeCartGrid.MultiSelect = $false
@@ -2726,17 +3014,17 @@ function InitializeUI
 	)
 	$UpgradeCartGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]$cartCols)
 
-	$p = @{ type = 'Button'; width = 180; height = 25; top = 245; left = 15; bg = @(150, 50, 50); fg = @(255, 255, 255); id = 'RemoveUpgrade'; text = 'Remove'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)) }
+	$p = @{ type = 'Button'; width = 170; height = 25; top = 225; left = 15; bg = @(150, 50, 50); fg = @(255, 255, 255); id = 'RemoveUpgrade'; text = 'Remove'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); noCustomPaint = $true }
 	$btnRemoveUpgrade = SetUIElement @p
-	$p = @{ type = 'Button'; width = 180; height = 25; top = 245; left = 205; bg = @(40, 40, 40); fg = @(255, 255, 255); id = 'ResetUpgrade'; text = 'Reset All'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)) }
+	$p = @{ type = 'Button'; width = 170; height = 25; top = 225; left = 195; bg = @(40, 40, 40); fg = @(255, 255, 255); id = 'ResetUpgrade'; text = 'Reset All'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); noCustomPaint = $true }
 	$btnResetUpgrade = SetUIElement @p
 
-	$p = @{ type = 'Label'; width = 150; text = 'TOTAL MATERIALS REQUIRED'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)); top = 280; left = 15; fg = @(160, 165, 176) }
+	$p = @{ type = 'Label'; width = 150; text = 'TOTAL MATERIALS REQUIRED'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)); top = 258; left = 15; fg = @(160, 165, 176) }
 	$lblMaterialsTitle = SetUIElement @p
-	$p = @{ type = 'CheckBox'; width = 150; height = 20; top = 280; left = 235; bg = @(15, 18, 25); fg = @(160, 165, 176); id = 'UpgradeHideZero'; text = 'Hide Zeros'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); checked = $true }
+	$p = @{ type = 'CheckBox'; width = 150; height = 20; top = 258; left = 225; bg = @(15, 18, 25); fg = @(160, 165, 176); id = 'UpgradeHideZero'; text = 'Hide Zeros'; font = (New-Object System.Drawing.Font('Segoe UI', 7)); checked = $true }
 	$chkUpgradeHideZero = SetUIElement @p
 
-	$p = @{ type = 'DataGridView'; width = 370; height = 180; top = 305; left = 15; bg = @(22, 26, 38); fg = @(255, 255, 255); id = 'UpgradeResultsGrid'; font = (New-Object System.Drawing.Font('Consolas', 9)) }
+	$p = @{ type = 'DataGridView'; width = 350; height = 150; top = 282; left = 15; bg = @(22, 26, 38); fg = @(255, 255, 255); id = 'UpgradeResultsGrid'; font = (New-Object System.Drawing.Font('Consolas', 9)) }
 	$UpgradeResultsGrid = SetUIElement @p
 	$UpgradeResultsGrid.ColumnHeadersVisible = $false
 	$resCols = @(
@@ -2746,12 +3034,12 @@ function InitializeUI
 	$UpgradeResultsGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]$resCols)
 	$UpgradeResultsGrid.DefaultCellStyle.Alignment = 'MiddleLeft'
 
-	$p = @{ type = 'Label'; width = 180; height = 20; top = 490; left = 15; bg = @(15, 18, 25); fg = @(97, 175, 239); id = 'UpgradeTotalPerin'; text = 'Total Perin: 0'; font = (New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)) }
+	$p = @{ type = 'Label'; width = 170; height = 20; top = 440; left = 15; bg = @(15, 18, 25); fg = @(97, 175, 239); id = 'UpgradeTotalPerin'; text = 'Total Perin: 0'; font = (New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)) }
 	$lblTotalPerin = SetUIElement @p
-	$p = @{ type = 'Label'; width = 180; height = 20; top = 490; left = 205; bg = @(15, 18, 25); fg = @(152, 195, 121); id = 'UpgradeTotalEcp'; text = 'Total ECP: 0'; font = (New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)) }
+	$p = @{ type = 'Label'; width = 170; height = 20; top = 440; left = 195; bg = @(15, 18, 25); fg = @(152, 195, 121); id = 'UpgradeTotalEcp'; text = 'Total ECP: 0'; font = (New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)) }
 	$lblTotalEcp = SetUIElement @p
 
-	$tabTools.Controls.AddRange(@(
+	$tabUpgradeCalc.Controls.AddRange(@(
 		$lblCalcTitle,
 		$ddlUpgradeItem, $ddlUpgradeType, $lblLvlStart, $ddlUpgradeLvlStart, $lblLvlEnd, $ddlUpgradeLvlEnd,
 		$btnAddUpgrade,
@@ -2761,7 +3049,98 @@ function InitializeUI
 		$UpgradeResultsGrid,
 		$lblTotalPerin, $lblTotalEcp
 	))
-	
+
+	$p = @{ type = 'Label'; width = 180; text = 'CHEST OPENER'; font = (New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)); top = 10; left = 15; fg = @(160, 165, 176); bg = @(15, 18, 25) }
+	$lblChestTitle = SetUIElement @p
+
+	$p = @{ type = 'Label'; text = 'TARGET WINDOW'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); height = 15; fg = @(160, 165, 176); top = 35; left = 15; bg = @(15, 18, 25); tooltip = "Target Window`nSelect the game client instance to execute chest clicks." }
+	$lblChestWindow = SetUIElement @p
+
+	$p = @{ type = 'Custom.DarkComboBox'; width = 350; height = 25; top = 52; left = 15; bg = @(40,40,40); fg = @(240,240,240); id = 'ChestWindowSelector'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); dropDownStyle = 'DropDownList'; tooltip = "Target Window`nSelect the game client instance to execute chest clicks." }
+	$ddlChestWindow = SetUIElement @p
+
+	$p = @{ type = 'Label'; text = 'CHEST PRESET'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); height = 15; fg = @(160, 165, 176); top = 85; left = 15; bg = @(15, 18, 25); tooltip = "Chest Preset`nSelect the chest type from database presets." }
+	$lblChestPreset = SetUIElement @p
+
+	$p = @{ type = 'Custom.DarkComboBox'; width = 350; height = 25; top = 102; left = 15; bg = @(40,40,40); fg = @(240,240,240); id = 'ChestPresetSelector'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); dropDownStyle = 'DropDownList'; tooltip = "Chest Preset`nSelect the chest type from database presets." }
+	$ddlChestPreset = SetUIElement @p
+
+	$p = @{ type = 'Panel'; width = 350; height = 90; top = 125; left = 15; bg = @(22, 26, 38); id = 'ChestRewardsPanel' }
+	$pnlChestRewards = SetUIElement @p
+	$pnlChestRewards.AutoScroll = $true
+
+	$p = @{ type = 'Label'; text = 'CHEST KEY:'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)); width = 65; fg = @(160, 165, 176); top = 225; left = 15; bg = @(15, 18, 25); tooltip = "Chest Key`nKey pressed in-game to open the chest selection window before reward clicks." }
+	$lblChestItemHotkey = SetUIElement @p
+
+	$p = @{ type = 'Button'; width = 90; height = 24; top = 222; left = 85; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'ChestItemHotkeyBtn'; text = 'Hotkey'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)); tooltip = "Chest Key`nKey pressed in-game to open the chest selection window before reward clicks."; noCustomPaint = $true }
+	$btnChestItemHotkey = SetUIElement @p
+
+	$p = @{ type = 'Label'; text = 'START/STOP:'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)); width = 70; fg = @(160, 165, 176); top = 225; left = 185; bg = @(15, 18, 25); tooltip = "Toggle Hotkey`nKeyboard shortcut to start/stop opening chests." }
+	$lblChestHotkey = SetUIElement @p
+
+	$p = @{ type = 'Button'; width = 105; height = 24; top = 222; left = 260; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'ChestHotkeyBtn'; text = 'Hotkey'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)); tooltip = "Toggle Hotkey`nKeyboard shortcut to start/stop opening chests."; noCustomPaint = $true }
+	$btnChestHotkey = SetUIElement @p
+
+	$p = @{ type = 'Label'; text = 'AMOUNT:'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)); width = 55; fg = @(160, 165, 176); top = 255; left = 15; bg = @(15, 18, 25); tooltip = "Loop Count`nNumber of times to open the chest in sequence." }
+	$lblChestCount = SetUIElement @p
+
+	$p = @{ type = 'TextBox'; width = 50; height = 24; top = 252; left = 75; bg = @(40, 40, 40); fg = @(240, 240, 240); id = 'ChestCountInput'; text = '1'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Loop Count`nNumber of times to open the chest in sequence." }
+	$txtChestCount = SetUIElement @p
+
+	$p = @{ type = 'Label'; width = 230; height = 24; top = 252; left = 135; fg = @(100, 200, 100); bg = @(15, 18, 25); id = 'ChestStatusLabel'; text = 'Status: IDLE'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) }
+	$lblChestStatus = SetUIElement @p
+
+	$p = @{ type = 'Button'; width = 165; height = 24; top = 282; left = 15; bg = @(0, 120, 215); fg = @(255, 255, 255); id = 'AddChestQueue'; text = '+ Add to Queue'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)); tooltip = "Add Chest to Queue`nAdd the current chest preset, reward choices, key, and amount to execution queue."; noCustomPaint = $true }
+	$btnAddChestQueue = SetUIElement @p
+
+	$p = @{ type = 'Button'; width = 85; height = 24; top = 282; left = 185; bg = @(150, 50, 50); fg = @(255, 255, 255); id = 'RemoveChestQueue'; text = 'Remove'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Remove selected chest from queue."; noCustomPaint = $true }
+	$btnRemoveChestQueue = SetUIElement @p
+
+	$p = @{ type = 'Button'; width = 90; height = 24; top = 282; left = 275; bg = @(40, 40, 40); fg = @(255, 255, 255); id = 'ResetChestQueue'; text = 'Clear All'; fs = 'Flat'; font = (New-Object System.Drawing.Font('Segoe UI', 8)); tooltip = "Clear all chests from queue."; noCustomPaint = $true }
+	$btnResetChestQueue = SetUIElement @p
+
+	$p = @{ type = 'DataGridView'; width = 350; height = 155; top = 312; left = 15; bg = @(22, 26, 38); fg = @(255, 255, 255); id = 'ChestQueueGrid'; font = (New-Object System.Drawing.Font('Segoe UI', 8)) }
+	$ChestQueueGrid = SetUIElement @p
+	$ChestQueueGrid.ColumnHeadersHeight = 25
+	$ChestQueueGrid.MultiSelect = $false
+	$ChestQueueGrid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
+
+	$queueCols = @(
+		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ HeaderText = '#'; FillWeight = 10; ReadOnly = $true }),
+		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ HeaderText = 'Chest'; FillWeight = 50; ReadOnly = $true }),
+		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ HeaderText = 'Key'; FillWeight = 15; ReadOnly = $true }),
+		(New-Object System.Windows.Forms.DataGridViewTextBoxColumn -Property @{ HeaderText = 'Amount'; FillWeight = 15; ReadOnly = $true })
+	)
+	$ChestQueueGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]$queueCols)
+
+	$tabChestOpener.Controls.AddRange(@(
+		$lblChestTitle,
+		$lblChestWindow, $ddlChestWindow,
+		$lblChestPreset, $ddlChestPreset,
+		$pnlChestRewards,
+		$lblChestItemHotkey, $btnChestItemHotkey,
+		$lblChestHotkey, $btnChestHotkey,
+		$lblChestCount, $txtChestCount,
+		$lblChestStatus,
+		$btnAddChestQueue, $btnRemoveChestQueue, $btnResetChestQueue,
+		$ChestQueueGrid
+	))
+
+	$uiPropertiesToAdd.ChestWindowSelector  = $ddlChestWindow
+	$uiPropertiesToAdd.ChestPresetSelector  = $ddlChestPreset
+	$uiPropertiesToAdd.ChestRewardsPanel    = $pnlChestRewards
+	$uiPropertiesToAdd.ChestCountInput      = $txtChestCount
+	$uiPropertiesToAdd.ChestItemHotkeyBtn   = $btnChestItemHotkey
+	$uiPropertiesToAdd.ChestHotkeyBtn       = $btnChestHotkey
+	$uiPropertiesToAdd.ChestHotkeySelector  = $btnChestHotkey
+	$uiPropertiesToAdd.ChestStatusLabel     = $lblChestStatus
+	$uiPropertiesToAdd.ChestQueueGrid       = $ChestQueueGrid
+	$uiPropertiesToAdd.AddChestQueue         = $btnAddChestQueue
+	$uiPropertiesToAdd.RemoveChestQueue      = $btnRemoveChestQueue
+	$uiPropertiesToAdd.ResetChestQueue       = $btnResetChestQueue
+	if (-not $global:DashboardConfig.Resources.ChestQueue) { $global:DashboardConfig.Resources.ChestQueue = [System.Collections.ArrayList]::new() }
+	$uiPropertiesToAdd.ChestQueue            = $global:DashboardConfig.Resources.ChestQueue
+
 	$uiPropertiesToAdd.UpgradeItemSelector = $ddlUpgradeItem
 	$uiPropertiesToAdd.UpgradeTypeSelector = $ddlUpgradeType
 	$uiPropertiesToAdd.UpgradeLvlStart = $ddlUpgradeLvlStart
@@ -2805,6 +3184,141 @@ function InitializeUI
 		HandleUpgradeCartRowsAdded
 	}.GetNewClosure())
 
+	$ddlChestPreset.Add_SelectedIndexChanged({
+		if (Get-Command Update-ChestRewardControls -ErrorAction SilentlyContinue) {
+			Update-ChestRewardControls
+		}
+	}.GetNewClosure())
+
+	$ddlChestWindow.Add_DropDown({
+		if (Get-Command Update-ChestOpenerWindowList -ErrorAction SilentlyContinue) {
+			Update-ChestOpenerWindowList
+		}
+	}.GetNewClosure())
+
+	$btnAddChestQueue.Add_Click({
+		if (Get-Command Add-ChestToQueue -ErrorAction SilentlyContinue) {
+			Add-ChestToQueue
+		}
+	}.GetNewClosure())
+
+	$btnRemoveChestQueue.Add_Click({
+		if (Get-Command Remove-ChestFromQueue -ErrorAction SilentlyContinue) {
+			Remove-ChestFromQueue
+		}
+	}.GetNewClosure())
+
+	$btnResetChestQueue.Add_Click({
+		if (Get-Command Reset-ChestQueue -ErrorAction SilentlyContinue) {
+			Reset-ChestQueue
+		}
+	}.GetNewClosure())
+
+	$btnChestItemHotkey.Add_Click({
+		$currentKey = $btnChestItemHotkey.Text
+		if ($currentKey -eq 'Hotkey' -or $currentKey -eq 'none') { $currentKey = $null }
+
+		$ownerForm = if ($global:DashboardConfig.UI.MainForm) { $global:DashboardConfig.UI.MainForm } else { $this.FindForm() }
+		$newKey = Show-KeyCaptureDialog -currentKey $currentKey -OwnerForm $ownerForm
+
+		if ($null -ne $newKey -and $newKey -ne $currentKey) {
+			$btnChestItemHotkey.Text = $newKey
+			if (-not $global:DashboardConfig.Config.Contains('ChestOpener')) {
+				$global:DashboardConfig.Config['ChestOpener'] = [ordered]@{}
+			}
+			$global:DashboardConfig.Config['ChestOpener']['ItemHotkey'] = $newKey
+			if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$false) { WriteConfig }
+		}
+		elseif (-not $newKey) {
+			$btnChestItemHotkey.Text = 'Hotkey'
+			if (-not $global:DashboardConfig.Config.Contains('ChestOpener')) {
+				$global:DashboardConfig.Config['ChestOpener'] = [ordered]@{}
+			}
+			$global:DashboardConfig.Config['ChestOpener']['ItemHotkey'] = ''
+			if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$false) { WriteConfig }
+		}
+	}.GetNewClosure())
+
+	$btnChestHotkey.Add_Click({
+		$currentKey = $btnChestHotkey.Text
+		if ($currentKey -eq 'Hotkey' -or $currentKey -eq 'none') { $currentKey = $null }
+
+		$ownerForm = if ($global:DashboardConfig.UI.MainForm) { $global:DashboardConfig.UI.MainForm } else { $this.FindForm() }
+		$newKey = Show-KeyCaptureDialog -currentKey $currentKey -OwnerForm $ownerForm
+
+		$oldHotkeyId = $global:DashboardConfig.State['ChestHotkeyId']
+		if ($null -ne $newKey -and $newKey -ne $currentKey) {
+			$btnChestHotkey.Text = $newKey
+
+			$scriptBlock = {
+				$fgHwnd = [Custom.Native]::GetForegroundWindow()
+
+				$selectedWindow = $global:DashboardConfig.UI.ChestWindowSelector.SelectedItem
+
+				if ($selectedWindow) {
+					$targetHwnd = [IntPtr]::Zero
+
+					if ($selectedWindow -is [IntPtr]) {
+						$targetHwnd = $selectedWindow
+					} elseif ($selectedWindow.HWnd) {
+						$targetHwnd = [IntPtr]$selectedWindow.HWnd
+					} elseif ($selectedWindow.Handle) {
+						$targetHwnd = [IntPtr]$selectedWindow.Handle
+					} elseif ($selectedWindow.MainWindowHandle) {
+						$targetHwnd = [IntPtr]$selectedWindow.MainWindowHandle
+					}
+
+					if ($targetHwnd -ne [IntPtr]::Zero -and $fgHwnd -ne $targetHwnd) {
+						return
+					}
+				}
+
+				if ($script:SyncState.IsRunning) {
+					Stop-ChestOpener
+				} else {
+					Start-ChestOpener
+				}
+			}
+
+			try {
+				$global:DashboardConfig.State['ChestHotkeyId'] = SetHotkey -KeyCombinationString $newKey -Action $scriptBlock -OwnerKey 'ChestOpener' -OwnerLabel 'Chest Opener' -OldHotkeyId $oldHotkeyId
+			} catch {
+				Write-Warning "ChestOpener: Failed to register hotkey $newKey : $_"
+			}
+
+			if (-not $global:DashboardConfig.Config.Contains('ChestOpener')) {
+				$global:DashboardConfig.Config['ChestOpener'] = [ordered]@{}
+			}
+			$global:DashboardConfig.Config['ChestOpener']['Hotkey'] = $newKey
+			if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$false) { WriteConfig }
+		}
+		elseif (-not $newKey -and $oldHotkeyId) {
+			try { UnregisterHotkeyInstance -Id $oldHotkeyId -OwnerKey 'ChestOpener' } catch {}
+			$global:DashboardConfig.State['ChestHotkeyId'] = $null
+			$btnChestHotkey.Text = 'Hotkey'
+			if (-not $global:DashboardConfig.Config.Contains('ChestOpener')) {
+				$global:DashboardConfig.Config['ChestOpener'] = [ordered]@{}
+			}
+			$global:DashboardConfig.Config['ChestOpener']['Hotkey'] = ''
+			if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$false) { WriteConfig }
+		}
+	}.GetNewClosure())
+
+	@( $btnBrowseLauncher, $btnBrowseJunction, $btnAddProfile, $btnRenameProfile, $btnRemoveProfile, $btnAddSetup, $btnEditSetup, $btnRenameSetup, $btnMasterPauseHotkey, $btnMasterResumeHotkey, $btnRefreshBosses, $btnAddNote, $btnEditNote, $btnShowNotification, $btnHideAllNotifications, $btnResetUpgrade, $btnChestHotkey, $btnChestItemHotkey, $btnResetChestQueue ) | ForEach-Object {
+		Register-ButtonFadeEffect -Button $_ -NormalStartColor $grayNormalStart -NormalEndColor $grayNormalEnd -HoverStartColor $grayHoverStart -HoverEndColor $grayHoverEnd -LeftPressedStartColor $grayLeftStart -LeftPressedEndColor $grayLeftEnd -RightPressedStartColor $grayRightStart -RightPressedEndColor $grayRightEnd
+	}
+
+	@( $btnDeleteProfile, $btnDeleteSetup, $btnUnregisterHotkey, $btnCancel, $btnRemoveNote, $btnRemoveUpgrade, $btnRemoveChestQueue ) | ForEach-Object {
+		Register-ButtonFadeEffect -Button $_ -NormalStartColor $redNormalStart -NormalEndColor $redNormalEnd -HoverStartColor $redHoverStart -HoverEndColor $redHoverEnd -LeftPressedStartColor $redLeftStart -LeftPressedEndColor $redLeftEnd -RightPressedStartColor $redRightStart -RightPressedEndColor $redRightEnd
+	}
+
+	@( $btnStartJunction, $btnSave ) | ForEach-Object {
+		Register-ButtonFadeEffect -Button $_ -NormalStartColor $greenNormalStart -NormalEndColor $greenNormalEnd -HoverStartColor $greenHoverStart -HoverEndColor $greenHoverEnd -LeftPressedStartColor $greenLeftStart -LeftPressedEndColor $greenLeftEnd -RightPressedStartColor $greenRightStart -RightPressedEndColor $greenRightEnd
+	}
+
+	@( $btnCopyNeuz, $btnAddUpgrade, $btnAddChestQueue ) | ForEach-Object {
+		Register-ButtonFadeEffect -Button $_ -NormalStartColor $blueNormalStart -NormalEndColor $blueNormalEnd -HoverStartColor $blueHoverStart -HoverEndColor $blueHoverEnd -LeftPressedStartColor $blueLeftStart -LeftPressedEndColor $blueLeftEnd -RightPressedStartColor $blueRightStart -RightPressedEndColor $blueRightEnd
+	}
 
 	$ExtraForm.Controls.AddRange(@(
 		$lblTitle,
@@ -2871,6 +3385,7 @@ function InitializeUI
 		InputPostLoginDelay                = $txtPostLoginDelay
 		LoginProfileSelector               = $ddlLoginProfile
 		ResolutionSelector                 = $ddlResolution
+		DirectXSelector                    = $ddlDirectX
 		HotkeysGrid                        = $HotkeysGrid
 		MasterPauseHotkeyBtn               = $btnMasterPauseHotkey
 		MasterResumeHotkeyBtn              = $btnMasterResumeHotkey
@@ -3177,7 +3692,7 @@ function RegisterUIEventHandlers
 				{
 					$errorMessage = "Login action failed.`n`nCould not find or execute the 'LoginSelectedRow' function. The 'login.psm1' module may have failed to load correctly.`n`nTechnical Details: $($_.Exception.Message)"
 					try { ShowErrorDialog -Message $errorMessage }
-					catch { Show-DarkMessageBox$errorMessage 'Login Error' 'Ok' 'Error' }
+					catch { Show-DarkMessageBox $errorMessage 'Login Error' 'Ok' 'Error' }
 				}
 			}
 		}
@@ -3372,9 +3887,11 @@ function RegisterUIEventHandlers
 		Extra                      = @{ MouseDown = {
 			param($s,$e)
 				if ($e.Button -eq 'Left') {
-				ShowExtraForm
-				if (Get-Command RefreshNoteGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNoteGrid }
-				if (Get-Command RefreshNotificationGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNotificationGrid }
+					ShowExtraForm
+					if (Get-Command RefreshNoteGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNoteGrid }
+					if (Get-Command RefreshNotificationGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNotificationGrid }
+					if (Get-Command Initialize-ChestOpener -ErrorAction SilentlyContinue) { Initialize-ChestOpener }
+					if (Get-Command Update-ChestOpenerWindowList -ErrorAction SilentlyContinue) { Update-ChestOpenerWindowList }
 				}
 				if ($e.Button -eq 'Right') {
 					if (Get-Command ChatCommanderSelectedRow -EA 0 -Verbose:$False) { $global:DashboardConfig.UI.DataGridMain.SelectedRows | ForEach-Object { ChatCommanderSelectedRow $_ } }
@@ -3391,7 +3908,7 @@ function RegisterUIEventHandlers
 				{
 					$errorMessage = "Wiki action failed.`n`nCould not find or execute the 'Show-Wiki' function. The 'wiki.psm1' module may have failed to load correctly.`n`nTechnical Details: $($_.Exception.Message)"
 					try { ShowErrorDialog -Message $errorMessage }
-					catch { Show-DarkMessageBox$errorMessage 'Wiki Error' 'Ok' 'Error' }
+					catch { Show-DarkMessageBox $errorMessage 'Wiki Error' 'Ok' 'Error' }
 				}
 			}
 		}
@@ -5274,7 +5791,6 @@ function SetUIElement
 
 	return $el
 }
-
 
 #endregion
 

@@ -1,26 +1,20 @@
 Author: Immortal / Divine
-Version: 2.8.1
+Version: 2.8.2
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 [Changelogs]
    - Added:
 
-	- You can now set hotkeys to pause/resume ALL hotkeys at once in the settings hotkey tab. 
-	- You can save a Ftool/Macro template now. 
-	  - Right click the Ftool/Macro button to instead save/load the session for the selected client.
-	- You can move the Ftool/Macro window anywhere now on the screen.
-	  - It remains anchored to the client too.
-	- Added an Upgrade Calculator in Extras.
+	- Chest Opener for chests with multiple reward sites and RPS Player in the Extra tab.
+	- You can now switch the DirectX Version in the Login Settings of each profile.
+	- Import feature for macros. You can now import .mgp files from MacroGamer.
+	- The first macro name is now displayed next to the macro window title when minimized.
+	- QuickCommands window is now also dragable like ftool and macro.
+	- Visual UI button changes.
 
    - Fixed:
 
-	- Re-enabled the boss report.
-	- Fixed hotkeys when Ftool/Macro were activated with the master toggle off.
-	  - If any hotkey ever gets stuck, check the settings hotkey tab.
-	- You can now also use the Ctrl hotbar of the game in addition to the Alt hotbar.
-	- Auto Start with windows didnt work on some machines, remove and set the checkbox again to fix.
-
-
+	- Multiple fixes and improvements to the macro logic.
 
 
    Dont forget to request your Access Code in Discord for the Worldboss Feature!

@@ -167,124 +167,147 @@ function CreateChatCommanderPositionTimer
         Form         = $formData.Form
         InstanceId   = $formData.InstanceId
         FormData     = $formData
-        ZState       = 'unknown' 
-		RealLeft     = $formData.Form.Left
-		RealTop      = $formData.Form.Top
+        ZState       = 'unknown'
+        RealLeft     = $formData.Form.Left
+        RealTop      = $formData.Form.Top
+        ClientRect   = (New-Object Custom.Native+RECT)
     }
         
     $positionTimer.Add_Tick({
-            param($s, $e)
-            try
-            {
-                if (-not $s -or -not $s.Tag) { return }
-                $timerData = $s.Tag
-                if (-not $timerData -or $timerData['WindowHandle'] -eq [IntPtr]::Zero) { return }
-                if (-not $timerData['Form'] -or $timerData['Form'].IsDisposed) { return }
-            
-                $rect = New-Object Custom.Native+RECT
-                    
-                if ([Custom.Native]::IsWindow($timerData['WindowHandle']) -and [Custom.Native]::GetWindowRect($timerData['WindowHandle'], [ref]$rect))
-                {
-                    try
-                    {
-                        $sliderValueX = $timerData.FormData.PositionSliderX.Value
-                        $maxLeft = $rect.Right - $timerData['Form'].Width - 8
-                        $targetLeft = $rect.Left + 8 + (($maxLeft - ($rect.Left + 8)) * $sliderValueX / 100)
-                            
-                        $sliderValueY = 100 - $timerData.FormData.PositionSliderY.Value
-                        $maxTop = $rect.Bottom - $timerData['Form'].Height - 8
-                        $targetTop = $rect.Top + 8 + (($maxTop - ($rect.Top + 8)) * $sliderValueY / 100)
+        param($s, $e)
+        try
+        {
+            if (-not $s -or -not $s.Tag) { $s.Stop(); $s.Dispose(); return }
+            $timerData = $s.Tag
+            if (-not $timerData -or -not $timerData.ContainsKey('Form') -or -not $timerData['Form'] -or $timerData['Form'].IsDisposed) { $s.Stop(); $s.Dispose(); return }
 
-                        
-                        $newRealLeft = $timerData.RealLeft + ($targetLeft - $timerData.RealLeft) * 0.2
-                        $newRealTop = $timerData.RealTop + ($targetTop - $timerData.RealTop) * 0.2
-                        
-                        $timerData.RealLeft = $newRealLeft
-                        $timerData.RealTop = $newRealTop
+            $form     = $timerData.Form
+            $formData = $timerData.FormData
+            if (-not $formData -or -not $formData.PositionSliderX -or -not $formData.PositionSliderY) { return }
 
-                        
-                        $timerData['Form'].Left = [int]$newRealLeft
-                        $timerData['Form'].Top = [int]$newRealTop
-                                                
-                        $formHandle = $timerData['Form'].Handle
-                        $linkedHandle = $timerData['WindowHandle']
-                        $foregroundWindow = [Custom.Native]::GetForegroundWindow()
-                        $flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
-                        
-                        $shouldBeTopMost = $false
-                        if ($foregroundWindow -eq $linkedHandle) {
-                            $shouldBeTopMost = $true
-                        } else {
-                            $activeCtrl = [System.Windows.Forms.Control]::FromHandle($foregroundWindow)
-                            if ($activeCtrl -and -not $activeCtrl.IsDisposed -and $activeCtrl.Tag) {
-                                if ($activeCtrl.Tag.PSObject.Properties['SelectedWindow'] -and $activeCtrl.Tag.SelectedWindow -eq $linkedHandle) {
-                                    $shouldBeTopMost = $true
-                                }
-                            }
-                        }
-
-                        if ($shouldBeTopMost)
-                        {
-                            $forceUpdate = $false
-                            if ($foregroundWindow -eq $linkedHandle) {
-                                $testPrev = [Custom.Native]::GetWindow($formHandle, 3)
-                                $checkCount = 0
-                                while ($testPrev -ne [IntPtr]::Zero -and $checkCount -lt 50) {
-                                    if ($testPrev -eq $linkedHandle) { $forceUpdate = $true; break }
-                                    $testPrev = [Custom.Native]::GetWindow($testPrev, 3)
-                                    $checkCount++
-                                }
-                            }
-
-                            if ($timerData.ZState -ne 'topmost' -or $forceUpdate)
-                            {
-                                if ($forceUpdate) {
-                                    [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-                                }
-                                [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-                                $timerData.ZState = 'topmost'
-                            }
-                        }
-                        else
-                        {
-                            if ($timerData.ZState -ne 'standard')
-                            {
-                                [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null
-                                $timerData.ZState = 'standard'
-                            }
-
-                            $next = [Custom.Native]::GetWindow($formHandle, 2) 
-                            $amIAboveGame = $false
-                            $loopCount = 0
-                            
-                            while ($next -ne [IntPtr]::Zero -and $loopCount -lt 50)
-                            {
-                                if ($next -eq $linkedHandle) { $amIAboveGame = $true; break }
-                                $next = [Custom.Native]::GetWindow($next, 2)
-                                $loopCount++
-                            }
-
-                            if (-not $amIAboveGame)
-                            {
-                                $bottomOfCluster = [Custom.Native]::GetWindow($linkedHandle, 3)
-                                if ($bottomOfCluster -ne [IntPtr]::Zero) { [Custom.Native]::PositionWindow($formHandle, $bottomOfCluster, 0, 0, 0, 0, $flags) | Out-Null }
-                                else { [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::TopWindowHandle, 0, 0, 0, 0, $flags) | Out-Null }
-                            }
-                        }
-                        $timerData.LastForegroundWindow = $foregroundWindow
-                    }
-                    catch {}
-                }
-                else
-                {
-                    $timerData['Form'].Close()
-                    $s.Stop()
-                    $s.Dispose()
-                    $global:DashboardConfig.Resources.Timers.Remove("ChatCommanderPosition_$($timerData.InstanceId)")
-                }
+            $isMinimized = $false
+            if ($timerData.ContainsKey('WindowHandle') -and $timerData.WindowHandle -ne [IntPtr]::Zero) {
+                $isMinimized = [Custom.Native]::IsWindowMinimized($timerData.WindowHandle)
             }
-            catch {}
-        })
+
+            if ($isMinimized) {
+                $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+                $sliderValueX = $formData.PositionSliderX.Value
+                $sliderValueY = $formData.PositionSliderY.Value
+                $minLeft = $virtual.Left + 8
+                $maxLeft = $virtual.Right - $form.Width - 8
+                $timerData.RealLeft = [Math]::Max($minLeft, [Math]::Min($maxLeft, $sliderValueX))
+                $minTop = $virtual.Top + 8
+                $maxTop = $virtual.Bottom - $form.Height - 8
+                $timerData.RealTop = [Math]::Max($minTop, [Math]::Min($maxTop, $sliderValueY))
+                if ($form.Visible) { $form.Hide() }
+                return
+            } else {
+                if (-not $form.Visible) { $form.Show() }
+            }
+
+            $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            try {
+                if ($timerData.ContainsKey('WindowHandle') -and $timerData.WindowHandle -and $timerData.WindowHandle -ne [IntPtr]::Zero) {
+                    $currRect = New-Object Custom.Native+RECT
+                    if ([Custom.Native]::GetWindowRect($timerData.WindowHandle, [ref]$currRect)) {
+                        if ($timerData.ClientRect -and ($timerData.ClientRect.Left -ne 0 -or $timerData.ClientRect.Top -ne 0 -or $timerData.ClientRect.Right -ne 0 -or $timerData.ClientRect.Bottom -ne 0)) {
+                            $dx = $currRect.Left - $timerData.ClientRect.Left
+                            $dy = $currRect.Top - $timerData.ClientRect.Top
+                            if (($dx -ne 0 -or $dy -ne 0) -and -not ($formData.IsDragging)) {
+                                try {
+                                    $minX = $formData.PositionSliderX.Minimum
+                                    $maxX = $formData.PositionSliderX.Maximum
+                                    $minX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $minX))
+                                    $maxX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $maxX))
+                                    if ($minX -gt $maxX) { $tmp = $minX; $minX = $maxX; $maxX = $tmp }
+                                    $newX = [int]([Math]::Max($minX, [Math]::Min($maxX, $formData.PositionSliderX.Value + $dx)))
+                                    $formData.PositionSliderX.Value = $newX
+
+                                    $minY = $formData.PositionSliderY.Minimum
+                                    $maxY = $formData.PositionSliderY.Maximum
+                                    $minY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $minY))
+                                    $maxY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $maxY))
+                                    if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
+                                    $newY = [int]([Math]::Max($minY, [Math]::Min($maxY, $formData.PositionSliderY.Value + $dy)))
+                                    $formData.PositionSliderY.Value = $newY
+
+                                    $timerData.RealLeft = $timerData.RealLeft + $dx
+                                    $timerData.RealTop  = $timerData.RealTop  + $dy
+                                } catch {}
+                            }
+                        }
+                        $timerData.ClientRect = $currRect
+                    }
+                }
+            } catch {}
+
+            $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            $sliderValueX = $formData.PositionSliderX.Value
+            $sliderValueY = $formData.PositionSliderY.Value
+
+            $minLeft = $virtual.Left + 8
+            $maxLeft = $virtual.Right - $form.Width - 8
+            $targetLeft = [Math]::Max($minLeft, [Math]::Min($maxLeft, $sliderValueX))
+
+            $minTop = $virtual.Top + 8
+            $maxTop = $virtual.Bottom - $form.Height - 8
+            $targetTop = [Math]::Max($minTop, [Math]::Min($maxTop, $sliderValueY))
+
+            $newRealLeft = $timerData.RealLeft + ($targetLeft - $timerData.RealLeft) * 0.2
+            $newRealTop  = $timerData.RealTop  + ($targetTop  - $timerData.RealTop)  * 0.2
+            $timerData.RealLeft = $newRealLeft
+            $timerData.RealTop  = $newRealTop
+
+            $form.Left = [int]$newRealLeft
+            $form.Top  = [int]$newRealTop
+
+            $formHandle = $form.Handle
+            $flags = [Custom.Native]::SWP_NOMOVE -bor [Custom.Native]::SWP_NOSIZE -bor [Custom.Native]::SWP_NOACTIVATE
+
+            if ($timerData.ContainsKey('WindowHandle') -and $timerData.WindowHandle -and $timerData.WindowHandle -ne [IntPtr]::Zero) {
+                $linkedHandle = $timerData.WindowHandle
+                $foregroundWindow = [Custom.Native]::GetForegroundWindow()
+                $shouldBeTopMost = $false
+                if ($foregroundWindow -eq $linkedHandle) { $shouldBeTopMost = $true }
+                else {
+                    $activeCtrl = [System.Windows.Forms.Control]::FromHandle($foregroundWindow)
+                    if ($activeCtrl -and -not $activeCtrl.IsDisposed -and $activeCtrl.Tag) {
+                        if ($activeCtrl.Tag.PSObject.Properties['SelectedWindow'] -and $activeCtrl.Tag.SelectedWindow -eq $linkedHandle) { $shouldBeTopMost = $true }
+                    }
+                }
+
+                if ($shouldBeTopMost) {
+                    $forceUpdate = $false
+                    if ($foregroundWindow -eq $linkedHandle) {
+                        $testPrev = [Custom.Native]::GetWindow($formHandle, 3)
+                        $checkCount = 0
+                        while ($testPrev -ne [IntPtr]::Zero -and $checkCount -lt 50) {
+                            if ($testPrev -eq $linkedHandle) { $forceUpdate = $true; break }
+                            $testPrev = [Custom.Native]::GetWindow($testPrev, 3)
+                            $checkCount++
+                        }
+                    }
+                    if ($timerData.ZState -ne 'topmost' -or $forceUpdate) {
+                        if ($forceUpdate) { [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null }
+                        [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_TOPMOST, 0, 0, 0, 0, $flags) | Out-Null
+                        $timerData.ZState = 'topmost'
+                    }
+                } else {
+                    if ($timerData.ZState -ne 'standard') { [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null; $timerData.ZState = 'standard' }
+                    $next = [Custom.Native]::GetWindow($formHandle, 2)
+                    $amIAboveGame = $false; $loopCount = 0
+                    while ($next -ne [IntPtr]::Zero -and $loopCount -lt 50) { if ($next -eq $linkedHandle) { $amIAboveGame = $true; break }; $next = [Custom.Native]::GetWindow($next, 2); $loopCount++ }
+                    if (-not $amIAboveGame) { $bottomOfCluster = [Custom.Native]::GetWindow($linkedHandle, 3); if ($bottomOfCluster -ne [IntPtr]::Zero) { [Custom.Native]::PositionWindow($formHandle, $bottomOfCluster, 0, 0, 0, 0, $flags) | Out-Null } else { [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::TopWindowHandle, 0, 0, 0, 0, $flags) | Out-Null } }
+                }
+            } else {
+                if ($timerData.ZState -ne 'standard') { [Custom.Native]::PositionWindow($formHandle, [Custom.Native]::HWND_NOTOPMOST, 0, 0, 0, 0, $flags) | Out-Null; $timerData.ZState = 'standard' }
+            }
+        }
+        catch {
+            Write-Verbose ('CHATCOMMANDER: Position timer critical error: {0}' -f $_.Exception.Message)
+        }
+    })
     
     $positionTimer.Start()
     $global:DashboardConfig.Resources.Timers["ChatCommanderPosition_$($formData.InstanceId)"] = $positionTimer
@@ -804,8 +827,28 @@ function LoadChatCommanderSettings
         }
         else { $formData.BtnHotkeyToggle.Checked = $true }
 
-        if ($cfg.Contains("PosX_$p")) { $formData.PositionSliderX.Value = [int]$cfg["PosX_$p"] }
-        if ($cfg.Contains("PosY_$p")) { $formData.PositionSliderY.Value = [int]$cfg["PosY_$p"] }
+        if ($cfg.Contains("PosX_$p")) {
+            $positionValue = [int]$cfg["PosX_$p"]
+            $min = $formData.PositionSliderX.Minimum
+            $max = $formData.PositionSliderX.Maximum
+            if ($min -gt $max) { $tmp = $min; $min = $max; $max = $tmp }
+            $formData.PositionSliderX.Value = [Math]::Max($min, [Math]::Min($max, $positionValue))
+        } else {
+            $min = $formData.PositionSliderX.Minimum
+            $max = $formData.PositionSliderX.Maximum
+            $formData.PositionSliderX.Value = [Math]::Max($min, [Math]::Min($max, $formData.Form.Left))
+        }
+        if ($cfg.Contains("PosY_$p")) {
+            $positionValue = [int]$cfg["PosY_$p"]
+            $min = $formData.PositionSliderY.Minimum
+            $max = $formData.PositionSliderY.Maximum
+            if ($min -gt $max) { $tmp = $min; $min = $max; $max = $tmp }
+            $formData.PositionSliderY.Value = [Math]::Max($min, [Math]::Min($max, $positionValue))
+        } else {
+            $min = $formData.PositionSliderY.Minimum
+            $max = $formData.PositionSliderY.Maximum
+            $formData.PositionSliderY.Value = [Math]::Max($min, [Math]::Min($max, $formData.Form.Top))
+        }
 
         
         $globalCommands = [System.Collections.ArrayList]::new()
@@ -1307,21 +1350,35 @@ function CreateChatCommanderForm
         }
     })
 
+    $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $maxX = $virtual.Right
+    $maxY = $virtual.Bottom
+    $minX = $virtual.Left
+    $minX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $minX))
+    $maxX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $maxX))
+    if ($minX -gt $maxX) { $tmp = $minX; $minX = $maxX; $maxX = $tmp }
+    $minY = $virtual.Top
+    $minY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $minY))
+    $maxY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $maxY))
+    if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
+
     $positionSliderY = New-Object System.Windows.Forms.TrackBar
     $positionSliderY.Orientation = 'Vertical'
-    $positionSliderY.Minimum = -18
-    $positionSliderY.Maximum = 118
+    $positionSliderY.Minimum = $minY
+    $positionSliderY.Maximum = $maxY
     $positionSliderY.TickFrequency = 300
-    $positionSliderY.Value = 100
+    $initialY = [Math]::Max($minY, [Math]::Min($maxY, $ChatCommanderForm.Top))
+    $positionSliderY.Value = $initialY
     $positionSliderY.Size = New-Object System.Drawing.Size(15, 110)
     $positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
     $ChatCommanderForm.Controls.Add($positionSliderY)
         
     $positionSliderX = New-Object System.Windows.Forms.TrackBar
-    $positionSliderX.Minimum = -25
-    $positionSliderX.Maximum = 125
+    $positionSliderX.Minimum = $minX
+    $positionSliderX.Maximum = $maxX
     $positionSliderX.TickFrequency = 300
-    $positionSliderX.Value = 100
+    $initialX = [Math]::Max($minX, [Math]::Min($maxX, $ChatCommanderForm.Left))
+    $positionSliderX.Value = $initialX
     $positionSliderX.Size = New-Object System.Drawing.Size(190, 15)
     $positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
     $ChatCommanderForm.Controls.Add($positionSliderX)
@@ -1390,6 +1447,7 @@ function CreateChatCommanderForm
     
     CreateChatCommanderPositionTimer $formData | Out-Null
     LoadChatCommanderSettings $formData | Out-Null
+    AddChatCommanderDragHandlers $formData | Out-Null
     ToggleChatCommanderHotkeys -InstanceId $formData.InstanceId -ToggleState $formData.BtnHotkeyToggle.Checked | Out-Null
 
     if (-not [string]::IsNullOrEmpty($formData.GlobalHotkey))
@@ -1424,6 +1482,14 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.Instance
     }
 
     AddChatCommanderEventHandlers $formData | Out-Null
+
+    if ($formData.IsCollapsed) {
+        $ChatCommanderForm.Height = 26
+        $formData.BtnShowHide.Text = [char]0x25BC
+    } else {
+        $ChatCommanderForm.Height = $formData.OriginalHeight
+        $formData.BtnShowHide.Text = [char]0x25B2
+    }
     
     return $ChatCommanderForm
 }
@@ -1964,8 +2030,12 @@ function AddChatCommanderEventHandlers
             
             $data.Name.Text = "New"
             $data.BtnHotkeyToggle.Checked = $true
-            $data.PositionSliderX.Value = 100
-            $data.PositionSliderY.Value = 100
+            $minX = $data.PositionSliderX.Minimum
+            $maxX = $data.PositionSliderX.Maximum
+            $minY = $data.PositionSliderY.Minimum
+            $maxY = $data.PositionSliderY.Maximum
+            $data.PositionSliderX.Value = [Math]::Max($minX, [Math]::Min($maxX, $data.Form.Left))
+            $data.PositionSliderY.Value = [Math]::Max($minY, [Math]::Min($maxY, $data.Form.Top))
             $data.EditingCommandId = $null
             $data.BtnAdd.Text = ([char]0x2795) + ' Add'
             $data.BtnAdd.BackColor = [System.Drawing.Color]::FromArgb(40, 80, 80)
@@ -2215,13 +2285,19 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
     $formData.PositionSliderX.Add_ValueChanged({
         $form = $this.FindForm()
         if (-not $form -or -not $form.Tag) { return }
-        UpdateChatCommanderSettings $form.Tag -forceWrite
+        $data = $form.Tag
+        if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging) {
+            UpdateChatCommanderSettings $data -forceWrite
+        }
     })
 
     $formData.PositionSliderY.Add_ValueChanged({
         $form = $this.FindForm()
         if (-not $form -or -not $form.Tag) { return }
-        UpdateChatCommanderSettings $form.Tag -forceWrite
+        $data = $form.Tag
+        if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging) {
+            UpdateChatCommanderSettings $data -forceWrite
+        }
     })
 
     $formData.txtSearchCommands.Add_TextChanged({
@@ -2344,6 +2420,140 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
         $instanceId = $src.Tag.InstanceId
         if ($instanceId) { CleanupChatCommanderResources $instanceId }
     })
+}
+
+function UpdateChatCommanderSliderValuesFromFormPosition {
+    param($formData, $windowRect)
+
+    if (-not $formData -or -not $formData.PSObject.Properties['PositionSliderX'] -or -not $formData.PSObject.Properties['PositionSliderY']) { return }
+    if (-not $windowRect) { return }
+
+    try {
+        $form = $formData.Form
+        if (-not $form -or $form.IsDisposed) { return }
+
+        $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        $maxX = $virtual.Right
+        $maxY = $virtual.Bottom
+        $minX = $virtual.Left
+        $minY = $virtual.Top
+
+        $sliderX = [Math]::Max($minX, [Math]::Min($maxX, $form.Left))
+        $formData.PositionSliderX.Value = $sliderX
+
+        $sliderY = [Math]::Max($minY, [Math]::Min($maxY, $form.Top))
+        $formData.PositionSliderY.Value = $sliderY
+    }
+    catch {
+        Write-Verbose ('CHATCOMMANDER: Error updating slider values from form position: {0}' -f $_.Exception.Message)
+    }
+}
+
+function AddChatCommanderDragHandlers {
+    param($formData)
+
+    if (-not $formData -or -not $formData.PSObject.Properties['Form']) { return }
+    $form = $formData.Form
+    if ($form.IsDisposed) { return }
+
+    if (-not $formData.PSObject.Properties['IsDragging']) {
+        $formData | Add-Member -MemberType NoteProperty -Name 'IsDragging' -Value $false
+    }
+    if (-not $formData.PSObject.Properties['DragStart']) {
+        $formData | Add-Member -MemberType NoteProperty -Name 'DragStart' -Value @{ X = 0; Y = 0; FormX = 0; FormY = 0 }
+    }
+    if (-not $formData.PSObject.Properties['LastUpdateTime']) {
+        $formData | Add-Member -MemberType NoteProperty -Name 'LastUpdateTime' -Value ([DateTime]::MinValue)
+    }
+
+    $mouseDown = {
+        $f = $this.FindForm()
+        if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+            if ($f.Tag -and -not $f.Tag.IsDragging) {
+                $f.Tag.IsDragging = $true
+                $f.Tag.DragStart.X = [System.Windows.Forms.Cursor]::Position.X
+                $f.Tag.DragStart.Y = [System.Windows.Forms.Cursor]::Position.Y
+                $f.Tag.DragStart.FormX = $f.Left
+                $f.Tag.DragStart.FormY = $f.Top
+            }
+        }
+    }
+
+    $mouseMove = {
+        $f = $this.FindForm()
+        if ($f.Tag -and $f.Tag.IsDragging) {
+            try {
+                $currentTime = [DateTime]::Now
+                if (($currentTime - $f.Tag.LastUpdateTime).TotalMilliseconds -lt 20) { return }
+                $f.Tag.LastUpdateTime = $currentTime
+
+                $cursorX = [System.Windows.Forms.Cursor]::Position.X
+                $cursorY = [System.Windows.Forms.Cursor]::Position.Y
+
+                $deltaX = $cursorX - $f.Tag.DragStart.X
+                $deltaY = $cursorY - $f.Tag.DragStart.Y
+
+                $newLeft = $f.Tag.DragStart.FormX + $deltaX
+                $newTop  = $f.Tag.DragStart.FormY + $deltaY
+
+                $f.Left = $newLeft
+                $f.Top  = $newTop
+
+                if ($f.Tag) {
+                    $timerKey = "ChatCommanderPosition_$($f.Tag.InstanceId)"
+                    if ($global:DashboardConfig.Resources.Timers.Contains($timerKey)) {
+                        $timer = $global:DashboardConfig.Resources.Timers[$timerKey]
+                        if ($timer -and $timer.Tag) {
+                            $timer.Tag.RealLeft = $newLeft
+                            $timer.Tag.RealTop  = $newTop
+                        }
+                    }
+                }
+
+                if ($f.Tag.SelectedWindow -and $f.Tag.SelectedWindow -ne [IntPtr]::Zero) {
+                    $rect = New-Object Custom.Native+RECT
+                    if ([Custom.Native]::GetWindowRect($f.Tag.SelectedWindow, [ref]$rect)) {
+                        UpdateChatCommanderSliderValuesFromFormPosition $f.Tag $rect
+                    }
+                }
+            }
+            catch {
+                Write-Verbose ('CHATCOMMANDER: Error during mouse move: {0}' -f $_.Exception.Message)
+            }
+        }
+    }
+
+    $mouseUp = {
+        $f = $this.FindForm()
+        if ($f.Tag) {
+            $f.Tag.IsDragging = $false
+            if ($f.Tag.SelectedWindow -and $f.Tag.SelectedWindow -ne [IntPtr]::Zero) {
+                try {
+                    $rect = New-Object Custom.Native+RECT
+                    if ([Custom.Native]::GetWindowRect($f.Tag.SelectedWindow, [ref]$rect)) {
+                        UpdateChatCommanderSliderValuesFromFormPosition $f.Tag $rect
+                        UpdateChatCommanderSettings $f.Tag -forceWrite
+                    }
+                } catch {}
+            }
+        }
+    }
+
+    $form.Add_MouseDown($mouseDown)
+    $form.Add_MouseMove($mouseMove)
+    $form.Add_MouseUp($mouseUp)
+
+    if ($formData.HeaderPanel) {
+        $formData.HeaderPanel.Add_MouseDown($mouseDown)
+        $formData.HeaderPanel.Add_MouseMove($mouseMove)
+        $formData.HeaderPanel.Add_MouseUp($mouseUp)
+    }
+
+    if ($formData.PSObject.Properties['LabelWinTitle'] -and $formData.LabelWinTitle) {
+        $formData.LabelWinTitle.Add_MouseDown($mouseDown)
+        $formData.LabelWinTitle.Add_MouseMove($mouseMove)
+        $formData.LabelWinTitle.Add_MouseUp($mouseUp)
+    }
 }
 
 #endregion
