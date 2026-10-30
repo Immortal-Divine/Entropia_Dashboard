@@ -5128,12 +5128,6 @@ function Initialize-MarketTab
     {
         Ensure-MarketConfig
 
-        if (-not $script:MarketAssetsChecked)
-        {
-            try { Start-MarketAssetSync }
-            catch { Write-Verbose "MARKET: asset sync failed: $($_.Exception.Message)" }
-        }
-
         try { Start-MarketIconMapLoad } catch { }
 
         $combo = Get-MarketUIControl -Name 'MarketTrendRange'
@@ -5211,6 +5205,20 @@ function Initialize-MarketTab
     {
         $script:MarketInitializing = $false
     }
+}
+
+function Open-MarketTab
+{
+    [CmdletBinding()]
+    param()
+
+    $tab = $null
+    try { $tab = Get-MarketUIControl -Name 'MarketTab' } catch { $tab = $null }
+    if ($null -eq $tab) { return }
+    try { if (-not $tab.Visible) { return } } catch { return }
+
+    try { Start-MarketAssetSync }
+    catch { Write-Verbose "MARKET: asset sync failed: $($_.Exception.Message)" }
 }
 
 #endregion
