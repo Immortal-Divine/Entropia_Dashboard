@@ -1,4 +1,4 @@
-<# notifications.psm1 #>
+﻿<# notifications.psm1 #>
 
 #region Globals
 if (-not $global:DashboardConfig) { $global:DashboardConfig = @{} }
@@ -8,8 +8,30 @@ if (-not $global:LoginNotificationStack) { $global:LoginNotificationStack = [Sys
 if (-not $global:DashboardConfig.State.LoginNotificationMap) { $global:DashboardConfig.State.LoginNotificationMap = @{} }
 if (-not $global:DashboardConfig.State.ContainsKey('NotificationHoverActive')) { $global:DashboardConfig.State.NotificationHoverActive = $false }; if (-not $global:DashboardConfig.State.NotificationHistory) { $global:DashboardConfig.State.NotificationHistory = [System.Collections.ArrayList]::new() }
 
+$script:NotificationTitleFont = $null
+$script:NotificationMessageFont = $null
+
 
 #endregion
+
+
+if (-not ('Entropia.Notify.Foreground' -as [type])) {
+	Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace Entropia.Notify
+{
+    public static class Foreground
+    {
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
+    }
+}
+'@
+}
 
 
 function UpdateNotificationPositions
@@ -114,7 +136,7 @@ function ShowToast
 		$logEntry = @{ Timestamp = [DateTime]::Now; Type = $Type; Title = $Title; Message = $Message; Key = $Key; TimeoutSeconds = $TimeoutSeconds; Progress = $Progress; IgnoreCancellation = $IgnoreCancellation; ExtraData = $ExtraData }
 		$global:DashboardConfig.State.NotificationHistory.Insert(0, $logEntry)
 		if ($global:DashboardConfig.State.NotificationHistory.Count -gt 100) { $global:DashboardConfig.State.NotificationHistory.RemoveAt(100) }
-		if (Get-Command RefreshNotificationGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNotificationGrid }
+		if (Test-DashboardCommand 'RefreshNotificationGrid') { RefreshNotificationGrid }
 	} catch {}
 
 	if ($Key -ne 0 -and $global:DashboardConfig.State.LoginNotificationMap.ContainsKey($Key))
@@ -176,7 +198,7 @@ function ShowToast
 
 			if ($stripContainer) {
 				$strip.Height = $stripContainer.Height 
-				$strip.BackColor = if ($Type -eq 'Warning') { [System.Drawing.Color]::Orange } elseif ($Type -eq 'Info') { [System.Drawing.Color]::CornflowerBlue } else { [System.Drawing.Color]::IndianRed }
+				$strip.BackColor = if ($Type -eq 'Warning') { Get-Theme 'NotificationStripWarning' } elseif ($Type -eq 'Info') { Get-Theme 'NotificationStripInfo' } else { Get-Theme 'NotificationStripError' }
 			}
 
 			if ($hpFill) {
@@ -184,9 +206,9 @@ function ShowToast
 					$parentWidth = $hpFill.Parent.Width
 					$hpFill.Width = [int]($parentWidth * ($Progress / 100))
 					
-					if ($Progress -gt 50) { $hpFill.BackColor = [System.Drawing.Color]::Green }
-					elseif ($Progress -gt 25) { $hpFill.BackColor = [System.Drawing.Color]::Green }
-					else { $hpFill.BackColor = [System.Drawing.Color]::Green }
+					if ($Progress -gt 50) { $hpFill.BackColor = Get-Theme 'NotificationProgressHigh' }
+					elseif ($Progress -gt 25) { $hpFill.BackColor = Get-Theme 'NotificationProgressMid' }
+					else { $hpFill.BackColor = Get-Theme 'NotificationProgressLow' }
 				} else {
 					$hpFill.Width = 0
 				}
@@ -194,7 +216,7 @@ function ShowToast
                 $hpContainer = New-Object System.Windows.Forms.Panel
                 $hpContainer.Height = 6
                 $hpContainer.Dock = 'Bottom'
-                $hpContainer.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+                $hpContainer.BackColor = Get-Theme 'ProgressBarBg'
                 $hpContainer.Tag = 'HPBarContainer'
                 
                 $hpFill = New-Object System.Windows.Forms.Panel
@@ -203,9 +225,9 @@ function ShowToast
                 $pnl.Controls.Add($hpContainer)
                 
                 $hpFill.Width = [int]($pnl.Width * ($Progress / 100))
-                if ($Progress -gt 50) { $hpFill.BackColor = [System.Drawing.Color]::Green }
-                elseif ($Progress -gt 25) { $hpFill.BackColor = [System.Drawing.Color]::Green }
-                else { $hpFill.BackColor = [System.Drawing.Color]::Green }
+                if ($Progress -gt 50) { $hpFill.BackColor = Get-Theme 'NotificationProgressHigh' }
+                elseif ($Progress -gt 25) { $hpFill.BackColor = Get-Theme 'NotificationProgressMid' }
+                else { $hpFill.BackColor = Get-Theme 'NotificationProgressLow' }
             }
             
             if ($existingForm.Tag.Timer) {
@@ -216,7 +238,7 @@ function ShowToast
 
                 $tTag.EndTime = [DateTime]::Now.Add($tTag.TotalDuration)
 
-                $tTag.Wait3ForHover = $WaitForHover
+                $tTag.WaitForHover = $WaitForHover
 
                 if ($tTag.Strip.Parent) { $tTag.Strip.Height = $tTag.Strip.Parent.Height }
             }
@@ -233,7 +255,7 @@ function ShowToast
 	$form.Location = New-Object System.Drawing.Point(-32000, -32000)
 	$form.TopMost = $true
 	$form.ShowInTaskbar = $false
-	$form.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
+	$form.BackColor = Get-Theme 'NotificationBg'
 
 	if ($Key -ne 0) { $global:DashboardConfig.State.LoginNotificationMap[$Key] = $form }
 	$global:LoginNotificationStack.Add($form)
@@ -246,33 +268,26 @@ function ShowToast
 				$map = $global:DashboardConfig.State.LoginNotificationMap.GetEnumerator() | Where-Object { $_.Value -eq $s } | Select-Object -First 1
 				if ($map) { $global:DashboardConfig.State.LoginNotificationMap.Remove($map.Key) } 
 			} 
-            if ($existingForm.Tag.Timer) {
-                $tTag = $existingForm.Tag.Timer.Tag
-                
-                if ($PSBoundParameters.ContainsKey('TimeoutSeconds')) {
-                    $tTag.TotalDuration = [TimeSpan]::FromSeconds($TimeoutSeconds)
-                }
-                $tTag.EndTime = [DateTime]::Now.Add($tTag.TotalDuration)
-                $tTag.Wait3ForHover = $Wait3ForHover
-            }
 			if ($global:DashboardConfig.UI.MainForm -and $global:DashboardConfig.UI.MainForm.InvokeRequired) {
 				$global:DashboardConfig.UI.MainForm.BeginInvoke([Action] { UpdateNotificationPositions })
 			} else { UpdateNotificationPositions }
 		})
 
 	$pnl = New-Object System.Windows.Forms.Panel; $pnl.Dock = 'Fill'; $pnl.BorderStyle = 'FixedSingle'; $form.Controls.Add($pnl)
-	$stripContainer = New-Object System.Windows.Forms.Panel; $stripContainer.Width = 5; $stripContainer.Dock = 'Left'; $stripContainer.BackColor = [System.Drawing.Color]::FromArgb(60, 60, 60); $pnl.Controls.Add($stripContainer)
+	$stripContainer = New-Object System.Windows.Forms.Panel; $stripContainer.Width = 5; $stripContainer.Dock = 'Left'; $stripContainer.BackColor = Get-Theme 'NotificationStripBg'; $pnl.Controls.Add($stripContainer)
 	$strip = New-Object System.Windows.Forms.Panel; $strip.Width = 5; $strip.Dock = 'Bottom'
-	$strip.BackColor = if ($Type -eq 'Warning') { [System.Drawing.Color]::Orange } elseif ($Type -eq 'Info') { [System.Drawing.Color]::CornflowerBlue } else { [System.Drawing.Color]::IndianRed }
+	$strip.BackColor = if ($Type -eq 'Warning') { Get-Theme 'NotificationStripWarning' } elseif ($Type -eq 'Info') { Get-Theme 'NotificationStripInfo' } else { Get-Theme 'NotificationStripError' }
 	$stripContainer.Controls.Add($strip)
 
 	$lblTitle = New-Object System.Windows.Forms.Label
-	$lblTitle.Text = $Title; $lblTitle.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold); $lblTitle.ForeColor = [System.Drawing.Color]::White
+	if (-not $script:NotificationTitleFont) { $script:NotificationTitleFont = Get-UIFont 'Segoe UI' 10 'Bold' }
+	if (-not $script:NotificationMessageFont) { $script:NotificationMessageFont = Get-UIFont 'Segoe UI' 9 }
+	$lblTitle.Text = $Title; $lblTitle.Font = $script:NotificationTitleFont; $lblTitle.ForeColor = Get-Theme 'WhiteText'
 	$lblTitle.Location = New-Object System.Drawing.Point(15, 10); $lblTitle.AutoSize = $true; $lblTitle.Tag = 'Title'
 	$pnl.Controls.Add($lblTitle)
 
 	$lblMsg = New-Object System.Windows.Forms.Label
-	$lblMsg.Text = $Message; $lblMsg.Font = New-Object System.Drawing.Font('Segoe UI', 9); $lblMsg.ForeColor = [System.Drawing.Color]::LightGray
+	$lblMsg.Text = $Message; $lblMsg.Font = $script:NotificationMessageFont; $lblMsg.ForeColor = Get-Theme 'NotificationMsgText'
 	$lblMsg.Location = New-Object System.Drawing.Point(15, 35); $lblMsg.MaximumSize = New-Object System.Drawing.Size(290, 0); $lblMsg.AutoSize = $true; $lblMsg.Tag = 'MessageContent' 
 	$pnl.Controls.Add($lblMsg)
 
@@ -281,7 +296,7 @@ function ShowToast
 
 	if ($ExtraData -and $ExtraData.ContainsKey('ImageUrl') -and -not [string]::IsNullOrWhiteSpace($ExtraData['ImageUrl'])) {
 		$pb = New-Object System.Windows.Forms.PictureBox
-		$pb.Location = [System.Drawing.Point]::new(15, ($msgBottom + 10)); $pb.Size = New-Object System.Drawing.Size(290, 150); $pb.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom; $pb.BackColor = [System.Drawing.Color]::Transparent
+		$pb.Location = [System.Drawing.Point]::new(15, ($msgBottom + 10)); $pb.Size = New-Object System.Drawing.Size(290, 150); $pb.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom; $pb.BackColor = Get-Theme 'Transparent'
 		try { $pb.LoadAsync($ExtraData['ImageUrl']) } catch {}
 		$pnl.Controls.Add($pb)
 	}
@@ -290,7 +305,7 @@ function ShowToast
 		$hpContainer = New-Object System.Windows.Forms.Panel
 		$hpContainer.Height = 6
 		$hpContainer.Dock = 'Bottom'
-		$hpContainer.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+		$hpContainer.BackColor = Get-Theme 'ProgressBarBg'
 		$hpContainer.Tag = 'HPBarContainer'
 		
 		$hpFill = New-Object System.Windows.Forms.Panel
@@ -300,9 +315,9 @@ function ShowToast
 		$pnl.Controls.Add($hpContainer)
 		
 		$hpFill.Width = [int](290 * ($Progress / 100))
-		if ($Progress -gt 50) { $hpFill.BackColor = [System.Drawing.Color]::Green }
-		elseif ($Progress -gt 25) { $hpFill.BackColor = [System.Drawing.Color]::Green }
-		else { $hpFill.BackColor = [System.Drawing.Color]::Green }
+		if ($Progress -gt 50) { $hpFill.BackColor = Get-Theme 'NotificationProgressHigh' }
+		elseif ($Progress -gt 25) { $hpFill.BackColor = Get-Theme 'NotificationProgressMid' }
+		else { $hpFill.BackColor = Get-Theme 'NotificationProgressLow' }
 	}
 
 	$minHeight = 60
@@ -313,7 +328,7 @@ function ShowToast
 	$form.Size = New-Object System.Drawing.Size(320, $Height)
 	$stripContainer.Height = $Height; $strip.Height = $Height
 
-	$form.Tag = @{ TitleLabel = $lblTitle; MsgLabel = $lblMsg; ProgressStrip = $strip }
+	$form.Tag = @{ TitleLabel = $lblTitle; MsgLabel = $lblMsg; ProgressStrip = $strip; Type = $Type }
 
 	if ($TimeoutSeconds -gt 0)
 	{
@@ -339,8 +354,9 @@ function ShowToast
 				$anyHover = $false
                 
                 if ($global:LoginNotificationStack -and $global:LoginNotificationStack.Count -gt 0) {
-                    $stackCopy = $global:LoginNotificationStack.ToArray()
-                    foreach ($f in $stackCopy) {
+                    $stack = $global:LoginNotificationStack
+                    for ($i = $stack.Count - 1; $i -ge 0; $i--) {
+                        $f = $stack[$i]
                         if ($f -and -not $f.IsDisposed -and $f.Visible -and $f.Bounds.Contains($mousePos)) {
                             $anyHover = $true
                             break
@@ -388,7 +404,14 @@ function ShowToast
         $form.Tag.Timer = $timer
 	}
 
+	$prevFg = [IntPtr]::Zero
+	try { $prevFg = [Entropia.Notify.Foreground]::GetForegroundWindow() } catch { $prevFg = [IntPtr]::Zero }
+
 	$form.Show()
+
+	if ($prevFg -ne [IntPtr]::Zero) {
+		try { [void][Entropia.Notify.Foreground]::SetForegroundWindow($prevFg) } catch { }
+	}
 
 	if ($global:DashboardConfig.UI.MainForm -and $global:DashboardConfig.UI.MainForm.InvokeRequired) {
 		$global:DashboardConfig.UI.MainForm.BeginInvoke([Action] { UpdateNotificationPositions })
@@ -404,7 +427,7 @@ function ShowInteractiveNotification
 	$extraData = @{ Buttons = $Buttons; IsInteractive = $true }
     if (-not [string]::IsNullOrEmpty($ImageUrl)) { $extraData['ImageUrl'] = $ImageUrl }
 
-	ShowToast -Title $Title -Message $Message -Type $Type -Key $Key -TimeoutSeconds $TimeoutSeconds -Height 0 -Progress $Progress -IgnoreCancellation $IgnoreCancellation -ExtraData $extraData -WaitForHover:$Wait3ForHover
+	ShowToast -Title $Title -Message $Message -Type $Type -Key $Key -TimeoutSeconds $TimeoutSeconds -Height 0 -Progress $Progress -IgnoreCancellation $IgnoreCancellation -ExtraData $extraData -WaitForHover:$WaitForHover
 
 	
 	$form = $null
@@ -468,12 +491,12 @@ function ShowInteractiveNotification
 				$btn.Text = $text
 				$btn.AutoSize = $false
 				$btn.Height = 30
-				$btn.BackColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
-				$btn.ForeColor = [System.Drawing.Color]::White
+				$btn.BackColor = Get-Theme 'NotificationBtnBg'
+				$btn.ForeColor = Get-Theme 'WhiteText'
 				$btn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 				$btn.FlatAppearance.BorderSize = 0
-				$btn.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(100, 100, 100)
-				$btn.FlatAppearance.MouseDownBackColor = [System.Drawing.Color]::FromArgb(70, 70, 70)
+				$btn.FlatAppearance.MouseOverBackColor = Get-Theme 'NotificationBtnHover'
+				$btn.FlatAppearance.MouseDownBackColor = Get-Theme 'NotificationBtnPressed'
 				
 				try { $btn.Tag = $action } catch {}
 
@@ -614,6 +637,75 @@ function ShowReconnectInteractiveNotification
 	}
 
 	ShowInteractiveNotification -Title $Title -Message $Message -Buttons $btnArray -Type $Type -Key $RelatedPid -TimeoutSeconds $TimeoutSeconds -IgnoreCancellation
+}
+
+function Update-NotificationTheme
+{
+	if (-not $global:LoginNotificationStack -or $global:LoginNotificationStack.Count -eq 0) { return }
+
+	$stackCopy = @($global:LoginNotificationStack | Where-Object { $_ -and -not $_.IsDisposed })
+
+	foreach ($form in $stackCopy)
+	{
+		$form.BackColor = Get-Theme 'NotificationBg'
+
+		$pnl = $null
+		foreach ($c in $form.Controls) {
+			if ($c -is [System.Windows.Forms.Panel] -and $c.Dock -eq 'Fill') {
+				$pnl = $c
+				break
+			}
+		}
+		if (-not $pnl -and $form.Controls.Count -gt 0) { $pnl = $form.Controls[0] }
+		if (-not $pnl) { continue }
+
+		foreach ($ctrl in $pnl.Controls)
+		{
+			if ($ctrl.Tag -eq 'Title') {
+				$ctrl.ForeColor = Get-Theme 'WhiteText'
+			}
+			if ($ctrl.Tag -eq 'MessageContent') {
+				$ctrl.ForeColor = Get-Theme 'NotificationMsgText'
+			}
+			if ($ctrl -is [System.Windows.Forms.Panel] -and $ctrl.Dock -eq 'Left') {
+				$ctrl.BackColor = Get-Theme 'NotificationStripBg'
+				if ($ctrl.Controls.Count -gt 0) {
+					$innerStrip = $ctrl.Controls[0]
+					$stripType = if ($form.Tag -and $form.Tag.Type) { $form.Tag.Type } else { 'Info' }
+					$innerStrip.BackColor = switch ($stripType) {
+						'Warning' { Get-Theme 'NotificationStripWarning' }
+						'Error'   { Get-Theme 'NotificationStripError' }
+						default   { Get-Theme 'NotificationStripInfo' }
+					}
+				}
+			}
+			if ($ctrl -is [System.Windows.Forms.Panel] -and $ctrl.Dock -eq 'Bottom' -and $ctrl.Tag -eq 'HPBarContainer') {
+				$ctrl.BackColor = Get-Theme 'ProgressBarBg'
+				if ($ctrl.Controls.Count -gt 0) {
+					$fillBar = $ctrl.Controls[0]
+					$hpPct = if ($ctrl.Width -gt 0) { [int](($fillBar.Width / $ctrl.Width) * 100) } else { 50 }
+					$fillBar.BackColor = if ($hpPct -gt 50) { Get-Theme 'NotificationProgressHigh' } elseif ($hpPct -gt 25) { Get-Theme 'NotificationProgressMid' } else { Get-Theme 'NotificationProgressLow' }
+				}
+			}
+			if ($ctrl -is [System.Windows.Forms.PictureBox]) {
+				$ctrl.BackColor = Get-Theme 'Transparent'
+			}
+		}
+
+		$btnPanel = $form.Controls | Where-Object { $_.Tag -eq 'InteractiveButtons' } | Select-Object -First 1
+		if ($btnPanel) {
+			foreach ($btn in $btnPanel.Controls) {
+				if ($btn -is [System.Windows.Forms.Button]) {
+					$btn.BackColor = Get-Theme 'NotificationBtnBg'
+					$btn.ForeColor = Get-Theme 'WhiteText'
+					$btn.FlatAppearance.MouseOverBackColor = Get-Theme 'NotificationBtnHover'
+					$btn.FlatAppearance.MouseDownBackColor = Get-Theme 'NotificationBtnPressed'
+				}
+			}
+		}
+
+		$form.Refresh()
+	}
 }
 
 Export-ModuleMember -Function *

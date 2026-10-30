@@ -1,4 +1,4 @@
-<# quickcommands.psm1 #>
+﻿<# quickcommands.psm1 #>
 
 #region Helper Functions
 
@@ -222,15 +222,20 @@ function CreateChatCommanderPositionTimer
                                     $maxX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $maxX))
                                     if ($minX -gt $maxX) { $tmp = $minX; $minX = $maxX; $maxX = $tmp }
                                     $newX = [int]([Math]::Max($minX, [Math]::Min($maxX, $formData.PositionSliderX.Value + $dx)))
-                                    $formData.PositionSliderX.Value = $newX
+                                    $formData.SuppressPersist = $true
+                                    try {
+                                        $formData.PositionSliderX.Value = $newX
+                                        $minY = $formData.PositionSliderY.Minimum
+                                        $maxY = $formData.PositionSliderY.Maximum
+                                        $minY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $minY))
+                                        $maxY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $maxY))
+                                        if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
+                                        $newY = [int]([Math]::Max($minY, [Math]::Min($maxY, $formData.PositionSliderY.Value + $dy)))
+                                        $formData.PositionSliderY.Value = $newY
+                                    }
+                                    finally { $formData.SuppressPersist = $false }
 
-                                    $minY = $formData.PositionSliderY.Minimum
-                                    $maxY = $formData.PositionSliderY.Maximum
-                                    $minY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $minY))
-                                    $maxY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $maxY))
-                                    if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
-                                    $newY = [int]([Math]::Max($minY, [Math]::Min($maxY, $formData.PositionSliderY.Value + $dy)))
-                                    $formData.PositionSliderY.Value = $newY
+
 
                                     $timerData.RealLeft = $timerData.RealLeft + $dx
                                     $timerData.RealTop  = $timerData.RealTop  + $dy
@@ -313,83 +318,9 @@ function CreateChatCommanderPositionTimer
     $global:DashboardConfig.Resources.Timers["ChatCommanderPosition_$($formData.InstanceId)"] = $positionTimer
 }
 
-function AdjustChatCommanderFormHeight 
-{
-    param($form)
-    
-    if (-not $form -or $form.IsDisposed) { return }
-    
-    $form.SuspendLayout()
-    try
-    {
-        $formData = $form.Tag
-        
-        if ($formData.ShowAllMode)
-        {
-            
-            $screen = [System.Windows.Forms.Screen]::FromPoint($form.Location)
-            $workingArea = $screen.WorkingArea
-            $distToBottom = $workingArea.Bottom - $form.Top
-            $targetHeight = 600
-            if ($targetHeight -gt $distToBottom - 20) { $targetHeight = $distToBottom - 20 }
-            if ($targetHeight -lt 400) { $targetHeight = 400 }
-            
-            $form.Height = $targetHeight
-            $formData.OriginalHeight = $targetHeight
-            $formData.PositionSliderY.Height = $targetHeight - 20
-            return
-        }
-
-        
-        $baseHeight = 285 
-        $panel = $formData.panelSavedCommands
-        
-        
-        $panel.AutoSize = $true
-        $panel.PerformLayout()
-        $preferredPanelHeight = $panel.Height
-        
-        
-        $paginationHeight = if ($formData.PanelPagination.Visible) { 35 } else { 0 }
-
-        $newHeight = $baseHeight + $preferredPanelHeight + $paginationHeight + 10 
-        
-        $screen = [System.Windows.Forms.Screen]::FromPoint($form.Location)
-        $workingArea = $screen.WorkingArea
-        $distToBottom = $workingArea.Bottom - $form.Top
-        $maxHeight = $distToBottom - 20
-        if ($maxHeight -lt 285) { $maxHeight = 285 } 
-
-        if ($newHeight -gt $maxHeight) {
-            $newHeight = $maxHeight
-            
-            $panel.AutoSize = $false
-            $panel.Height = $maxHeight - $baseHeight - $paginationHeight - 10
-            $panel.AutoScroll = $true
-        } else {
-            
-            $panel.AutoSize = $true
-            $panel.AutoScroll = $false
-        }
-
-        if (-not $formData.IsCollapsed)
-        {
-            $finalHeight = $newHeight
-            $form.Height = $finalHeight
-            $formData.OriginalHeight = $finalHeight
-            $formData.PositionSliderY.Height = $finalHeight - 20
-        }
-    }
-    catch { Write-Verbose "AdjustHeight Error: $_" }
-    finally
-    {
-        $form.ResumeLayout()
-    }
-}
-
 function StartChatCommanderSequence
 {
-    param($formData, [switch]$RunSavedSequence)
+    param($formData, [switch]$RunSavedSequence, [switch]$AutoStart)
 
     $steps = [System.Collections.ArrayList]::new()
 
@@ -469,6 +400,17 @@ function StartChatCommanderSequence
         $formData | Add-Member -MemberType NoteProperty -Name 'Stopping' -Value $false
     }
     $formData.Stopping = $false
+
+    if (-not $formData.PSObject.Properties['CloseAfterRunPending'])
+    {
+        $formData | Add-Member -MemberType NoteProperty -Name 'CloseAfterRunPending' -Value $false
+    }
+    $closeAfterRun = $false
+    if ($AutoStart -and $formData.PSObject.Properties['ChkCloseAfterRun'] -and $formData.ChkCloseAfterRun)
+    {
+        $closeAfterRun = [bool]$formData.ChkCloseAfterRun.Checked
+    }
+    $formData.CloseAfterRunPending = $closeAfterRun
 
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Tag = $formData
@@ -621,6 +563,30 @@ function StopChatCommanderSequence
         }
     }
     if ($formData.PSObject.Properties['BtnRunSequence']) { $formData.BtnRunSequence.Enabled = $true; $formData.BtnRunSequence.Visible = $true }
+
+    if ($formData.PSObject.Properties['CloseAfterRunPending'])
+    {
+        if ($NaturalEnd -and $formData.CloseAfterRunPending)
+        {
+            $formData.CloseAfterRunPending = $false
+            $formToClose = $null
+            if ($formData.PSObject.Properties['Form']) { $formToClose = $formData.Form }
+            if ($formToClose -and -not $formToClose.IsDisposed -and $formToClose.IsHandleCreated)
+            {
+                try
+                {
+                    $closeAction = { StopChatCommanderForm $formToClose }.GetNewClosure()
+                    $formToClose.BeginInvoke([System.Action]$closeAction) | Out-Null
+                    Write-Verbose "ChatCommander: close-after-run queued for $($formData.InstanceId)"
+                }
+                catch { Write-Verbose "ChatCommander: close-after-run failed to queue: $_" }
+            }
+        }
+        elseif (-not $NaturalEnd)
+        {
+            $formData.CloseAfterRunPending = $false
+        }
+    }
 }
 
 function ToggleChatCommanderInstance
@@ -776,14 +742,14 @@ function CleanupChatCommanderResources
             
             
             try {
-                if (Get-Command UnregisterHotkeysByOwnerPattern -ErrorAction SilentlyContinue) {
+                if (Test-DashboardCommand 'UnregisterHotkeysByOwnerPattern') {
                     UnregisterHotkeysByOwnerPattern -OwnerPattern "quickcmd_${instanceId}_*"
                 }
             } catch {}
         }
     }
     
-    if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
+    if (Test-DashboardCommand 'RefreshHotkeysList') { try { RefreshHotkeysList } catch {} }
 }
 
 function LoadChatCommanderSettings
@@ -794,9 +760,9 @@ function LoadChatCommanderSettings
     if (-not $global:DashboardConfig.Config.Contains('ChatCommander')) { $formData.IsLoading = $false; return }
     
     $profilePrefix = $null
-    if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue)
+    if (Test-DashboardCommand 'FindOrCreateProfile')
     {
-        $profilePrefix = FindOrCreateProfile $formData.WindowTitle
+        $profilePrefix = FindOrCreateProfile $formData.WindowTitle -ProfileHint (Get-RowProfileHint -formData $formData)
     }
     
     if ($profilePrefix)
@@ -826,6 +792,34 @@ function LoadChatCommanderSettings
             try { $formData.BtnHotkeyToggle.Checked = [bool]::Parse($value) } catch { $formData.BtnHotkeyToggle.Checked = $true }
         }
         else { $formData.BtnHotkeyToggle.Checked = $true }
+
+        $runOnOpenName = "run_on_open_$p"
+        if ($cfg.Contains($runOnOpenName))
+        {
+            $runOnOpenValue = $cfg[$runOnOpenName]
+            try
+            {
+                $runOnOpenText = "$runOnOpenValue".Trim()
+                if ($runOnOpenText -eq '1' -or $runOnOpenText -eq '0') { $formData.ChkRunOnStart.Checked = ($runOnOpenText -eq '1') }
+                else { $formData.ChkRunOnStart.Checked = [bool]::Parse($runOnOpenText) }
+            }
+            catch { $formData.ChkRunOnStart.Checked = $true }
+        }
+        else { $formData.ChkRunOnStart.Checked = $true }
+
+        $closeAfterRunName = "close_after_run_$p"
+        if ($cfg.Contains($closeAfterRunName))
+        {
+            $closeAfterRunValue = $cfg[$closeAfterRunName]
+            try
+            {
+                $closeAfterRunText = "$closeAfterRunValue".Trim()
+                if ($closeAfterRunText -eq '1' -or $closeAfterRunText -eq '0') { $formData.ChkCloseAfterRun.Checked = ($closeAfterRunText -eq '1') }
+                else { $formData.ChkCloseAfterRun.Checked = [bool]::Parse($closeAfterRunText) }
+            }
+            catch { $formData.ChkCloseAfterRun.Checked = $false }
+        }
+        else { $formData.ChkCloseAfterRun.Checked = $false }
 
         if ($cfg.Contains("PosX_$p")) {
             $positionValue = [int]$cfg["PosX_$p"]
@@ -963,6 +957,8 @@ function LoadChatCommanderSettings
     else
     {
         $formData.BtnHotkeyToggle.Checked = $true
+        $formData.ChkRunOnStart.Checked = $true
+        $formData.ChkCloseAfterRun.Checked = $false
     }
     $formData.IsLoading = $false
 }
@@ -979,9 +975,9 @@ function UpdateChatCommanderSettings
     }
     
     $profilePrefix = $null
-    if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue)
+    if (Test-DashboardCommand 'FindOrCreateProfile')
     {
-        $profilePrefix = FindOrCreateProfile $formData.WindowTitle
+        $profilePrefix = FindOrCreateProfile $formData.WindowTitle -ProfileHint (Get-RowProfileHint -formData $formData)
     }
 
     if ($profilePrefix)
@@ -1006,6 +1002,14 @@ function UpdateChatCommanderSettings
         
         $cfg["GlobalHotkey_$p"] = $formData.GlobalHotkey
         $cfg["hotkeys_enabled_$p"] = $formData.BtnHotkeyToggle.Checked
+        if ($formData.PSObject.Properties['ChkRunOnStart'] -and $formData.ChkRunOnStart)
+        {
+            $cfg["run_on_open_$p"] = $formData.ChkRunOnStart.Checked
+        }
+        if ($formData.PSObject.Properties['ChkCloseAfterRun'] -and $formData.ChkCloseAfterRun)
+        {
+            $cfg["close_after_run_$p"] = $formData.ChkCloseAfterRun.Checked
+        }
 
         
         $cfg["GlobalCommands"] = (ConvertTo-Json -InputObject $formData.GlobalCommandList -Compress -Depth 5)
@@ -1035,7 +1039,11 @@ function UpdateChatCommanderSettings
 
         if ($forceWrite)
         {
-            if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
+            if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
+        }
+        else
+        {
+            if (Test-DashboardCommand 'Request-DashboardConfigWrite') { Request-DashboardConfigWrite }
         }
     }
 }
@@ -1081,6 +1089,7 @@ function ChatCommanderSelectedRow
     
     $global:DashboardConfig.Resources.FtoolForms[$instanceId] = $ChatCommanderForm
     
+    Register-OpenForm $ChatCommanderForm
     $ChatCommanderForm.Show()
     $ChatCommanderForm.BringToFront()
 }
@@ -1114,8 +1123,8 @@ function CreateChatCommanderForm
     $ChatCommanderForm.Height = 400 
     $ChatCommanderForm.Top = if ($targetWindowRect) { ($targetWindowRect.Top + 30) } else { 200 }
     $ChatCommanderForm.Left = if ($targetWindowRect) { ($targetWindowRect.Right - $ChatCommanderForm.Width - 10) } else { 200 }
-    $ChatCommanderForm.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
-    $ChatCommanderForm.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+    $ChatCommanderForm.BackColor = Get-Theme 'MainBg'
+    $ChatCommanderForm.ForeColor = Get-Theme 'PrimaryText'
     $ChatCommanderForm.Text = "ChatCommander - $instanceId"
     $ChatCommanderForm.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
     $ChatCommanderForm.Opacity = 1.0 
@@ -1131,12 +1140,23 @@ function CreateChatCommanderForm
     $ChatCommanderToolTip.ReshowDelay = 10
     $ChatCommanderToolTip.ShowAlways = $true
     $ChatCommanderToolTip.OwnerDraw = $true
-    $ChatCommanderToolTip | Add-Member -MemberType NoteProperty -Name 'TipFont' -Value (New-Object System.Drawing.Font('Segoe UI', 9))
+    $ChatCommanderToolTip | Add-Member -MemberType NoteProperty -Name 'TipFont' -Value (Get-UIFont 'Segoe UI' 9)
     $ChatCommanderToolTip.Add_Draw({
-            $g, $b, $c = $_.Graphics, $_.Bounds, [System.Drawing.Color]
-            $g.FillRectangle((New-Object System.Drawing.SolidBrush $c::FromArgb(30,30,30)), $b)
-            $g.DrawRectangle((New-Object System.Drawing.Pen $c::FromArgb(100,100,100)), $b.X, $b.Y, $b.Width-1, $b.Height-1)
-            $g.DrawString($_.ToolTipText, $this.TipFont, (New-Object System.Drawing.SolidBrush $c::FromArgb(240,240,240)), 3, 3, [System.Drawing.StringFormat]::GenericTypographic)
+            $g, $b = $_.Graphics, $_.Bounds
+            $tc = Get-Theme
+            $bgBrush = New-Object System.Drawing.SolidBrush $tc['ToolTipBg']
+            $borderPen = New-Object System.Drawing.Pen $tc['TooltipBorderColor']
+            $fgBrush = New-Object System.Drawing.SolidBrush $tc['ToolTipFg']
+            try
+            {
+            	$g.FillRectangle($bgBrush, $b)
+            	$g.DrawRectangle($borderPen, $b.X, $b.Y, $b.Width-1, $b.Height-1)
+            	$g.DrawString($_.ToolTipText, $this.TipFont, $fgBrush, 3, 3, [System.Drawing.StringFormat]::GenericTypographic)
+            }
+            finally
+            {
+            	$bgBrush.Dispose(); $borderPen.Dispose(); $fgBrush.Dispose()
+            }
         })
     $ChatCommanderToolTip.Add_Popup({
             $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
@@ -1150,76 +1170,98 @@ function CreateChatCommanderForm
     try
     {
 
-    $headerPanel = SetUIElement -type 'Panel' -visible $true -width 265 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
+    $headerPanel = SetUIElement -type 'Panel' -visible $true -width 248 -height 24 -top 1 -left 1 -tag 'TopBar'
     $ChatCommanderForm.Controls.Add($headerPanel)
 
-    $labelWinTitle = SetUIElement -type 'Label' -visible $true -width 105 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
+    $headerPanel.Add_Paint({
+            param($s, $e)
+            try {
+                $tc = Get-Theme
+                $accent = $null
+                try { $accent = $tc['TopBarAccent'] } catch {}
+                if ($accent -is [System.Drawing.Color]) {
+                    $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(170, $accent.R, $accent.G, $accent.B))
+                    $e.Graphics.FillRectangle($brush, 0, ($s.ClientSize.Height - 1), $s.ClientSize.Width, 1)
+                    $brush.Dispose()
+                }
+            }
+            catch {}
+        })
+
+    $labelText = if ($row.Cells[1].Value) { $row.Cells[1].Value.ToString() } else { "" }
+    $labelWinTitle = SetUIElement -type 'Label' -visible $true -width 170 -height 30 -top 2 -left 2 -text ($labelText) -font (Get-UIFont 'Segoe UI' 6 'Regular')
     $headerPanel.Controls.Add($labelWinTitle)
 
-    $btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 15 -top 2 -left 105 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
-    $headerPanel.Controls.Add($btnInstanceHotkeyToggle)
+    $btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 16 -height 16 -top 30 -left 2 -text ([char]0x2328) -font (Get-UIFont 'Segoe UI' 10) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
+    $ChatCommanderForm.Controls.Add($btnInstanceHotkeyToggle)
 
-    $btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 15 -top 3 -left 120 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific ChatCommander instance."
+    $btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 32 -height 16 -top 4 -left 177 -text '' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific ChatCommander instance."
     $headerPanel.Controls.Add($btnHotkeyToggle)
 
-    $btnImport = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 155 -bg @(40, 60, 80) -fg @(255, 255, 255) -text ([char]0x2193) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Import Settings`nLoad settings from a file."
-    $headerPanel.Controls.Add($btnImport)
+    $btnImport = SetUIElement -type 'Button' -visible $true -width 38 -height 18 -top 30 -left 23 -text 'Import' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tag 'HeaderButton' -tooltip "Import Settings`nLoad settings from a file."
+    $ChatCommanderForm.Controls.Add($btnImport)
 
-    $btnExport = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 170 -bg @(40, 60, 80) -fg @(255, 255, 255) -text ([char]0x2191) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Export Settings`nSave current settings to a file."
-    $headerPanel.Controls.Add($btnExport)
+    $btnExport = SetUIElement -type 'Button' -visible $true -width 38 -height 18 -top 30 -left 64 -text 'Export' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tag 'HeaderButton' -tooltip "Export Settings`nSave current settings to a file."
+    $ChatCommanderForm.Controls.Add($btnExport)
 
-    $btnAddInstance = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 185 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2398) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Instance`nCreates another ChatCommander window for this specific client."
-    $headerPanel.Controls.Add($btnAddInstance)
+    $btnAddInstance = SetUIElement -type 'Button' -visible $true -width 76 -height 18 -top 30 -left 105 -text 'New Instance' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tag 'HeaderButton' -tooltip "Add Instance`nCreates another ChatCommander window for this specific client."
+    $ChatCommanderForm.Controls.Add($btnAddInstance)
         
-    $btnShowHide = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 200 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Minimize/Expand`nCollapse or expand the ChatCommander window to save screen space."
+    $btnShowHide = SetUIElement -type 'Button' -visible $true -width 16 -height 16 -top 4 -left 211 -text ([char]0x25B2) -fs 'Flat' -font (Get-UIFont 'Segoe UI' 11) -tag 'HeaderButton' -tooltip "Minimize/Expand`nCollapse or expand the ChatCommander window to save screen space."
     $headerPanel.Controls.Add($btnShowHide)
         
-    $btnReset = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 215 -bg @(100, 100, 100) -fg @(255, 255, 255) -text ([char]0x21BB) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Reset`nReset all settings for this instance to default."
-    $headerPanel.Controls.Add($btnReset)
+    $btnReset = SetUIElement -type 'Button' -visible $true -width 38 -height 18 -top 30 -left 184 -text 'Reset' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tag 'HeaderButton' -tooltip "Reset`nReset all settings for this instance to default."
+    $ChatCommanderForm.Controls.Add($btnReset)
 
-    $btnClose = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 230 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Close`nStops the ChatCommander and closes this window."
+    $btnClose = SetUIElement -type 'Button' -visible $true -width 16 -height 16 -top 4 -left 229 -text ([char]0x166D) -fs 'Flat' -font (Get-UIFont 'Segoe UI' 11) -tag 'Danger' -tooltip "Close`nStops the ChatCommander and closes this window."
     $headerPanel.Controls.Add($btnClose)
 
     
-    $panelNewCommand = SetUIElement -type 'Panel' -visible $true -width 200 -height 115 -top 60 -left 40 -bg @(50, 50, 50) 
+    $chkRunOnStart = SetUIElement -type 'CheckBox' -visible $true -width 240 -height 16 -top 52 -left 5 -text 'Run commands on open' -font (Get-UIFont 'Segoe UI' 7) -checked $true -tooltip "Run on Open`nTicked: the saved commands are fired automatically when this window is opened for a client after login (QuickCmd auto-start).`nUnticked: the window is opened but no command is sent.`nManual runs (Run All Visible, the ▶ button and hotkeys) always work."
+    $ChatCommanderForm.Controls.Add($chkRunOnStart)
+
+    $chkCloseAfterRun = SetUIElement -type 'CheckBox' -visible $true -width 240 -height 16 -top 70 -left 5 -text 'Close after run' -font (Get-UIFont 'Segoe UI' 7) -checked $false -tooltip "Close after Run`nTicked: this window closes itself automatically once the run-on-open sequence has finished.`nOnly the automatic startup run is affected - manual runs (Run All Visible, the ▶ buttons and hotkeys) keep the window open.`nRequires 'Run commands on open' to be ticked to have any effect."
+    $ChatCommanderForm.Controls.Add($chkCloseAfterRun)
+
+    $panelNewCommand = SetUIElement -type 'Panel' -visible $true -width 240 -height 115 -top 88 -left 5
     $ChatCommanderForm.Controls.Add($panelNewCommand)
     
-    $lblCmd = SetUIElement -type 'Label' -visible $true -width 100 -height 15 -top 0 -left 3 -bg @(40, 40, 40, 0) -fg @(200, 200, 200) -text "Command:" -font (New-Object System.Drawing.Font('Segoe UI', 7))
+    $lblCmd = SetUIElement -type 'Label' -visible $true -width 100 -height 15 -top 0 -left 3 -text "Command:" -font (Get-UIFont 'Segoe UI' 7)
     $panelNewCommand.Controls.Add($lblCmd)
 
-    $txtCommandText = SetUIElement -type 'TextBox' -visible $true -width 194 -height 24 -top 15 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Chat Command`nEnter the chat command to send."
+    $txtCommandText = SetUIElement -type 'TextBox' -visible $true -width 234 -height 24 -top 15 -left 3 -text '' -font (Get-UIFont 'Segoe UI' 8) -tooltip "Chat Command`nEnter the chat command to send."
     $panelNewCommand.Controls.Add($txtCommandText)
     
-    $lblName = SetUIElement -type 'Label' -visible $true -width 100 -height 15 -top 40 -left 3 -bg @(40, 40, 40, 0) -fg @(200, 200, 200) -text "Name:" -font (New-Object System.Drawing.Font('Segoe UI', 7))
+    $lblName = SetUIElement -type 'Label' -visible $true -width 100 -height 15 -top 40 -left 3 -text "Name:" -font (Get-UIFont 'Segoe UI' 7)
     $panelNewCommand.Controls.Add($lblName)
 
-    $name = SetUIElement -type 'TextBox' -visible $true -width 130 -height 17 -top 55 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'New' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Name`nGive this command a descriptive name for easier identification."
+    $name = SetUIElement -type 'TextBox' -visible $true -width 170 -height 17 -top 55 -left 3 -text 'New' -font (Get-UIFont 'Segoe UI' 8 'Regular') -tooltip "Name`nGive this command a descriptive name for easier identification."
     $panelNewCommand.Controls.Add($name)
 
-    $lblVar = SetUIElement -type 'Label' -visible $true -width 100 -height 15 -top 75 -left 3 -bg @(50, 50, 50, 0) -fg @(200, 200, 200) -text "Variable:" -font (New-Object System.Drawing.Font('Segoe UI', 7))
+    $lblVar = SetUIElement -type 'Label' -visible $true -width 100 -height 15 -top 75 -left 3 -text "Variable:" -font (Get-UIFont 'Segoe UI' 7)
     $panelNewCommand.Controls.Add($lblVar)
 
-    $txtVariable = SetUIElement -type 'TextBox' -visible $true -width 130 -height 17 -top 90 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Variable`nReplaces [var] in the command text with this value."
+    $txtVariable = SetUIElement -type 'TextBox' -visible $true -width 170 -height 17 -top 90 -left 3 -text '' -font (Get-UIFont 'Segoe UI' 8 'Regular') -tooltip "Variable`nReplaces [var] in the command text with this value."
     $panelNewCommand.Controls.Add($txtVariable)
 
     
     
-    $btnAdd = SetUIElement -type 'Button' -visible $true -width 55 -height 20 -top 88 -left 138 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) + ' Add' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Add Command`nAdds the current chat command to the saved list."
+    $btnAdd = SetUIElement -type 'Button' -visible $true -width 55 -height 20 -top 88 -left 178 -text ([char]0x2795) + ' Add' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tooltip "Add Command`nAdds the current chat command to the saved list."
     $panelNewCommand.Controls.Add($btnAdd)
 
     
 
-    $btnRunSequence = SetUIElement -type 'Button' -visible $true -width 200 -height 25 -top ($panelNewCommand.Bottom + 5) -left 40 -bg @(0, 120, 215) -fg @(255, 255, 255) -text "Run All Visible" -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Run Sequence`nExecutes all currently visible commands in the list from top to bottom."
+    $btnRunSequence = SetUIElement -type 'Button' -visible $true -width 240 -height 25 -top ($panelNewCommand.Bottom + 5) -left 5 -text "Run All Visible" -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tag 'Primary' -tooltip "Run Sequence`nExecutes all currently visible commands in the list from top to bottom."
     $ChatCommanderForm.Controls.Add($btnRunSequence)
 
     
-    $lblSearch = SetUIElement -type 'Label' -visible $true -width 100 -height 15 -top ($btnRunSequence.Bottom + 5) -left 40 -bg @(40, 40, 40, 0) -fg @(200, 200, 200) -text "Search:" -font (New-Object System.Drawing.Font('Segoe UI', 7))
+    $lblSearch = SetUIElement -type 'Label' -visible $true -width 100 -height 15 -top ($btnRunSequence.Bottom + 5) -left 5 -text "Search:" -font (Get-UIFont 'Segoe UI' 7)
     $ChatCommanderForm.Controls.Add($lblSearch)
 
-    $txtSearchCommands = SetUIElement -type 'TextBox' -visible $true -width 155 -height 24 -top ($lblSearch.Bottom + 0) -left 40 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Search Commands`nType to filter saved chat commands across all profiles."
+    $txtSearchCommands = SetUIElement -type 'TextBox' -visible $true -width 195 -height 24 -top ($lblSearch.Bottom + 0) -left 5 -text '' -font (Get-UIFont 'Segoe UI' 8) -tooltip "Search Commands`nType to filter saved chat commands across all profiles."
     $ChatCommanderForm.Controls.Add($txtSearchCommands)
 
-    $btnShowAll = SetUIElement -type 'Button' -visible $true -width 40 -height 24 -top ($lblSearch.Bottom + 0) -left 200 -bg @(60, 60, 100) -fg @(255, 255, 255) -text "ALL" -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 7)) -tooltip "Show All`nToggle table view of all commands."
+    $btnShowAll = SetUIElement -type 'Button' -visible $true -width 40 -height 24 -top ($lblSearch.Bottom + 0) -left 205 -text "ALL" -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tooltip "Show All`nToggle table view of all commands."
     $ChatCommanderForm.Controls.Add($btnShowAll)
 
     
@@ -1228,28 +1270,28 @@ function CreateChatCommanderForm
     $panelSavedCommands.WrapContents = $false
     $panelSavedCommands.AutoSize = $true
     $panelSavedCommands.AutoSizeMode = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink
-    $panelSavedCommands.Width = 200
+    $panelSavedCommands.Width = 240
     $panelSavedCommands.Top = ($txtSearchCommands.Bottom + 5)
-    $panelSavedCommands.Left = 40
-    $panelSavedCommands.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 50)
+    $panelSavedCommands.Left = 5
+    $panelSavedCommands.BackColor = Get-Theme 'SecondaryBg'
     $ChatCommanderForm.Controls.Add($panelSavedCommands)
 
     
-    $panelPagination = SetUIElement -type 'Panel' -visible $true -width 200 -height 30 -top 0 -left 40 -bg @(50, 50, 50)
+    $panelPagination = SetUIElement -type 'Panel' -visible $true -width 240 -height 30 -top 0 -left 5
     $ChatCommanderForm.Controls.Add($panelPagination)
 
-    $btnPrevPage = SetUIElement -type 'Button' -visible $true -width 30 -height 20 -top 5 -left 5 -bg @(40, 40, 40) -fg @(255, 255, 255) -text "<" -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8))
+    $btnPrevPage = SetUIElement -type 'Button' -visible $true -width 30 -height 20 -top 5 -left 5 -text "<" -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8)
     $panelPagination.Controls.Add($btnPrevPage)
 
-    $lblPageInfo = SetUIElement -type 'Label' -visible $true -width 120 -height 20 -top 8 -left 40 -bg @(50, 50, 50, 0) -fg @(200, 200, 200) -text "1 / 1" -font (New-Object System.Drawing.Font('Segoe UI', 8))
+    $lblPageInfo = SetUIElement -type 'Label' -visible $true -width 160 -height 20 -top 8 -left 40 -text "1 / 1" -font (Get-UIFont 'Segoe UI' 8)
     $lblPageInfo.TextAlign = 'MiddleCenter'
     $panelPagination.Controls.Add($lblPageInfo)
 
-    $btnNextPage = SetUIElement -type 'Button' -visible $true -width 30 -height 20 -top 5 -left 165 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ">" -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8))
+    $btnNextPage = SetUIElement -type 'Button' -visible $true -width 30 -height 20 -top 5 -left 205 -text ">" -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8)
     $panelPagination.Controls.Add($btnNextPage)
 
     
-    $gridAllCommands = SetUIElement -type 'DataGridView' -visible $false -width 400 -height 300 -top ($txtSearchCommands.Bottom + 5) -left 40 -bg @(40, 40, 40) -fg @(255, 255, 255)
+    $gridAllCommands = SetUIElement -type 'DataGridView' -visible $false -width 240 -height 300 -top ($txtSearchCommands.Bottom + 5) -left 5
     $gridAllCommands.AllowUserToAddRows = $false
     $gridAllCommands.RowHeadersVisible = $false
     $gridAllCommands.SelectionMode = 'FullRowSelect'
@@ -1291,7 +1333,7 @@ function CreateChatCommanderForm
     $colDel.UseColumnTextForButtonValue = $true
     $colDel.FillWeight = 15
     $colDel.FlatStyle = 'Flat'
-    $colDel.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Red
+    $colDel.DefaultCellStyle.ForeColor = Get-Theme 'ErrorColor'
 
     $gridAllCommands.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]@($colVis, $colName, $colCmd, $colExec, $colEdit, $colDel))
     $ChatCommanderForm.Controls.Add($gridAllCommands)
@@ -1346,7 +1388,7 @@ function CreateChatCommanderForm
                 }
             }
             UpdateChatCommanderSettings $data -forceWrite
-            if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
+            if (Test-DashboardCommand 'RefreshHotkeysList') { try { RefreshHotkeysList } catch {} }
         }
     })
 
@@ -1369,9 +1411,8 @@ function CreateChatCommanderForm
     $positionSliderY.TickFrequency = 300
     $initialY = [Math]::Max($minY, [Math]::Min($maxY, $ChatCommanderForm.Top))
     $positionSliderY.Value = $initialY
-    $positionSliderY.Size = New-Object System.Drawing.Size(15, 110)
-    $positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
-    $ChatCommanderForm.Controls.Add($positionSliderY)
+    $positionSliderY.Size = New-Object System.Drawing.Size(0, 0)
+    $positionSliderY.Location = New-Object System.Drawing.Point(0, 0)
         
     $positionSliderX = New-Object System.Windows.Forms.TrackBar
     $positionSliderX.Minimum = $minX
@@ -1379,9 +1420,8 @@ function CreateChatCommanderForm
     $positionSliderX.TickFrequency = 300
     $initialX = [Math]::Max($minX, [Math]::Min($maxX, $ChatCommanderForm.Left))
     $positionSliderX.Value = $initialX
-    $positionSliderX.Size = New-Object System.Drawing.Size(190, 15)
-    $positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
-    $ChatCommanderForm.Controls.Add($positionSliderX)
+    $positionSliderX.Size = New-Object System.Drawing.Size(0, 0)
+    $positionSliderX.Location = New-Object System.Drawing.Point(0, 0)
 
     }
     finally
@@ -1394,6 +1434,7 @@ function CreateChatCommanderForm
         InstanceId      = $instanceId
         SelectedWindow  = $row.Tag.MainWindowHandle
         HeaderPanel     = $headerPanel
+        LabelWinTitle   = $labelWinTitle
         PanelNewCommand = $panelNewCommand
         TxtVariable     = $txtVariable
         TxtCommandText  = $txtCommandText
@@ -1402,6 +1443,8 @@ function CreateChatCommanderForm
         
         BtnHotkeyToggle = $btnHotkeyToggle
         BtnInstanceHotkeyToggle = $btnInstanceHotkeyToggle
+        ChkRunOnStart    = $chkRunOnStart
+        ChkCloseAfterRun = $chkCloseAfterRun
         BtnAdd          = $btnAdd 
         BtnExport       = $btnExport
         BtnImport       = $btnImport
@@ -1499,17 +1542,17 @@ function CreateSavedCommandEntryUI
     param($formData, $cmd)
 
     $panel = New-Object System.Windows.Forms.Panel
-    $panel.Size = New-Object System.Drawing.Size(190, 26)
-    $panel.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
+    $panel.Size = New-Object System.Drawing.Size(230, 26)
+    $panel.BackColor = Get-Theme 'TertiaryBg'
     $panel.Tag = $cmd 
     $panel.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 2)
 
     $lbl = New-Object System.Windows.Forms.Label
     $lbl.Text = if ($cmd.Name) { $cmd.Name } else { $cmd.CommandText }
-    $lbl.ForeColor = [System.Drawing.Color]::White
+    $lbl.ForeColor = Get-Theme 'WhiteText'
     $lbl.Location = New-Object System.Drawing.Point(3, 4)
-    $lbl.Size = New-Object System.Drawing.Size(85, 18)
-    $lbl.Font = New-Object System.Drawing.Font('Segoe UI', 8)
+    $lbl.Size = New-Object System.Drawing.Size(125, 18)
+    $lbl.Font = Get-UIFont 'Segoe UI' 8
     $lbl.AutoEllipsis = $true
     $lbl.Cursor = 'Hand'
     $panel.Controls.Add($lbl)
@@ -1522,9 +1565,9 @@ function CreateSavedCommandEntryUI
     $btnRun.Text =  [char]0x25B6
     $btnRun.FlatStyle = 'Flat'
     $btnRun.FlatAppearance.BorderSize = 0
-    $btnRun.BackColor = [System.Drawing.Color]::FromArgb(40, 80, 40)
-    $btnRun.ForeColor = [System.Drawing.Color]::White
-    $btnRun.Location = New-Object System.Drawing.Point(90, 1)
+    $btnRun.BackColor = Get-Theme 'SuccessColorAlt'
+    $btnRun.ForeColor = Get-Theme 'WhiteText'
+    $btnRun.Location = New-Object System.Drawing.Point(130, 1)
     $btnRun.Size = New-Object System.Drawing.Size(24, 24)
     $btnRun.Cursor = 'Hand'
     if ($toolTip) { $toolTip.SetToolTip($btnRun, "Execute Command") }
@@ -1535,11 +1578,11 @@ function CreateSavedCommandEntryUI
     $btnKey.Text = if ($cmd.Hotkey) { $cmd.Hotkey } else { "Key" }
     $btnKey.FlatStyle = 'Flat'
     $btnKey.FlatAppearance.BorderSize = 0
-    $btnKey.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 80)
-    $btnKey.ForeColor = [System.Drawing.Color]::White
-    $btnKey.Location = New-Object System.Drawing.Point(116, 1)
+    $btnKey.BackColor = Get-Theme 'AccentBlue'
+    $btnKey.ForeColor = Get-Theme 'WhiteText'
+    $btnKey.Location = New-Object System.Drawing.Point(156, 1)
     $btnKey.Size = New-Object System.Drawing.Size(45, 24)
-    $btnKey.Font = New-Object System.Drawing.Font('Segoe UI', 6)
+    $btnKey.Font = Get-UIFont 'Segoe UI' 6
     $btnKey.Cursor = 'Hand'
     if ($toolTip) { $toolTip.SetToolTip($btnKey, "Assign Hotkey") }
     $panel.Controls.Add($btnKey)
@@ -1549,9 +1592,9 @@ function CreateSavedCommandEntryUI
     $btnDel.Text = "X"
     $btnDel.FlatStyle = 'Flat'
     $btnDel.FlatAppearance.BorderSize = 0
-    $btnDel.BackColor = [System.Drawing.Color]::FromArgb(80, 40, 40)
-    $btnDel.ForeColor = [System.Drawing.Color]::White
-    $btnDel.Location = New-Object System.Drawing.Point(163, 1)
+    $btnDel.BackColor = Get-Theme 'ErrorColorAlt'
+    $btnDel.ForeColor = Get-Theme 'WhiteText'
+    $btnDel.Location = New-Object System.Drawing.Point(203, 1)
     $btnDel.Size = New-Object System.Drawing.Size(24, 24)
     $btnDel.Cursor = 'Hand'
     if ($toolTip) { $toolTip.SetToolTip($btnDel, "Delete Command") }
@@ -1610,7 +1653,7 @@ function CreateSavedCommandEntryUI
                 
                 $this.Text = if ($newKey) { $newKey } else { "Key" }
                 UpdateChatCommanderSettings $data -forceWrite
-                if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
+                if (Test-DashboardCommand 'RefreshHotkeysList') { try { RefreshHotkeysList } catch {} }
             }
         }
     }.GetNewClosure())
@@ -1623,7 +1666,7 @@ function CreateSavedCommandEntryUI
             $data.SavedCommands.Remove($cmd)
             RefreshSavedCommandsUI $form
             UpdateChatCommanderSettings $data -forceWrite
-            if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
+            if (Test-DashboardCommand 'RefreshHotkeysList') { try { RefreshHotkeysList } catch {} }
         }
     }.GetNewClosure())
     
@@ -1635,7 +1678,7 @@ function CreateSavedCommandEntryUI
             $data.Name.Text = $cmd.Name
             $data.EditingCommandId = $cmd.Id
             $data.BtnAdd.Text = ([char]0x2705) + ' Save'
-            $data.BtnAdd.BackColor = [System.Drawing.Color]::FromArgb(40, 120, 40)
+            $data.BtnAdd.BackColor = Get-Theme 'SuccessColorAlt'
         }
     }.GetNewClosure())
 
@@ -1759,29 +1802,28 @@ function AdjustChatCommanderFormHeight
         if ($data.ShowAllMode)
         {
             $form.Width = 500
-            $data.HeaderPanel.Width = 500
+            $data.HeaderPanel.Width = 498
             
             
-            $data.BtnClose.Left = 480
-            $data.BtnReset.Left = 465
-            $data.BtnShowHide.Left = 450
-            $data.BtnAddInstance.Left = 435
-            $data.BtnExport.Left = 420
-            $data.BtnImport.Left = 405
+            $data.BtnHotkeyToggle.Left = 427
+            $data.BtnShowHide.Left = 461
+            $data.BtnClose.Left = 479
             
             
             
             
-            $data.PanelNewCommand.Width = 440
-            $data.TxtCommandText.Width = 434
-            $data.BtnAdd.Left = 382
-            $data.Name.Width = 374
+            $data.PanelNewCommand.Width = 490
+            $data.ChkRunOnStart.Width = 490
+            $data.ChkCloseAfterRun.Width = 490
+            $data.TxtCommandText.Width = 484
+            $data.BtnAdd.Left = 428
+            $data.Name.Width = 420
             
-            $data.BtnRunSequence.Width = 440
-            $data.BtnShowAll.Left = 440
-            $data.txtSearchCommands.Width = 395
+            $data.BtnRunSequence.Width = 490
+            $data.BtnShowAll.Left = 455
+            $data.txtSearchCommands.Width = 445
             
-            $data.GridAllCommands.Width = 440
+            $data.GridAllCommands.Width = 490
             $data.GridAllCommands.Height = 300 
             
             
@@ -1802,30 +1844,29 @@ function AdjustChatCommanderFormHeight
 
         
         $form.Width = 250
-        $data.HeaderPanel.Width = 265
+        $data.HeaderPanel.Width = 248
         
         
-        $data.BtnClose.Left = 230
-        $data.BtnReset.Left = 215
-        $data.BtnShowHide.Left = 200
-        $data.BtnAddInstance.Left = 185
-        $data.BtnExport.Left = 170
-        $data.BtnImport.Left = 155
+        $data.BtnHotkeyToggle.Left = 177
+        $data.BtnShowHide.Left = 211
+        $data.BtnClose.Left = 229
         
         
-        $data.PanelNewCommand.Width = 200
-        $data.TxtCommandText.Width = 194
-        $data.BtnAdd.Left = 138
-        $data.Name.Width = 130
+        $data.PanelNewCommand.Width = 240
+        $data.ChkRunOnStart.Width = 240
+        $data.ChkCloseAfterRun.Width = 240
+        $data.TxtCommandText.Width = 234
+        $data.BtnAdd.Left = 178
+        $data.Name.Width = 170
         
-        $data.BtnRunSequence.Width = 200
-        $data.BtnShowAll.Left = 200
-        $data.txtSearchCommands.Width = 155
+        $data.BtnRunSequence.Width = 240
+        $data.BtnShowAll.Left = 205
+        $data.txtSearchCommands.Width = 195
         
-        $data.GridAllCommands.Width = 400 
+        $data.GridAllCommands.Width = 240
 
         
-        $baseHeight = 285 
+        $baseHeight = 313 
         $panel = $data.panelSavedCommands
         
         
@@ -1834,7 +1875,7 @@ function AdjustChatCommanderFormHeight
         $preferredPanelHeight = $panel.Height
         
         
-        $paginationHeight = if ($data.PanelPagination.Visible) { 0 } else { 0 }
+        $paginationHeight = 0
 
         $newHeight = $baseHeight + $preferredPanelHeight + $paginationHeight + 10 
         
@@ -1886,7 +1927,7 @@ function AddChatCommanderEventHandlers
         
         if ($data.EditingCommandId) {
             $data.BtnAdd.Text = ([char]0x2705) + ' Save'
-            $data.BtnAdd.BackColor = [System.Drawing.Color]::FromArgb(40, 120, 40)
+            $data.BtnAdd.BackColor = Get-Theme 'SuccessColorAlt'
         }
     })
 
@@ -1937,7 +1978,7 @@ function AddChatCommanderEventHandlers
 
             $data.EditingCommandId = $null 
             $data.BtnAdd.Text = ([char]0x2795) + ' Add' 
-            $data.BtnAdd.BackColor = [System.Drawing.Color]::FromArgb(40, 80, 80) 
+            $data.BtnAdd.BackColor = Get-Theme 'ButtonBg' 
         }
         else
         {
@@ -2030,6 +2071,8 @@ function AddChatCommanderEventHandlers
             
             $data.Name.Text = "New"
             $data.BtnHotkeyToggle.Checked = $true
+            $data.ChkRunOnStart.Checked = $true
+            $data.ChkCloseAfterRun.Checked = $false
             $minX = $data.PositionSliderX.Minimum
             $maxX = $data.PositionSliderX.Maximum
             $minY = $data.PositionSliderY.Minimum
@@ -2038,13 +2081,13 @@ function AddChatCommanderEventHandlers
             $data.PositionSliderY.Value = [Math]::Max($minY, [Math]::Min($maxY, $data.Form.Top))
             $data.EditingCommandId = $null
             $data.BtnAdd.Text = ([char]0x2795) + ' Add'
-            $data.BtnAdd.BackColor = [System.Drawing.Color]::FromArgb(40, 80, 80)
+            $data.BtnAdd.BackColor = Get-Theme 'ButtonBg'
 
             
             $profilePrefix = $null
-            if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue)
+            if (Test-DashboardCommand 'FindOrCreateProfile')
             {
-                $profilePrefix = FindOrCreateProfile $data.WindowTitle
+                $profilePrefix = FindOrCreateProfile $data.WindowTitle -ProfileHint (Get-RowProfileHint -formData $data)
             }
 
             if ($profilePrefix) {
@@ -2253,6 +2296,7 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
             $newForm.Left = $anchorForm.Right + 10
             $newForm.Top = $anchorForm.Top
             $global:DashboardConfig.Resources.FtoolForms[$newInstanceId] = $newForm
+            Register-OpenForm $newForm
             $newForm.Show()
             $newForm.BringToFront()
         }
@@ -2271,13 +2315,28 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
         UpdateChatCommanderSettings $data -forceWrite
     })
 
+    $formData.ChkRunOnStart.Add_CheckedChanged({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag) { return }
+        $data = $form.Tag
+        if ($data.IsLoading) { return }
+        UpdateChatCommanderSettings $data -forceWrite
+    })
+
+    $formData.ChkCloseAfterRun.Add_CheckedChanged({
+        $form = $this.FindForm()
+        if (-not $form -or -not $form.Tag) { return }
+        $data = $form.Tag
+        if ($data.IsLoading) { return }
+        UpdateChatCommanderSettings $data -forceWrite
+    })
+
     
 
     $formData.Name.Add_TextChanged({
         $form = $this.FindForm()
         if (-not $form -or -not $form.Tag) { return }
-        
-        
+        UpdateChatCommanderSettings $form.Tag -forceWrite
     })
 
     
@@ -2287,7 +2346,12 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
         if (-not $form -or -not $form.Tag) { return }
         $data = $form.Tag
         if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging) {
-            UpdateChatCommanderSettings $data -forceWrite
+            if ($data.PSObject.Properties['SuppressPersist'] -and $data.SuppressPersist) {
+                UpdateChatCommanderSettings $data
+            }
+            else {
+                UpdateChatCommanderSettings $data -forceWrite
+            }
         }
     })
 
@@ -2296,7 +2360,12 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
         if (-not $form -or -not $form.Tag) { return }
         $data = $form.Tag
         if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging) {
-            UpdateChatCommanderSettings $data -forceWrite
+            if ($data.PSObject.Properties['SuppressPersist'] -and $data.SuppressPersist) {
+                UpdateChatCommanderSettings $data
+            }
+            else {
+                UpdateChatCommanderSettings $data -forceWrite
+            }
         }
     })
 
@@ -2315,7 +2384,7 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
         
         $data.ShowAllMode = -not $data.ShowAllMode
         $data.BtnShowAll.Text = if ($data.ShowAllMode) { "LIST" } else { "ALL" }
-        $data.BtnShowAll.BackColor = if ($data.ShowAllMode) { [System.Drawing.Color]::FromArgb(40, 120, 40) } else { [System.Drawing.Color]::FromArgb(60, 60, 100) }
+        $data.BtnShowAll.BackColor = if ($data.ShowAllMode) { Get-Theme 'SuccessColorAlt' } else { Get-Theme 'AccentBlue' }
         
         RefreshSavedCommandsUI $form
     })
@@ -2382,16 +2451,23 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
                 }
             }
             UpdateChatCommanderSettings $data -forceWrite
-            if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
+            if (Test-DashboardCommand 'RefreshHotkeysList') { try { RefreshHotkeysList } catch {} }
         }
         elseif ($e.ColumnIndex -eq 3) { 
             if ($data.RunningTimer) { StopChatCommanderSequence $data }
             $job = Invoke-ChatCommanderAction -formData $data -commandString $cmd.CommandText
             if ($job) {
                 $data.ActiveJobs.Add($job) | Out-Null
-                $job.AsyncResult.AsyncWaitHandle.WaitOne() | Out-Null
-                try { $job.PowerShell.EndInvoke($job.AsyncResult); $job.PowerShell.Dispose() } catch {}
-                $data.ActiveJobs.Remove($job)
+                [System.Threading.Tasks.Task]::Run([System.Action]{
+                    $job.AsyncResult.AsyncWaitHandle.WaitOne() | Out-Null
+                    try { $job.PowerShell.EndInvoke($job.AsyncResult); $job.PowerShell.Dispose() } catch {}
+                    $form = $this.FindForm()
+                    if ($form -and -not $form.IsDisposed) {
+                        $form.BeginInvoke([System.Action]{
+                            if ($data.ActiveJobs) { $data.ActiveJobs.Remove($job) }
+                        })
+                    }
+                }) | Out-Null
             }
         }
         elseif ($e.ColumnIndex -eq 4) { 
@@ -2401,7 +2477,7 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
             $data.Name.Text = $cmd.Name
             $data.EditingCommandId = $cmd.Id
             $data.BtnAdd.Text = ([char]0x2705) + ' Save'
-            $data.BtnAdd.BackColor = [System.Drawing.Color]::FromArgb(40, 120, 40)
+            $data.BtnAdd.BackColor = Get-Theme 'SuccessColorAlt'
             
             
             

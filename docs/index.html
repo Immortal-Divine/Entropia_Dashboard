@@ -371,6 +371,7 @@
 						<span class="lang-de">Anleitung</span>
 						<span class="lang-pt">Tutorial</span>
 						<span class="lang-tl">Gabay</span></a></li>
+                    <li class="nav-item"><a class="nav-link" href="maps/"><span class="lang-en">Maps</span><span class="lang-de">Karten</span><span class="lang-pt">Mapas</span><span class="lang-tl">Mapa</span></a></li>
                     <li class="nav-item"><a class="nav-link" href="#download">
 						<span class="lang-en">Download</span>
 						<span class="lang-de">Download</span>
@@ -415,6 +416,7 @@
 					<span class="lang-de">Jetzt Herunterladen</span>
 					<span class="lang-pt">Baixar Agora</span>
 					<span class="lang-tl">I-download Ngayon</span></a>
+                <a href="maps/" class="btn btn-outline-light btn-lg rounded-pill px-4"><i class="fa-solid fa-map me-2"></i><span class="lang-en">Open Maps</span><span class="lang-de">Karten öffnen</span><span class="lang-pt">Abrir Mapas</span><span class="lang-tl">Buksan ang Mapa</span></a>
                 <a href="https://github.com/Immortal-Divine/Entropia_Dashboard" class="btn btn-outline-light btn-lg rounded-pill px-4"><i class="fa-brands fa-github me-2"></i>
 					<span class="lang-en">Source Code</span>
 					<span class="lang-de">Quellcode</span>
@@ -836,19 +838,37 @@
 															<span class="lang-de">Reconnect?</span>
 															<span class="lang-pt">Reconnect?</span>
 															<span class="lang-tl">Reconnect?</span></strong> <i class="fa-solid fa-circle-info text-info"></i> 
-															<span class="lang-en">(See Section 4) Check this to enable the Smart Reconnect feature for this profile.</span>
-															<span class="lang-de">(Siehe Abschnitt 4) Aktiviere dies für Smart Reconnect.</span>
-															<span class="lang-pt">(Veja Seção 4) Marque isso para ativar o recurso de Reconexão Inteligente para este perfil.</span>
-															<span class="lang-tl">(Tingnan ang Seksyon 4) I-check ito para paganahin ang Smart Reconnect feature para sa profile na ito.</span></li>
+															<span class="lang-en">(See Section 4) Set per remembered client in the Auto-Start Clients grid below: reconnects this single client if it disconnects, the other clients of the profile are not affected.</span>
+															<span class="lang-de">(Siehe Abschnitt 4) Wird pro gemerktem Client im Raster "Auto-Start Clients" unten gesetzt: reconnectet nur diesen Client bei Disconnect, die anderen Clients des Profils bleiben unberührt.</span>
+															<span class="lang-pt">(Veja Seção 4) Definido por cliente lembrado na grade "Auto-Start Clients" abaixo: reconecta apenas este cliente se ele cair, os outros clientes do perfil não são afetados.</span>
+															<span class="lang-tl">(Tingnan ang Seksyon 4) Bawat naaalalang client ang nagtatakda nito sa "Auto-Start Clients" grid sa ibaba: i-reconnect lang ang client na ito kapag na-disconnect, hindi na-aapektuhan ang ibang client ng profile.</span></li>
                                                         <li><strong>
 															<span class="lang-en">Hide?</span>
 															<span class="lang-de">Hide?</span>
 															<span class="lang-pt">Hide?</span>
 															<span class="lang-tl">Hide?</span></strong> 
-															<span class="lang-en">Check this to hide the client from the taskbar and Alt+Tab view when it's minimized.</span>
-															<span class="lang-de">Versteckt den Client aus Taskleiste und Alt+Tab, wenn minimiert.</span>
-															<span class="lang-pt">Marque isso para ocultar o cliente da barra de tarefas e da visualização Alt+Tab quando minimizado.</span>
-															<span class="lang-tl">I-check ito para itago ang client mula sa taskbar at Alt+Tab view kapag naka-minimize.</span></li>
+															<span class="lang-en">Set per remembered client in the Auto-Start Clients grid below: hides this single client window from the taskbar and Alt+Tab view when it's minimized.</span>
+															<span class="lang-de">Wird pro gemerktem Client im Raster "Auto-Start Clients" unten gesetzt: versteckt nur dieses Client-Fenster aus Taskleiste und Alt+Tab, wenn minimiert.</span>
+															<span class="lang-pt">Definido por cliente lembrado na grade "Auto-Start Clients" abaixo: oculta apenas esta janela de cliente da barra de tarefas e da visualização Alt+Tab quando minimizada.</span>
+															<span class="lang-tl">Bawat naaalalang client ang nagtatakda nito sa "Auto-Start Clients" grid sa ibaba: itatago lang ang window ng client na ito sa taskbar at Alt+Tab view kapag naka-minimize.</span></li>
+                                                        <li><strong>
+															<span class="lang-en">Hide Profiles:</span>
+															<span class="lang-de">Hide Profiles:</span>
+															<span class="lang-pt">Hide Profiles:</span>
+															<span class="lang-tl">Hide Profiles:</span></strong> <i class="fa-solid fa-circle-info text-info"></i> 
+															<span class="lang-en">Check box below the Auto-Start Clients grid: checked, every client that has no row in that grid yet (it has not logged in for the first time) is hidden from the taskbar and Alt+Tab view while it is minimized; unchecked, those clients stay visible. A client's own <kbd>Hide?</kbd> tick always wins over the switch.</span>
+															<span class="lang-de">Schalter unterhalb des "Auto-Start Clients"-Rasters: Ist er gesetzt, wird jedes Client-Fenster, das noch keine eigene Zeile in diesem Raster hat (es hat sich noch nie eingeloggt), beim Minimieren aus Taskleiste und Alt+Tab versteckt; ohne Haken bleibt es sichtbar. Der eigene <kbd>Hide?</kbd>-Haken eines Clients gewinnt immer.</span>
+															<span class="lang-pt">Caixa de sele&ccedil;&atilde;o abaixo da grade "Auto-Start Clients": marcada, todo cliente que ainda n&atilde;o tem linha nessa grade (ainda n&atilde;o fez login) &eacute; ocultado da barra de tarefas e da visualiza&ccedil;&atilde;o Alt+Tab quando minimizado; desmarcada, esses clientes continuam vis&iacute;veis. A marca <kbd>Hide?</kbd> do cliente sempre prevalece sobre a chave.</span>
+															<span class="lang-tl">Check box sa ilalim ng "Auto-Start Clients" grid: kapag naka-check, itatago mula sa taskbar at Alt+Tab view habang naka-minimize ang bawat client na wala pang row sa grid na iyon (hindi pa ito nakaka-login); kapag hindi naka-check, mananatili itong nakikita. Palaging panalo ang sariling <kbd>Hide?</kbd> check ng client kaysa sa switch.</span></li>
+                                                        <li><strong>
+															<span class="lang-en">Auto-Start Clients (second grid):</span>
+															<span class="lang-de">Auto-Start Clients (zweites Raster):</span>
+															<span class="lang-pt">Auto-Start Clients (segunda grade):</span>
+															<span class="lang-tl">Auto-Start Clients (pangalawang grid):</span></strong> <i class="fa-solid fa-circle-info text-info"></i> 
+															<span class="lang-en">The grid in the bottom half of this tab remembers every client that logs into a profile (automatically, the moment it logs in). Columns: <kbd>Profile</kbd>, <kbd>Client</kbd>, <kbd>Reconnect?</kbd>, <kbd>Hide?</kbd>, <kbd>Ftool?</kbd>, <kbd>Macro?</kbd>, <kbd>QuickCmd?</kbd> - every tick applies to this single client only: <kbd>Reconnect?</kbd> and <kbd>Hide?</kbd> control reconnect and window hiding, the three tool ticks open that tool once the client has logged in - never while launching, logging in or logged out (macro windows are opened but left idle). Click a client name to select it for its profile: each profile remembers its own selected client and the Launch button follows it. Use <kbd>Add</kbd>, <kbd>Rename</kbd> and <kbd>Remove</kbd> to maintain the list by hand; a new client belongs to the profile selected in the list above. Changes are stored immediately.</span>
+															<span class="lang-de">Das Raster in der unteren H&auml;lfte dieses Tabs merkt sich jeden Client, der sich in ein Profil einloggt (automatisch, im Moment des Logins). Spalten: <kbd>Profile</kbd>, <kbd>Client</kbd>, <kbd>Reconnect?</kbd>, <kbd>Hide?</kbd>, <kbd>Ftool?</kbd>, <kbd>Macro?</kbd>, <kbd>QuickCmd?</kbd> - jeder Haken gilt nur f&uuml;r diesen einzelnen Client: <kbd>Reconnect?</kbd> und <kbd>Hide?</kbd> steuern Reconnect und Fenster-Verstecken, die drei Tool-Haken starten das Tool, sobald der Client eingeloggt ist - nie beim Starten, Einloggen oder Ausloggen (Makro-Fenster werden ge&ouml;ffnet, bleiben aber inaktiv). Klicke auf einen Client-Namen, um ihn f&uuml;r sein Profil auszuw&auml;hlen: jedes Profil merkt sich seinen eigenen ausgew&auml;hlten Client, der Launch-Button folgt ihm. Mit <kbd>Add</kbd>, <kbd>Rename</kbd> und <kbd>Remove</kbd> pflegst du die Liste von Hand; ein neuer Client geh&ouml;rt zum Profil, das in der Liste dar&uuml;ber ausgew&auml;hlt ist. &Auml;nderungen werden sofort gespeichert.</span>
+															<span class="lang-pt">A grade na metade inferior desta aba lembra todos os clientes que entram em um perfil (automaticamente, no momento do login). Colunas: <kbd>Profile</kbd>, <kbd>Client</kbd>, <kbd>Reconnect?</kbd>, <kbd>Hide?</kbd>, <kbd>Ftool?</kbd>, <kbd>Macro?</kbd>, <kbd>QuickCmd?</kbd> - cada marca vale apenas para este cliente: <kbd>Reconnect?</kbd> e <kbd>Hide?</kbd> controlam a reconex&atilde;o e a oculta&ccedil;&atilde;o da janela, e as tr&ecirc;s marca&ccedil;&otilde;es de ferramenta abrem essa ferramenta assim que o cliente fizer login - nunca durante o lancamento, login ou logout (as janelas de Macro s&atilde;o abertas, mas ficam paradas). Clique no nome de um cliente para defini-lo como selecionado do perfil: cada perfil guarda o seu pr&oacute;prio cliente selecionado e o bot&atilde;o Launch segue ele. Use <kbd>Add</kbd>, <kbd>Rename</kbd> e <kbd>Remove</kbd> para manter a lista manualmente; um novo cliente pertence ao perfil selecionado na lista acima. As altera&ccedil;&otilde;es s&atilde;o salvas imediatamente.</span>
+															<span class="lang-tl">Ang grid sa ibabang bahagi ng tab na ito ay nag-iingat ng bawat client na naglo-login sa isang profile (awtomatiko, sa mismong oras ng login). Mga column: <kbd>Profile</kbd>, <kbd>Client</kbd>, <kbd>Reconnect?</kbd>, <kbd>Hide?</kbd>, <kbd>Ftool?</kbd>, <kbd>Macro?</kbd>, <kbd>QuickCmd?</kbd> - ang bawat check ay para lamang sa client na ito: ang <kbd>Reconnect?</kbd> at <kbd>Hide?</kbd> ang nagko-control ng reconnect at ng pagtago ng window, at ang tatlong tool check ang nagbubukas ng tool kapag nakalogin na ang client - hindi habang nagla-launch, naglo-login, o naka-logout (binubuksan ang mga Macro window ngunit nananatiling idle). I-click ang pangalan ng client para piliin ito para sa profile nito: bawat profile ay may sariling napiling client at susundin ito ng Launch button. Gamitin ang <kbd>Add</kbd>, <kbd>Rename</kbd> at <kbd>Remove</kbd> para mapanatili ang listahan; ang bagong client ay pagmamay-ari ng profile na nasa listahan sa itaas. Agad na nase-save ang mga pagbabago.</span></li>
                                                     </ul>
                                                 </li>
                                                 <li>
@@ -857,10 +877,10 @@
 														<span class="lang-de">WICHTIG NACH PATCHES:</span>
 														<span class="lang-pt">PASSO CRÍTICO APÓS ATUALIZAÇÕES DO JOGO:</span>
 														<span class="lang-tl">KRITIKAL NA HAKBANG PAGKATAPOS NG GAME PATCHES:</span></span></strong> 
-														<span class="lang-en">If the game updates, your main client's and profiles <code>neuz.exe</code> are not synced, open the main Launcher to patch first. Then click the <kbd>Copy Neuz.exe</kbd> button to distribute the updated executable to all your profiles.</span>
-														<span class="lang-de">Wenn das Spiel updatet, patche erst den Haupt-Launcher. Klicke dann <kbd>Copy Neuz.exe</kbd>, um die neue Datei auf alle Profile zu verteilen.</span>
-														<span class="lang-pt">Se o jogo atualizar, o <code>neuz.exe</code> do seu cliente principal e perfis não estarão sincronizados, abra o Launcher principal para atualizar primeiro. Em seguida, clique no botão <kbd>Copy Neuz.exe</kbd> para distribuir o executável atualizado para todos os seus perfis.</span>
-														<span class="lang-tl">Kung mag-update ang laro, at hindi naka-sync ang <code>neuz.exe</code> ng iyong main client at mga profile, buksan muna ang main Launcher para mag-patch. Pagkatapos ay i-click ang <kbd>Copy Neuz.exe</kbd> button para ipamahagi ang updated na executable sa lahat ng iyong profile.</span>
+														<span class="lang-en">If the game updates, your main client's and the profiles' game files are not synced, open the main Launcher to patch first. Then click the <kbd>Copy Neuz.exe</kbd> button to copy the complete <code>bin32</code> and <code>bin64</code> folders to the profiles selected in the list (all profiles if none is selected). Files that cannot be overwritten are skipped and reported - the copy continues.</span>
+														<span class="lang-de">Wenn das Spiel updatet, patche erst den Haupt-Launcher. Klicke dann <kbd>Copy Neuz.exe</kbd>, um die kompletten Ordner <code>bin32</code> und <code>bin64</code> auf die ausgewählten Profile zu kopieren (alle Profile, falls keines ausgewählt ist). Dateien, die nicht überschrieben werden können, werden übersprungen und gemeldet - die Kopierung läuft weiter.</span>
+														<span class="lang-pt">Se o jogo atualizar, os arquivos do seu cliente principal e dos perfis não estarão sincronizados, abra o Launcher principal para atualizar primeiro. Em seguida, clique no botão <kbd>Copy Neuz.exe</kbd> para copiar as pastas completas <code>bin32</code> e <code>bin64</code> para os perfis selecionados na lista (todos os perfis, se nenhum estiver selecionado). Arquivos que não puderem ser sobrescritos são ignorados e reportados, e a cópia continua.</span>
+														<span class="lang-tl">Kung mag-update ang laro, at hindi naka-sync ang mga game file ng iyong main client at mga profile, buksan muna ang main Launcher para mag-patch. Pagkatapos ay i-click ang <kbd>Copy Neuz.exe</kbd> button para kopyahin ang buong <code>bin32</code> at <code>bin64</code> folder sa mga profile na naka-select sa listahan (lahat ng profile kung walang naka-select). Ang mga file na hindi ma-overwrite ay ini-skip at ini-report - nagpapatuloy ang kopya.</span>
                                                 </li>
                                                 <li>
                                                     <strong><span class="lang-en">Launching a Profile Client:</span>
@@ -1293,10 +1313,10 @@
 													<span class="lang-de">Aktivieren:</span>
 													<span class="lang-pt">Ativar:</span>
 													<span class="lang-tl">I-enable:</span></strong> 
-													<span class="lang-en">In <strong>Settings > General</strong>, check the "Reconnect?" box for each profile you want to enable this feature on.</span>
-													<span class="lang-de">In <strong>Settings > General</strong>, aktiviere "Reconnect?" beim Profil.</span>
-													<span class="lang-pt">Em <strong>Settings > General</strong>, marque a caixa "Reconectar?" para cada perfil em que deseja ativar este recurso.</span>
-													<span class="lang-tl">Sa <strong>Settings > General</strong>, i-check ang "Reconnect?" box para sa bawat profile na gusto mong paganahin ang feature na ito.</span></li>
+													<span class="lang-en">In <strong>Settings > General</strong>, tick "Reconnect?" for each remembered client in the "Auto-Start Clients" grid that should reconnect automatically - the tick applies to that single client.</span>
+													<span class="lang-de">In <strong>Settings > General</strong>, setze "Reconnect?" bei jedem gemerkten Client im Raster "Auto-Start Clients", der automatisch reconnecten soll - der Haken gilt nur für diesen Client.</span>
+													<span class="lang-pt">Em <strong>Settings > General</strong>, marque "Reconnect?" para cada cliente lembrado na grade "Auto-Start Clients" que deve reconectar automaticamente - a marca vale apenas para esse cliente.</span>
+													<span class="lang-tl">Sa <strong>Settings > General</strong>, i-check ang "Reconnect?" para sa bawat naaalalang client sa "Auto-Start Clients" grid na dapat awtomatikong kumonekta muli - para lamang sa client na iyon ang check.</span></li>
                                                 <li><strong>
 													<span class="lang-en">Notification:</span>
 													<span class="lang-de">Benachrichtigung:</span>
@@ -1358,10 +1378,10 @@
 													<span class="lang-de">Zustand speichern:</span>
 													<span class="lang-pt">Salvar Estado:</span>
 													<span class="lang-tl">I-save ang State:</span></strong> 
-													<span class="lang-en">Once you have all your clients launched and logged in exactly as you want them (e.g., 1 main, 3 buffers, 4 vendors), go to <strong>Settings > General</strong> and click <kbd>Save One-Click Setup</kbd>. This saves a snapshot of which profiles are running and which are fully logged in.</span>
-													<span class="lang-de">Wenn alle Clients laufen und eingeloggt sind, gehe zu <strong>Settings > General</strong> und klicke <kbd>Save One-Click Setup</kbd>. Dies speichert Profile und Login-Status.</span>
-													<span class="lang-pt">Depois de ter todos os seus clientes lançados e logados exatamente como você deseja (ex: 1 principal, 3 buffers, 4 vendedores), vá para <strong>Settings > General</strong> e clique em <kbd>Save One-Click Setup</kbd>. Isso salva um instantâneo de quais perfis estão sendo executados e quais estão totalmente logados.</span>
-													<span class="lang-tl">Kapag nailunsad at nai-log in mo na ang lahat ng iyong clients nang eksakto kung paano mo sila gusto (hal., 1 main, 3 buffers, 4 vendors), pumunta sa <strong>Settings > General</strong> at i-click ang <kbd>Save One-Click Setup</kbd>. Sine-save nito ang snapshot kung aling mga profile ang tumatakbo at kung alin ang ganap na naka-log in.</span></li>
+													<span class="lang-en">Once you have all your clients launched and logged in exactly as you want them (e.g., 1 main, 3 buffers, 4 vendors), go to <strong>Settings &gt; Launch Settings</strong> and click <kbd>Add</kbd>. This saves a snapshot of which profiles are running and which are fully logged in.</span>
+													<span class="lang-de">Wenn alle Clients laufen und eingeloggt sind, gehe zu <strong>Settings &gt; Launch Settings</strong> und klicke <kbd>Add</kbd>. Dies speichert Profile und Login-Status.</span>
+													<span class="lang-pt">Depois de ter todos os seus clientes lançados e logados exatamente como você deseja (ex: 1 principal, 3 buffers, 4 vendedores), vá para <strong>Settings &gt; Launch Settings</strong> e clique em <kbd>Add</kbd>. Isso salva um instantâneo de quais perfis estão sendo executados e quais estão totalmente logados.</span>
+													<span class="lang-tl">Kapag nailunsad at nai-log in mo na ang lahat ng iyong clients nang eksakto kung paano mo sila gusto (hal., 1 main, 3 buffers, 4 vendors), pumunta sa <strong>Settings &gt; Launch Settings</strong> at i-click ang <kbd>Add</kbd>. Sine-save nito ang snapshot kung aling mga profile ang tumatakbo at kung alin ang ganap na naka-log in.</span></li>
                                                 <li><strong>
 													<span class="lang-en">Restore State:</span>
 													<span class="lang-de">Wiederherstellen:</span>

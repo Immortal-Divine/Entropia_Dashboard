@@ -2,6 +2,74 @@
 
 #region Helper Functions
 
+function Test-DashboardCommand
+{
+	param(
+		[string]$Name
+	)
+
+	if ([string]::IsNullOrWhiteSpace($Name)) { return $false }
+
+	$cache = $script:DashboardCommandCache
+	if ($null -eq $cache)
+	{
+		$cache = @{}
+		$script:DashboardCommandCache = $cache
+	}
+
+	if ($cache.ContainsKey($Name)) { return [bool]$cache[$Name] }
+
+	$found = $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
+	$cache[$Name] = $found
+	return $found
+}
+
+function Request-DashboardConfigWrite
+{
+	param([int]$DelayMilliseconds = 1000)
+
+	$timers = $null
+	try { $timers = $global:DashboardConfig.Resources.Timers } catch { $timers = $null }
+	if ($null -eq $timers) { return $false }
+
+	try
+	{
+		if (-not $timers.Contains('ConfigWriteTimer'))
+		{
+			$timer = New-Object System.Windows.Forms.Timer
+			$timer.Interval = $DelayMilliseconds
+			$timer.Add_Tick({
+					param($timerSender, $timerArgs)
+					try
+					{
+						if ($timerSender) { $timerSender.Stop() }
+						WriteConfig
+					}
+					catch
+					{
+						Write-Verbose "  INI: (RequestDashboardConfigWrite): Error in config write timer: $($_.Exception.Message)"
+					}
+				})
+			$timers['ConfigWriteTimer'] = $timer
+		}
+		else
+		{
+			$timer = $timers['ConfigWriteTimer']
+		}
+
+		$timer.Stop()
+		$timer.Start()
+	}
+	catch { return $false }
+
+	return $true
+}
+
+function Clear-DashboardCommandCache
+{
+	$script:DashboardCommandCache = @{}
+}
+
 function CopyOrderedDictionary
 {
 

@@ -74,7 +74,7 @@ function StartClientLaunch
 		}
 	}
 
-	if (Get-Command ReadConfig -ErrorAction SilentlyContinue -Verbose:$False) { ReadConfig }
+	if (Test-DashboardCommand 'ReadConfig') { ReadConfig }
 
 	$neuzName = $settingsDict['ProcessName']['ProcessName']
 	$launcherPath = $settingsDict['LauncherPath']['LauncherPath']
@@ -164,7 +164,7 @@ function StartClientLaunch
 	}
 	else
 	{
-		if (Get-Command GetProcessProfile -ErrorAction SilentlyContinue -Verbose:$False)
+		if (Test-DashboardCommand 'GetProcessProfile')
 		{
 			$allClients = Get-Process -Name $neuzName -ErrorAction SilentlyContinue -Verbose:$False
 			foreach ($client in $allClients)
@@ -425,9 +425,9 @@ function StartClientLaunch
 
 			Write-Verbose "LAUNCH: Launching $ClientsToLaunch more"
 
-			$existingPIDs = New-Object System.Collections.Generic.List[int]
+			$existingPIDs = New-Object System.Collections.Generic.HashSet[int]
 			if ($currentClients) {
-				$currentClients | ForEach-Object { $existingPIDs.Add($_.Id) }
+				$currentClients | ForEach-Object { [void]$existingPIDs.Add($_.Id) }
 			}
 			$currentClients = $null
 
@@ -447,7 +447,7 @@ function StartClientLaunch
 				$actualRunning = @(Get-Process -Name $NeuzName -ErrorAction SilentlyContinue)
 				foreach ($proc in $actualRunning) {
 					if (-not $existingPIDs.Contains($proc.Id)) {
-						$existingPIDs.Add($proc.Id)
+						[void]$existingPIDs.Add($proc.Id)
 					}
 				}
 
@@ -785,7 +785,7 @@ function StartClientLaunch
 							{
 								$newClientPID = $tempNewClient.Id
 								$clientStarted = $true
-								$existingPIDs.Add($newClientPID)
+								[void]$existingPIDs.Add($newClientPID)
 								Write-Verbose "LAUNCH: Client started PID: $newClientPID"
 							}
 						}
@@ -795,7 +795,7 @@ function StartClientLaunch
 							{
 								$newClientPID = $newPIDs[0]
 								$clientStarted = $true
-								$existingPIDs.Add($newClientPID)
+								[void]$existingPIDs.Add($newClientPID)
 								Write-Verbose "LAUNCH: Using PID: $newClientPID (fallback)"
 							}
 						}
@@ -929,14 +929,14 @@ function StartClientLaunch
 			$state = $e.InvocationStateInfo.State
 			if ($state -eq 'Completed')
 			{
-				if (Get-Command -Name StopClientLaunch -ErrorAction SilentlyContinue -Verbose:$False)
+				if (Test-DashboardCommand 'StopClientLaunch')
 				{
 					StopClientLaunch -StepCompleted
 				}
 			}
 			elseif ($state -eq 'Failed' -or $state -eq 'Stopped')
 			{
-				if (Get-Command -Name StopClientLaunch -ErrorAction SilentlyContinue -Verbose:$False)
+				if (Test-DashboardCommand 'StopClientLaunch')
 				{
 					StopClientLaunch
 				}
@@ -970,7 +970,7 @@ function StartClientLaunch
 
 		$safetyTimer.Add_Elapsed({
 				Write-Verbose 'LAUNCH: Safety timer elapsed'
-				if (Get-Command -Name StopClientLaunch -ErrorAction SilentlyContinue -Verbose:$False) { StopClientLaunch }
+				if (Test-DashboardCommand 'StopClientLaunch') { StopClientLaunch }
 			})
 
 		$safetyTimer.Start()
@@ -1393,7 +1393,7 @@ function InvokeSavedLaunchSequence
 							Write-Verbose "LAUNCH SEQUENCE: Auto-logging into $($finalLoginList.Count) specific clients."
 							Write-Verbose "LAUNCH PLAN MAP: $detailString"
 
-							if (Get-Command LoginSelectedRow -ErrorAction SilentlyContinue -Verbose:$False)
+							if (Test-DashboardCommand 'LoginSelectedRow')
 							{
 								LoginSelectedRow -RowInput $finalLoginList
 							}
@@ -1556,7 +1556,6 @@ function StopClientLaunch
 
 		CloseToast -Key 9998
 
-		[System.GC]::Collect()
 
 		Write-Verbose 'LAUNCH: Launch resource cleanup completed'
 	}

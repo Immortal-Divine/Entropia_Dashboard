@@ -5,6 +5,7 @@ if (-not $global:RegisteredHotkeyByString) { $global:RegisteredHotkeyByString = 
 if (-not $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys = @{} }
 if (-not $global:PausedIdMap) { $global:PausedIdMap = @{} }
 if (-not $global:NextPausedFakeId) { $global:NextPausedFakeId = -1 }
+$script:HotkeyActionCommandCache = @{}
 
 function InvokeHotkeyAction {
 	param([Parameter(Mandatory = $true)]$Action)
@@ -18,7 +19,14 @@ function InvokeHotkeyAction {
 				$Action.Invoke() 
 			}
 			elseif ($Action -is [string]) {
-				$cmd = Get-Command $Action -ErrorAction SilentlyContinue -Verbose:$False
+				$cmd = $null
+				if ($script:HotkeyActionCommandCache.ContainsKey($Action)) {
+					$cmd = $script:HotkeyActionCommandCache[$Action]
+				}
+				else {
+					$cmd = Get-Command $Action -ErrorAction SilentlyContinue -Verbose:$False
+					$script:HotkeyActionCommandCache[$Action] = $cmd
+				}
 				if ($cmd) { & $cmd.Name } else { Invoke-Expression $Action }
 			}
 		}
@@ -236,6 +244,7 @@ function SetHotkey {
 			$existingKeyString = $global:RegisteredHotkeys[$id].KeyString
 			if ($existingKeyString -and $existingKeyString -ne $normalizedKeyString) {
 				Write-Warning "HOTKEYS: CRITICAL hotkey conflict. ID $id."
+				try { [Custom.HotkeyManager]::UnregisterAction($id, $actionDelegate) } catch {}
 				return $null
 			}
 		}
@@ -249,7 +258,7 @@ function SetHotkey {
 		}
 		$global:RegisteredHotkeyByString[$normalizedKeyString] = $id
 
-		if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+		if (Test-DashboardCommand 'RefreshHotkeysList') {
 			try { RefreshHotkeysList } catch {}
 		}
 		return $id
@@ -317,7 +326,7 @@ function ResumeAllHotkeys {
 		}
 		catch {}
 	}
-	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+	if (Test-DashboardCommand 'RefreshHotkeysList') {
 		try { RefreshHotkeysList } catch {}
 	}
 }
@@ -378,7 +387,7 @@ function ResumePausedKeys {
 		}
 		catch {}
 	}
-	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+	if (Test-DashboardCommand 'RefreshHotkeysList') {
 		try { RefreshHotkeysList } catch {}
 	}
 }
@@ -455,7 +464,7 @@ function ResumeHotkeysForOwner {
 		}
 	}
 	
-	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+	if (Test-DashboardCommand 'RefreshHotkeysList') {
 		try { RefreshHotkeysList } catch {}
 	}
 }
@@ -466,7 +475,10 @@ function RemoveAllHotkeys {
 		$global:RegisteredHotkeys.Clear()
 		$global:RegisteredHotkeyByString.Clear()
 	}
-	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+	if ($null -ne $global:PausedRegisteredHotkeys) { $global:PausedRegisteredHotkeys.Clear() }
+	if ($null -ne $global:PausedIdMap) { $global:PausedIdMap.Clear() }
+	try { [Custom.HotkeyManager]::AreHotkeysGloballyPaused = $false } catch {}
+	if (Test-DashboardCommand 'RefreshHotkeysList') {
 		try { RefreshHotkeysList } catch {}
 	}
 	Write-Verbose 'HOTKEYS: All hotkeys unregistered.'
@@ -605,7 +617,7 @@ function PauseAllHotkeys {
 		}
 		catch {}
 	}
-	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+	if (Test-DashboardCommand 'RefreshHotkeysList') {
 		try { RefreshHotkeysList } catch {}
 	}
 }
@@ -672,7 +684,7 @@ function PauseHotkeysForOwner {
 		}
 		catch {}
 	}
-	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+	if (Test-DashboardCommand 'RefreshHotkeysList') {
 		try { RefreshHotkeysList } catch {}
 	}
 }
@@ -729,7 +741,7 @@ function UnregisterHotkeyInstance {
 			}
 		}
 
-		if ($didUnregister -and (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)) {
+		if ($didUnregister -and (Test-DashboardCommand 'RefreshHotkeysList')) {
 			try { RefreshHotkeysList } catch {}
 		}
 	}
@@ -959,20 +971,55 @@ function IsModifierKeyCode {
 	)
 }
 
+function Start-KeyCaptureHotkeyPause
+{
+	$alreadyPaused = @()
+	if ($global:PausedRegisteredHotkeys) { $alreadyPaused = @($global:PausedRegisteredHotkeys.Keys) }
+
+	$wasGloballyPaused = $false
+	try { $wasGloballyPaused = [bool][Custom.HotkeyManager]::AreHotkeysGloballyPaused } catch { }
+
+	try {
+		PauseAllHotkeys
+	}
+	catch {
+		Write-Verbose ('HOTKEYS: Pause-AllHotkeys failed: {0}' -f $_.Exception.Message)
+	}
+
+	$snapshot = @()
+	if ($global:PausedRegisteredHotkeys) {
+		$snapshot = @($global:PausedRegisteredHotkeys.Keys | Where-Object { $alreadyPaused -notcontains $_ })
+	}
+
+	return ,$snapshot
+}
+
+function Stop-KeyCaptureHotkeyPause
+{
+	param(
+		[array]$Snapshot = @(),
+		[bool]$WasGloballyPaused = $false
+	)
+
+	try { [Custom.HotkeyManager]::AreHotkeysGloballyPaused = $WasGloballyPaused } catch { }
+	if ($Snapshot -and $Snapshot.Count -gt 0) {
+		ResumePausedKeys -Keys $Snapshot
+	}
+}
+
 function Show-KeyCaptureDialog {
 	param(
 		[string]$currentKey = '',
 		[System.Windows.Forms.IWin32Window]$Owner = $null,
 		[System.Windows.Forms.Form]$OwnerForm
 	)
+	$script:KeyCapture_WasGloballyPaused = $false
+	$script:KeyCapture_PausedSnapshot = @()
 	try {
-		PauseAllHotkeys
-		$script:KeyCapture_PausedSnapshot = @()
-		if ($global:PausedRegisteredHotkeys) { $script:KeyCapture_PausedSnapshot = @($global:PausedRegisteredHotkeys.Keys) }
+		$script:KeyCapture_WasGloballyPaused = [bool][Custom.HotkeyManager]::AreHotkeysGloballyPaused
+		$script:KeyCapture_PausedSnapshot = Start-KeyCaptureHotkeyPause
 	}
-	catch {
-		Write-Verbose ('HOTKEYS: Pause-AllHotkeys failed: {0}' -f $_.Exception.Message)
-	}
+	catch { }
 
 	$script:capturedModifierKeys = @()
 	$script:capturedPrimaryKey = $null
@@ -998,17 +1045,17 @@ function Show-KeyCaptureDialog {
 	$captureForm.FormBorderStyle = 'FixedDialog'
 	$captureForm.MaximizeBox = $false
 	$captureForm.MinimizeBox = $false
-	$captureForm.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 48)
-	$captureForm.ForeColor = [System.Drawing.Color]::White
-	$captureForm.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+	$captureForm.BackColor = Get-Theme 'MainBg'
+	$captureForm.ForeColor = Get-Theme 'WhiteText'
+	$captureForm.Font = Get-UIFont 'Segoe UI' 9
 
 	$label = New-Object System.Windows.Forms.Label
 	$label.Text = 'Press any key combination or click a mouse button inside this window.'
 	$label.Size = New-Object System.Drawing.Size(300, 60)
 	$label.Location = New-Object System.Drawing.Point(10, 10)
 	$label.TextAlign = 'MiddleCenter'
-	$label.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-	$label.ForeColor = [System.Drawing.Color]::White
+	$label.Font = Get-UIFont 'Segoe UI' 10
+	$label.ForeColor = Get-Theme 'WhiteText'
 	$label.Enabled = $false
 
 	$label.Add_Paint({
@@ -1020,7 +1067,7 @@ function Show-KeyCaptureDialog {
 
        
 			$font = $this.Font
-			$brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+			$brush = New-Object System.Drawing.SolidBrush(Get-Theme 'WhiteText')
 			$rect = $this.ClientRectangle
 
        
@@ -1043,15 +1090,15 @@ function Show-KeyCaptureDialog {
 	$resultPanel = New-Object System.Windows.Forms.Panel
 	$resultPanel.Location = New-Object System.Drawing.Point(10, 80)
 	$resultPanel.Size = New-Object System.Drawing.Size(300, 40)
-	$resultPanel.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+	$resultPanel.BackColor = Get-Theme 'SecondaryBg'
 	$captureForm.Controls.Add($resultPanel)
 
 	$resultLabel = New-Object System.Windows.Forms.Label
 	$resultLabel.Text = (GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)
 	$resultLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
 	$resultLabel.TextAlign = 'MiddleCenter'
-	$resultLabel.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
-	$resultLabel.ForeColor = [System.Drawing.Color]::White
+	$resultLabel.Font = Get-UIFont 'Segoe UI' 11 'Bold'
+	$resultLabel.ForeColor = Get-Theme 'WhiteText'
 	$resultLabel.Enabled = $false
 
 	$resultLabel.Add_Paint({
@@ -1064,7 +1111,7 @@ function Show-KeyCaptureDialog {
 
        
 			$font = $this.Font
-			$brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+			$brush = New-Object System.Drawing.SolidBrush(Get-Theme 'WhiteText')
 			$rect = $this.ClientRectangle
 
        
@@ -1114,7 +1161,7 @@ function Show-KeyCaptureDialog {
 				$script:capturedModifierKeys = $currentModifiers
            
 				$resultLabel.Text = "Captured: $(GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)"
-				$resultLabel.ForeColor = [System.Drawing.Color]::Green
+				$resultLabel.ForeColor = Get-Theme 'SuccessColor'
 				$captureForm.DialogResult = 'OK'
 				$captureForm.Close()
 			}
@@ -1160,13 +1207,13 @@ function Show-KeyCaptureDialog {
 				$script:capturedModifierKeys = $currentModifiersTemp
            
 				$resultLabel.Text = "Captured: $(GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)"
-				$resultLabel.ForeColor = [System.Drawing.Color]::Green
+				$resultLabel.ForeColor = Get-Theme 'SuccessColor'
 				$captureForm.DialogResult = 'OK'
 				$captureForm.Close()
 			}
 			else {
 				$resultLabel.Text = (GetKeyCombinationString $currentModifiersTemp $null) 
-				$resultLabel.ForeColor = [System.Drawing.Color]::White
+				$resultLabel.ForeColor = Get-Theme 'WhiteText'
 			}
 		})
    
@@ -1179,7 +1226,7 @@ function Show-KeyCaptureDialog {
 				if ($e.Shift) { $currentModifiersOnUp.Add('Shift') }
            
 				$resultLabel.Text = (GetKeyCombinationString $currentModifiersOnUp $null)
-				$resultLabel.ForeColor = [System.Drawing.Color]::Yellow
+				$resultLabel.ForeColor = Get-Theme 'WarningColor'
 			}
 		})
 
@@ -1209,19 +1256,14 @@ function Show-KeyCaptureDialog {
 	}
 	finally {
 		try {
-			[Custom.HotkeyManager]::AreHotkeysGloballyPaused = $false
-			if ($script:KeyCapture_PausedSnapshot -and $script:KeyCapture_PausedSnapshot.Count -gt 0) {
-				ResumePausedKeys -Keys $script:KeyCapture_PausedSnapshot
-			}
-			else {
-				ResumeAllHotkeys
-			}
+			Stop-KeyCaptureHotkeyPause -Snapshot $script:KeyCapture_PausedSnapshot -WasGloballyPaused $script:KeyCapture_WasGloballyPaused
 		}
 		catch {
-			Write-Verbose ('HOTKEYS: ResumeAllHotkeys (or ResumePausedKeys) failed: {0}' -f $_.Exception.Message)
+			Write-Verbose ('HOTKEYS: ResumePausedKeys failed: {0}' -f $_.Exception.Message)
 		}
 		finally {
 			Remove-Variable -Name KeyCapture_PausedSnapshot -Scope Script -ErrorAction SilentlyContinue
+			Remove-Variable -Name KeyCapture_WasGloballyPaused -Scope Script -ErrorAction SilentlyContinue
 			$script:capturedPrimaryKey = $null
 			$script:capturedModifierKeys = @()
 		}
@@ -1261,13 +1303,13 @@ function PauseMasterHotkeys {
 	if ($global:DashboardConfig.UI -and $global:DashboardConfig.UI.MasterHotkeysStatus) {
 		try {
 			$lbl = $global:DashboardConfig.UI.MasterHotkeysStatus
-			$updateLbl = { $lbl.Text = ([char]0x23F8).ToString() + ' Paused'; $lbl.ForeColor = [System.Drawing.Color]::FromArgb(255, 165, 0) }.GetNewClosure()
+			$updateLbl = { $lbl.Text = ([char]0x23F8).ToString() + ' Paused'; $lbl.ForeColor = Get-Theme 'WarningColorAlt' }.GetNewClosure()
 			if ($lbl.InvokeRequired) { $lbl.BeginInvoke([System.Action]$updateLbl) | Out-Null } else { & $updateLbl }
 		}
 		catch {}
 	}
 
-	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+	if (Test-DashboardCommand 'RefreshHotkeysList') {
 		try { RefreshHotkeysList } catch {}
 	}
 	Write-Verbose 'HOTKEYS: Master pause applied to all ftool/macro hotkeys.'
@@ -1310,13 +1352,13 @@ function ResumeMasterHotkeys {
 	if ($global:DashboardConfig.UI -and $global:DashboardConfig.UI.MasterHotkeysStatus) {
 		try {
 			$lbl = $global:DashboardConfig.UI.MasterHotkeysStatus
-			$updateLbl = { $lbl.Text = ([char]0x25CF).ToString() + ' Active'; $lbl.ForeColor = [System.Drawing.Color]::FromArgb(100, 200, 100) }.GetNewClosure()
+			$updateLbl = { $lbl.Text = ([char]0x25CF).ToString() + ' Active'; $lbl.ForeColor = Get-Theme 'SuccessColorAlt' }.GetNewClosure()
 			if ($lbl.InvokeRequired) { $lbl.BeginInvoke([System.Action]$updateLbl) | Out-Null } else { & $updateLbl }
 		}
 		catch {}
 	}
 
-	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+	if (Test-DashboardCommand 'RefreshHotkeysList') {
 		try { RefreshHotkeysList } catch {}
 	}
 	Write-Verbose 'HOTKEYS: Master resume applied to all ftool/macro hotkeys.'
@@ -1348,7 +1390,7 @@ function UnregisterHotkeysByOwnerPattern {
 			}
 		}
 	}
-	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+	if (Test-DashboardCommand 'RefreshHotkeysList') {
 		try { RefreshHotkeysList } catch {}
 	}
 }

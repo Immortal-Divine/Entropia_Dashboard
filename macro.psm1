@@ -1,4 +1,4 @@
-<# macro.psm1 #>
+﻿<# macro.psm1 #>
 
 $script:_MacroKeyScriptStr = $null
 
@@ -161,13 +161,8 @@ function Invoke-MacroKeyAction {
     if (-not $formData.RunspacePool -or $formData.RunspacePool.RunspacePoolStateInfo.State -ne 'Opened') {
         Write-Verbose "Macro Runspace closed/broken. Attempting to restart..."
         try {
-            $scriptBlock = [scriptblock]::Create("ToggleMacroInstance -InstanceId '$($formData.InstanceId)'")
-            $ownerKey = "macroinst_$($formData.InstanceId)"
-            $ownerLabel = $null
-            if ($formData.PSObject.Properties['Name'] -and -not [string]::IsNullOrEmpty($formData.Name)) { $ownerLabel = $formData.Name }
-            elseif ($formData.PSObject.Properties['WindowTitle'] -and -not [string]::IsNullOrEmpty($formData.WindowTitle)) { $ownerLabel = $formData.WindowTitle }
-            else { $ownerLabel = "Macro: $($formData.InstanceId)" }
-            $formData.HotkeyId = SetHotkey -KeyCombinationString $hk -Action $scriptBlock -OwnerKey $ownerKey -OwnerLabel $ownerLabel
+            if ($formData.RunspacePool) { try { $formData.RunspacePool.Dispose() } catch {} }
+            $formData.RunspacePool = InitMacroRunspace -InstanceId $formData.InstanceId
         } 
         catch {
             Write-Verbose "Failed to restart Runspace: $_"
@@ -300,15 +295,20 @@ function CreateMacroPositionTimer {
                                         $maxX = [Math]::Max($virtual.Left, [Math]::Min($virtual.Right, $maxX))
                                         if ($minX -gt $maxX) { $tmp = $minX; $minX = $maxX; $maxX = $tmp }
                                         $newX = [int]([Math]::Max($minX, [Math]::Min($maxX, $formData.PositionSliderX.Value + $dx)))
-                                        $formData.PositionSliderX.Value = $newX
+                                        $formData.SuppressPersist = $true
+                                        try {
+                                            $formData.PositionSliderX.Value = $newX
+                                            $minY = $formData.PositionSliderY.Minimum
+                                            $maxY = $formData.PositionSliderY.Maximum
+                                            $minY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $minY))
+                                            $maxY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $maxY))
+                                            if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
+                                            $newY = [int]([Math]::Max($minY, [Math]::Min($maxY, $formData.PositionSliderY.Value + $dy)))
+                                            $formData.PositionSliderY.Value = $newY
+                                        }
+                                        finally { $formData.SuppressPersist = $false }
 
-                                        $minY = $formData.PositionSliderY.Minimum
-                                        $maxY = $formData.PositionSliderY.Maximum
-                                        $minY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $minY))
-                                        $maxY = [Math]::Max($virtual.Top, [Math]::Min($virtual.Bottom, $maxY))
-                                        if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
-                                        $newY = [int]([Math]::Max($minY, [Math]::Min($maxY, $formData.PositionSliderY.Value + $dy)))
-                                        $formData.PositionSliderY.Value = $newY
+
 
                                         $timerData.RealLeft = $timerData.RealLeft + $dx
                                         $timerData.RealTop = $timerData.RealTop + $dy
@@ -405,8 +405,8 @@ function RepositionSequences {
     
     $form.SuspendLayout()
     try {
-        $baseHeight = 140 
-        $rowHeight = 70
+        $baseHeight = 110
+        $rowHeight = 55
         
         $newHeight = $baseHeight
         $position = 0
@@ -425,11 +425,10 @@ function RepositionSequences {
             }
         }
         
+        $formData.OriginalHeight = $newHeight
         if (-not $formData.IsCollapsed) {
-            $finalHeight = $newHeight + 10
-            $form.Height = $finalHeight
-            $formData.OriginalHeight = $finalHeight
-            $formData.PositionSliderY.Height = $finalHeight - 20
+            $form.Height = $newHeight
+            $formData.PositionSliderY.Height = $newHeight
         }
     }
     finally {
@@ -764,7 +763,7 @@ function ToggleMacroHotkeys {
         if ($form -and -not $form.IsDisposed) {
             UpdateMacroSettings -formData $form.Tag -forceWrite
         }
-        if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False) {
+        if (Test-DashboardCommand 'RefreshHotkeysList') {
             try { RefreshHotkeysList } catch {}
         }
     }
@@ -841,7 +840,108 @@ function CleanupMacroResources {
         }
     }
 
-    if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
+    if (Test-DashboardCommand 'RefreshHotkeysList') { try { RefreshHotkeysList } catch {} }
+}
+
+function Get-MacroProfileHint
+{
+	[CmdletBinding()]
+	[OutputType([string])]
+	param($formData)
+
+	if (Test-DashboardCommand 'Get-RowProfileHint')
+	{
+		return (Get-RowProfileHint -formData $formData)
+	}
+	return ''
+}
+
+function Test-MacroKeyConfigured
+{
+	[CmdletBinding()]
+	[OutputType([bool])]
+	param($Value)
+
+	$text = [string]$Value
+	if ([string]::IsNullOrWhiteSpace($text)) { return $false }
+	if ($text -eq 'Select') { return $false }
+	return $true
+}
+
+function Resolve-MacroConfigBase
+{
+	[CmdletBinding()]
+	[OutputType([string])]
+	param($formData)
+
+	if (-not $formData) { return $null }
+
+	$profilePrefix = $null
+	if (Test-DashboardCommand 'FindOrCreateProfile')
+	{
+		$profilePrefix = FindOrCreateProfile $formData.WindowTitle -ProfileHint (Get-MacroProfileHint -formData $formData)
+	}
+	if (-not $profilePrefix) { return $null }
+
+	$configSuffix = ''
+	if ($formData.InstanceId)
+	{
+		$parts = $formData.InstanceId -split '_'
+		if ($parts.Count -gt 2) { $configSuffix = '_Sub' + $parts[-1] }
+	}
+
+	$exact = "$profilePrefix$configSuffix"
+
+	if (-not $global:DashboardConfig.Config.Contains('Macro')) { return $exact }
+	$cfg = $global:DashboardConfig.Config['Macro']
+	if (-not $cfg -or $cfg.Count -eq 0) { return $exact }
+
+	$scored = @()
+	$seen = @{}
+	foreach ($k in @($cfg.Keys))
+	{
+		if ($k -match '^(?:Key|Hotkey|SeqCount|collapsed)_(?<base>\d+(?:_.+)?)$')
+		{
+			$base = $Matches['base']
+			if ($seen.ContainsKey($base)) { continue }
+			$seen[$base] = $true
+
+			if ($base -ne $profilePrefix -and -not $base.StartsWith("${profilePrefix}_")) { continue }
+
+			$count = 0
+			foreach ($k2 in @($cfg.Keys)) { if ($k2.EndsWith("_$base")) { $count++ } }
+
+			$configured = $false
+			if ($cfg.Contains("Key_$base")) { $configured = Test-MacroKeyConfigured $cfg["Key_$base"] }
+			if (-not $configured -and $cfg.Contains("Seq1_Key_$base")) { $configured = Test-MacroKeyConfigured $cfg["Seq1_Key_$base"] }
+
+			$scored += [PSCustomObject]@{
+				Base       = $base
+				Count      = $count
+				IsMain     = -not ($base -match '_Sub\d+$')
+				Configured = $configured
+			}
+		}
+	}
+
+	if ($scored.Count -eq 0) { return $exact }
+
+	$exactEntry = $scored | Where-Object { $_.Base -eq $exact } | Select-Object -First 1
+	if ($exactEntry -and $exactEntry.Configured) { return $exact }
+
+	$configuredOnes = @($scored | Where-Object { $_.Configured })
+	if ($configuredOnes.Count -eq 0) { return $exact }
+
+	$best = $configuredOnes |
+		Sort-Object -Property @{ Expression = { if ($_.IsMain) { 0 } else { 1 } } },
+			@{ Expression = { -$_.Count } },
+			@{ Expression = { $_.Base.Length } } |
+		Select-Object -First 1
+
+	if ($best.Base -eq $exact) { return $exact }
+
+	Write-Verbose "MACRO: base '$exact' has no saved settings - reusing template base '$($best.Base)' (profile $profilePrefix)."
+	return $best.Base
 }
 
 function LoadMacroSettings {
@@ -849,22 +949,11 @@ function LoadMacroSettings {
     $formData.IsLoading = $true
     
     if (-not $global:DashboardConfig.Config.Contains('Macro')) { $formData.IsLoading = $false; return }
-    
-    $profilePrefix = $null
-    if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue) {
-        $profilePrefix = FindOrCreateProfile $formData.WindowTitle
-    }
-    
-    if ($profilePrefix) {
-        $configSuffix = ""
-        $parts = $formData.InstanceId -split '_'
-        if ($parts.Count -gt 2) {
-            $configSuffix = "_Sub" + $parts[-1]
-        }
 
-        $cfg = $global:DashboardConfig.Config['Macro']
-        
-        $p = "$profilePrefix$configSuffix"
+    $cfg = $global:DashboardConfig.Config['Macro']
+    $p = Resolve-MacroConfigBase -formData $formData
+
+    if ($cfg -and $p) {
 
         if ($cfg.Contains("Key_$p")) { $formData.BtnKeySelect.Text = $cfg["Key_$p"] }
         if ($cfg.Contains("Interval_$p")) { $formData.Interval.Text = $cfg["Interval_$p"] }
@@ -964,22 +1053,11 @@ function UpdateMacroSettings {
     if (-not $global:DashboardConfig.Config.Contains('Macro')) { 
         $global:DashboardConfig.Config['Macro'] = [ordered]@{} 
     }
-    
-    $profilePrefix = $null
-    if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue) {
-        $profilePrefix = FindOrCreateProfile $formData.WindowTitle
-    }
 
-    if ($profilePrefix) {
-        $configSuffix = ""
-        $parts = $formData.InstanceId -split '_'
-        if ($parts.Count -gt 2) {
-            $configSuffix = "_Sub" + $parts[-1]
-        }
+    $cfg = $global:DashboardConfig.Config['Macro']
+    $p = Resolve-MacroConfigBase -formData $formData
 
-        $cfg = $global:DashboardConfig.Config['Macro']
-        
-        $p = "$profilePrefix$configSuffix"
+    if ($cfg -and $p) {
         
         $cfg["Key_$p"] = $formData.BtnKeySelect.Text
         $cfg["Interval_$p"] = $formData.Interval.Text
@@ -1023,7 +1101,10 @@ function UpdateMacroSettings {
         }
 
         if ($forceWrite) {
-            if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
+            if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
+        }
+        else {
+            if (Test-DashboardCommand 'Request-DashboardConfigWrite') { Request-DashboardConfigWrite }
         }
     }
 }
@@ -1083,6 +1164,7 @@ function Import-MgpMacro {
                     $newForm.Left = $formData.Form.Right + 10 + (($secIdx - 1) * 20)
                     $newForm.Top = $formData.Form.Top
                     $global:DashboardConfig.Resources.FtoolForms[$newInstanceId] = $newForm
+                    Register-OpenForm $newForm
                     $newForm.Show()
                     $newForm.BringToFront()
                     $targetData = $newForm.Tag
@@ -1276,6 +1358,7 @@ function MacroSelectedRow {
     
     if ($macroForm) {
         $global:DashboardConfig.Resources.FtoolForms[$instanceId] = $macroForm
+        Register-OpenForm $macroForm
         $macroForm.Show()
         $macroForm.BringToFront()
     }
@@ -1318,12 +1401,12 @@ function CreateMacroForm {
     }
 
     $macroForm = New-Object Custom.FtoolFormWindow
-    $macroForm.Width = 235
-    $macroForm.Height = 145 
+    $macroForm.Width = 230
+    $macroForm.Height = 110
     $macroForm.Top = if ($targetWindowRect) { ($targetWindowRect.Top + 30) } else { 200 }
     $macroForm.Left = if ($targetWindowRect) { ($targetWindowRect.Left + 10) } else { 200 }
-    $macroForm.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
-    $macroForm.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+    $macroForm.BackColor = Get-Theme 'MainBg'
+    $macroForm.ForeColor = Get-Theme 'WhiteText'
     $macroForm.Text = "Macro - $instanceId"
     $macroForm.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
     $macroForm.Opacity = 1.0 
@@ -1338,12 +1421,23 @@ function CreateMacroForm {
     $macroToolTip.ReshowDelay = 10
     $macroToolTip.ShowAlways = $true
     $macroToolTip.OwnerDraw = $true
-    $macroToolTip | Add-Member -MemberType NoteProperty -Name 'TipFont' -Value (New-Object System.Drawing.Font('Segoe UI', 9))
+    $macroToolTip | Add-Member -MemberType NoteProperty -Name 'TipFont' -Value (Get-UIFont 'Segoe UI' 9)
     $macroToolTip.Add_Draw({
-            $g, $b, $c = $_.Graphics, $_.Bounds, [System.Drawing.Color]
-            $g.FillRectangle((New-Object System.Drawing.SolidBrush $c::FromArgb(30, 30, 30)), $b)
-            $g.DrawRectangle((New-Object System.Drawing.Pen $c::FromArgb(100, 100, 100)), $b.X, $b.Y, $b.Width - 1, $b.Height - 1)
-            $g.DrawString($_.ToolTipText, $this.TipFont, (New-Object System.Drawing.SolidBrush $c::FromArgb(240, 240, 240)), 3, 3, [System.Drawing.StringFormat]::GenericTypographic)
+            $g, $b = $_.Graphics, $_.Bounds
+            $tc = Get-Theme
+            $bgBrush = New-Object System.Drawing.SolidBrush $tc['ToolTipBg']
+            $borderPen = New-Object System.Drawing.Pen $tc['TooltipBorderColor']
+            $fgBrush = New-Object System.Drawing.SolidBrush $tc['ToolTipFg']
+            try
+            {
+            	$g.FillRectangle($bgBrush, $b)
+            	$g.DrawRectangle($borderPen, $b.X, $b.Y, $b.Width-1, $b.Height-1)
+            	$g.DrawString($_.ToolTipText, $this.TipFont, $fgBrush, 3, 3, [System.Drawing.StringFormat]::GenericTypographic)
+            }
+            finally
+            {
+            	$bgBrush.Dispose(); $borderPen.Dispose(); $fgBrush.Dispose()
+            }
         })
     $macroToolTip.Add_Popup({
             $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
@@ -1356,79 +1450,94 @@ function CreateMacroForm {
 
     try {
 
-        $headerPanel = SetUIElement -type 'Panel' -visible $true -width 250 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
+        $headerPanel = SetUIElement -type 'Panel' -visible $true -width 228 -height 24 -top 1 -left 1 -tag 'TopBar'
         $macroForm.Controls.Add($headerPanel)
 
+        $headerPanel.Add_Paint({
+                param($s, $e)
+                try {
+                    $tc = Get-Theme
+                    $accent = $null
+                    try { $accent = $tc['TopBarAccent'] } catch {}
+                    if ($accent -is [System.Drawing.Color]) {
+                        $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(170, $accent.R, $accent.G, $accent.B))
+                        $e.Graphics.FillRectangle($brush, 0, ($s.ClientSize.Height - 1), $s.ClientSize.Width, 1)
+                        $brush.Dispose()
+                    }
+                }
+                catch {}
+            })
+
         $labelText = if ($row.Cells[1].Value) { $row.Cells[1].Value.ToString() } else { "" }
-        $labelWinTitle = SetUIElement -type 'Label' -visible $true -width 90 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $labelText -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
+        $labelWinTitle = SetUIElement -type 'Label' -visible $true -width 103 -height 30 -top 2 -left 2 -text ($labelText) -font (Get-UIFont 'Segoe UI' 6 'Regular')
         $headerPanel.Controls.Add($labelWinTitle)
 
-        $btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 15 -top 2 -left 90 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
-        $headerPanel.Controls.Add($btnInstanceHotkeyToggle)
+        $btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 16 -height 16 -top 30 -left 2 -text ([char]0x2328) -font (Get-UIFont 'Segoe UI' 10) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
+        $macroForm.Controls.Add($btnInstanceHotkeyToggle)
 
-        $btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 15 -top 3 -left 105 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific macro instance."
+        $btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 32 -height 16 -top 4 -left 157 -text '' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific macro instance."
         $headerPanel.Controls.Add($btnHotkeyToggle)
 
-        $btnImport = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 138 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2193) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Import MGP`nSelect a .mgp file to import macro sequences."
-        $headerPanel.Controls.Add($btnImport)
+        $btnImport = SetUIElement -type 'Button' -visible $true -width 38 -height 18 -top 30 -left 23 -text 'Import' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tag 'HeaderButton' -tooltip "Import MGP`nSelect a .mgp file to import macro sequences."
+        $macroForm.Controls.Add($btnImport)
 
-        $btnAddInstance = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 153 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2398) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Instance`nCreates another macro window for this specific client."
-        $headerPanel.Controls.Add($btnAddInstance)
+        $btnAddInstance = SetUIElement -type 'Button' -visible $true -width 58 -height 18 -top 30 -left 105 -text 'New Macro' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tag 'HeaderButton' -tooltip "Add Instance`nCreates another macro window for this specific client."
+        $macroForm.Controls.Add($btnAddInstance)
         
-        $btnAdd = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 168 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Sequence`nAdds a new key sequence step to the macro list."
-        $headerPanel.Controls.Add($btnAdd)
+        $btnAdd = SetUIElement -type 'Button' -visible $true -width 58 -height 18 -top 30 -left 166 -text 'Add Macro' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tag 'HeaderButton' -tooltip "Add Sequence`nAdds a new key sequence step to the macro list."
+        $macroForm.Controls.Add($btnAdd)
     
-        $btnShowHide = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 183 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Minimize/Expand`nCollapse or expand the macro window to save screen space."
+        $btnShowHide = SetUIElement -type 'Button' -visible $true -width 16 -height 16 -top 4 -left 191 -text ([char]0x25B2) -fs 'Flat' -font (Get-UIFont 'Segoe UI' 11) -tag 'HeaderButton' -tooltip "Minimize/Expand`nCollapse or expand the macro window to save screen space."
         $headerPanel.Controls.Add($btnShowHide)
         
-        $btnReset = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 198 -bg @(100, 100, 100) -fg @(255, 255, 255) -text ([char]0x21BB) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Reset`nReset all settings for this instance to default."
-        $headerPanel.Controls.Add($btnReset)
+        $btnReset = SetUIElement -type 'Button' -visible $true -width 38 -height 18 -top 30 -left 64 -text 'Reset' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tag 'HeaderButton' -tooltip "Reset`nReset all settings for this instance to default."
+        $macroForm.Controls.Add($btnReset)
 
-        $btnClose = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 215 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Close`nStops the macro and closes this window."
+        $btnClose = SetUIElement -type 'Button' -visible $true -width 16 -height 16 -top 4 -left 209 -text ([char]0x166D) -fs 'Flat' -font (Get-UIFont 'Segoe UI' 11) -tag 'Danger' -tooltip "Close`nStops the macro and closes this window."
         $headerPanel.Controls.Add($btnClose)
 
-        $panelSettings = SetUIElement -type 'Panel' -visible $true -width 190 -height 75 -top 60 -left 40 -bg @(50, 50, 50)
+        $panelSettings = SetUIElement -type 'Panel' -visible $true -width 220 -height 50 -top 52 -left 5 
         $macroForm.Controls.Add($panelSettings)
     
-        $btnKeySelect = SetUIElement -type 'Button' -visible $true -width 50 -height 24 -top 3 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Bind Key`nClick here, then press a key to assign it to this action."
+        $btnKeySelect = SetUIElement -type 'Button' -visible $true -width 53 -height 19 -top 27 -left 3 -text 'Select' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tooltip "Bind Key`nClick here, then press a key to assign it to this action."
         $panelSettings.Controls.Add($btnKeySelect)
     
-        $interval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 15 -top 4 -left 56 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Interval (ms)`nTime in milliseconds to wait before repeating this action."
+        $interval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 17 -top 4 -left 146 -text '1000' -font (Get-UIFont 'Segoe UI' 7) -tooltip "Interval (ms)`nTime in milliseconds to wait before repeating this action."
         $panelSettings.Controls.Add($interval)
     
-        $name = SetUIElement -type 'TextBox' -visible $true -width 40 -height 17 -top 4 -left 99 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Name`nGive this sequence a descriptive name for easier identification."
+        $name = SetUIElement -type 'TextBox' -visible $true -width 105 -height 17 -top 4 -left 3 -text 'Macro Name' -font (Get-UIFont 'Segoe UI' 8 'Regular') -tooltip "Name`nGive this sequence a descriptive name for easier identification."
         $panelSettings.Controls.Add($name)
 
-        $btnHotKey = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 3 -left 145 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip "Global Hotkey`nAssign a global hotkey to Start/Stop this specific macro sequence."
+        $btnHotKey = SetUIElement -type 'Button' -visible $true -width 53 -height 19 -top 27 -left 55 -text 'Hotkey' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tooltip "Global Hotkey`nAssign a global hotkey to Start/Stop this specific macro sequence."
         $panelSettings.Controls.Add($btnHotKey)
 
-        $lblLoop = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 45 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Loop' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+        $lblLoop = SetUIElement -type 'Label' -visible $true -width 25 -height 8 -top 2 -left 192 -text 'Loop' -font (Get-UIFont 'Segoe UI' 6)
         $panelSettings.Controls.Add($lblLoop)
 
-        $lblWait = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 80 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Wait' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+        $lblWait = SetUIElement -type 'Label' -visible $true -width 25 -height 8 -top 2 -left 118 -text 'Wait' -font (Get-UIFont 'Segoe UI' 6)
         $panelSettings.Controls.Add($lblWait)
 
-        $lblHold = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 115 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Hold' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+        $lblHold = SetUIElement -type 'Label' -visible $true -width 25 -height 8 -top 24 -left 118 -text 'Hold' -font (Get-UIFont 'Segoe UI' 6)
         $panelSettings.Controls.Add($lblHold)
 
-        $btnStart = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 40 -left 3 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Start`nBegin executing the macro sequence."
-        $panelSettings.Controls.Add($btnStart)
+        $btnStart = SetUIElement -type 'Button' -visible $true -width 50 -height 20 -top 1 -left 105 -text 'Start' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tag 'Primary' -tooltip "Start`nBegin executing the macro sequence."
+        $headerPanel.Controls.Add($btnStart)
 
-        $btnStop = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 40 -left 3 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Stop`nStop the currently running macro sequence."
+        $btnStop = SetUIElement -type 'Button' -visible $true -width 50 -height 20 -top 1 -left 105 -text 'Stop' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tag 'Danger' -tooltip "Stop`nStop the currently running macro sequence."
         $btnStop.Enabled = $false
         $btnStop.Visible = $false
-        $panelSettings.Controls.Add($btnStop)
+        $headerPanel.Controls.Add($btnStop)
 
-        $btnLoopToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 45 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Loop`nToggle looping. If enabled, the macro repeats until stopped.`nLoops below 100ms can block the Mouse UI, stop with hotkey instead."
+        $btnLoopToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 10 -top 13 -left 188 -text '' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -checked $true -tooltip "Loop`nToggle looping. If enabled, the macro repeats until stopped.`nLoops below 100ms can block the Mouse UI, stop with hotkey instead."
         $panelSettings.Controls.Add($btnLoopToggle)
 
-        $btnWaitToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 80 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Wait Mode`nIf enabled, the macro waits for the key hold duration to finish before proceeding."
+        $btnWaitToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 10 -top 13 -left 112 -text '' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -checked $true -tooltip "Wait Mode`nIf enabled, the macro waits for the key hold duration to finish before proceeding."
         $panelSettings.Controls.Add($btnWaitToggle)
 
-        $btnHoldKeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 42 -left 115 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $false -tooltip "Hold Key`nEnable to hold the key down for a specific duration instead of a single press."
+        $btnHoldKeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 10 -top 35 -left 112 -text '' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -checked $false -tooltip "Hold Key`nEnable to hold the key down for a specific duration instead of a single press."
         $panelSettings.Controls.Add($btnHoldKeyToggle)
 
-        $txtHoldKeyInterval = SetUIElement -type 'TextBox' -visible $true -width 30 -height 15 -top 42 -left 150 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '50' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Hold Duration (ms)`nHow long the key should be held down in milliseconds."
+        $txtHoldKeyInterval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 18 -top 26 -left 146 -text '50' -font (Get-UIFont 'Segoe UI' 7) -tooltip "Hold Duration (ms)`nHow long the key should be held down in milliseconds."
         $panelSettings.Controls.Add($txtHoldKeyInterval)
     
 
@@ -1461,22 +1570,18 @@ function CreateMacroForm {
         $positionSliderY.Orientation = 'Vertical'
         $positionSliderY.Minimum = $minY
         $positionSliderY.Maximum = $maxY
-        $positionSliderY.TickFrequency = 300
         $initialY = [Math]::Max($minY, [Math]::Min($maxY, $macroForm.Top))
         $positionSliderY.Value = $initialY
-        $positionSliderY.Size = New-Object System.Drawing.Size(15, 110)
-        $positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
-        $macroForm.Controls.Add($positionSliderY)
+        $positionSliderY.Size = New-Object System.Drawing.Size(0, 0)
+        $positionSliderY.Location = New-Object System.Drawing.Point(0, 0)
         
         $positionSliderX = New-Object System.Windows.Forms.TrackBar
         $positionSliderX.Minimum = $minX
         $positionSliderX.Maximum = $maxX
-        $positionSliderX.TickFrequency = 300
         $initialX = [Math]::Max($minX, [Math]::Min($maxX, $macroForm.Left))
         $positionSliderX.Value = $initialX
-        $positionSliderX.Size = New-Object System.Drawing.Size(190, 15)
-        $positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
-        $macroForm.Controls.Add($positionSliderX)
+        $positionSliderX.Size = New-Object System.Drawing.Size(0, 0)
+        $positionSliderX.Location = New-Object System.Drawing.Point(0, 0)
 
     }
     finally {
@@ -1517,7 +1622,7 @@ function CreateMacroForm {
         Row                     = $row
         ToolTipFtool            = $macroToolTip
         IsCollapsed             = $false
-        OriginalHeight          = 145
+        OriginalHeight          = 138
         HotkeyId                = $null
         GlobalHotkeyId          = $null
         GlobalHotkey            = $null
@@ -1566,11 +1671,13 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.Instance
     AddMacroEventHandlers $formData | Out-Null
     AddMacroDragHandlers $formData | Out-Null
 
+    RepositionSequences $macroForm
+
     if ($formData.IsCollapsed) {
         $macroForm.Height = 26
         $formData.BtnShowHide.Text = [char]0x25BC
         
-        $namePrefix = if ([string]::IsNullOrWhiteSpace($name.Text)) { "" } else { "$($name.Text) - " }
+        $namePrefix = if ([string]::IsNullOrWhiteSpace($name.Text)) { "" } else { "$($name.Text)`n" }
         $labelWinTitle.Text = "$namePrefix$labelText"
     }
     else {
@@ -1593,35 +1700,35 @@ function CreateSequencePanel {
 
     try {
     
-        $panelSeq = SetUIElement -type 'Panel' -visible $true -width 190 -height 65 -top 0 -left 40 -bg @(50, 50, 50)
+        $panelSeq = SetUIElement -type 'Panel' -visible $true -width 220 -height 50 -top 138 -left 5
         $form.Controls.Add($panelSeq)
         $panelSeq.BringToFront()
 
-        $btnKeySelect = SetUIElement -type 'Button' -visible $true -width 50 -height 24 -top 3 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Bind Key`nClick here, then press a key to assign it to this action."
+        $btnKeySelect = SetUIElement -type 'Button' -visible $true -width 105 -height 19 -top 27 -left 3 -text 'Select' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tooltip "Bind Key`nClick here, then press a key to assign it to this action."
         $panelSeq.Controls.Add($btnKeySelect)
 
-        $interval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 15 -top 4 -left 56 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Interval (ms)`nTime in milliseconds to wait before repeating this action."
+        $interval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 17 -top 4 -left 146 -text '1000' -font (Get-UIFont 'Segoe UI' 7) -tooltip "Interval (ms)`nTime in milliseconds to wait before repeating this action."
         $panelSeq.Controls.Add($interval)
 
-        $name = SetUIElement -type 'TextBox' -visible $true -width 60 -height 17 -top 4 -left 99 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Name' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Name`nGive this sequence a descriptive name for easier identification."
+        $name = SetUIElement -type 'TextBox' -visible $true -width 105 -height 17 -top 4 -left 3 -text 'Macro Name' -font (Get-UIFont 'Segoe UI' 8 'Regular') -tooltip "Name`nGive this sequence a descriptive name for easier identification."
         $panelSeq.Controls.Add($name)
 
-        $btnRemove = SetUIElement -type 'Button' -visible $true -width 22 -height 20 -top 3 -left 163 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'X' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)) -tooltip "Remove Step`nDelete this key sequence from the macro."
+        $btnRemove = SetUIElement -type 'Button' -visible $true -width 28 -height 43 -top 3 -left 189 -text 'X' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8 'Bold') -tag 'Danger' -tooltip "Remove Step`nDelete this key sequence from the macro."
         $panelSeq.Controls.Add($btnRemove)
 
-        $lblWait = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 3 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Wait' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+        $lblWait = SetUIElement -type 'Label' -visible $true -width 25 -height 8 -top 2 -left 118 -text 'Wait' -font (Get-UIFont 'Segoe UI' 6)
         $panelSeq.Controls.Add($lblWait)
 
-        $lblHold = SetUIElement -type 'Label' -visible $true -width 35 -height 10 -top 28 -left 40 -bg @(50, 50, 50) -fg @(180, 180, 180) -text 'Hold' -font (New-Object System.Drawing.Font('Segoe UI', 6))
+        $lblHold = SetUIElement -type 'Label' -visible $true -width 25 -height 8 -top 24 -left 118 -text 'Hold' -font (Get-UIFont 'Segoe UI' 6)
         $panelSeq.Controls.Add($lblHold)
 
-        $btnWaitToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 40 -left 3 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Wait Mode`nIf enabled, the macro waits for the key hold duration to finish before proceeding."
+        $btnWaitToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 10 -top 13 -left 112 -text '' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -checked $true -tooltip "Wait Mode`nIf enabled, the macro waits for the key hold duration to finish before proceeding."
         $panelSeq.Controls.Add($btnWaitToggle)
 
-        $btnHoldKeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 16 -top 40 -left 40 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $false -tooltip "Hold Key`nEnable to hold the key down for a specific duration instead of a single press."
+        $btnHoldKeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 10 -top 35 -left 112 -text '' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -checked $false -tooltip "Hold Key`nEnable to hold the key down for a specific duration instead of a single press."
         $panelSeq.Controls.Add($btnHoldKeyToggle)
 
-        $txtHoldKeyInterval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 15 -top 42 -left 75 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '50' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Hold Duration (ms)`nHow long the key should be held down in milliseconds."
+        $txtHoldKeyInterval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 18 -top 26 -left 146 -text '50' -font (Get-UIFont 'Segoe UI' 7) -tooltip "Hold Duration (ms)`nHow long the key should be held down in milliseconds."
         $panelSeq.Controls.Add($txtHoldKeyInterval)
 
     }
@@ -1913,7 +2020,7 @@ function AddMacroEventHandlers {
             $this.Text = [char]0x25BC
 
             if ($data.LabelWinTitle -and $data.Name) {
-                $namePrefix = if ([string]::IsNullOrWhiteSpace($data.Name.Text)) { "" } else { "$($data.Name.Text) - " }
+                $namePrefix = if ([string]::IsNullOrWhiteSpace($data.Name.Text)) { "" } else { "$($data.Name.Text)`n" }
                 $data.LabelWinTitle.Text = "$namePrefix$($data.OriginalTitle)"
             }
         }
@@ -1957,12 +2064,12 @@ function AddMacroEventHandlers {
                     $data.Hotkey = $null
                 }
 
-                $data.BtnKeySelect.Text = ""
+                $data.BtnKeySelect.Text = "Select"
                 $data.Interval.Text = "1000"
-                $data.Name.Text = "Main"
+                $data.Name.Text = "Macro Name"
                 $data.BtnHotKey.Text = "Hotkey"
                 $data.BtnHotkeyToggle.Checked = $true
-                $data.BtnLoopToggle.Checked = $true
+                $data.BtnLoopToggle.Checked = $false
                 $data.BtnWaitToggle.Checked = $true
                 $data.BtnHoldKeyToggle.Checked = $false
                 $data.TxtHoldKeyInterval.Text = "50"
@@ -1973,19 +2080,9 @@ function AddMacroEventHandlers {
                 $data.PositionSliderX.Value = [Math]::Max($minX, [Math]::Min($maxX, $data.Form.Left))
                 $data.PositionSliderY.Value = [Math]::Max($minY, [Math]::Min($maxY, $data.Form.Top))
 
-                $profilePrefix = $null
-                if (Get-Command FindOrCreateProfile -ErrorAction SilentlyContinue) {
-                    $profilePrefix = FindOrCreateProfile $data.WindowTitle
-                }
+                $p = Resolve-MacroConfigBase -formData $data
 
-                if ($profilePrefix) {
-                    $configSuffix = ""
-                    $parts = $data.InstanceId -split '_'
-                    if ($parts.Count -gt 2) {
-                        $configSuffix = "_Sub" + $parts[-1]
-                    }
-                    $p = "$profilePrefix$configSuffix"
-                
+                if ($p) {
                     $keysToClear = [System.Collections.ArrayList]@()
                     foreach ($k in $global:DashboardConfig.Config['Macro'].Keys) {
                         if ($k -match "_$p$") {
@@ -2050,10 +2147,11 @@ function AddMacroEventHandlers {
                 $newForm.Left = $anchorForm.Right + 10
                 $newForm.Top = $anchorForm.Top
                 $global:DashboardConfig.Resources.FtoolForms[$newInstanceId] = $newForm
+                Register-OpenForm $newForm
                 $newForm.Show()
                 $newForm.BringToFront()
-                if (Get-Command RegisterConfiguredHotkeys -ErrorAction SilentlyContinue) { try { RegisterConfiguredHotkeys } catch {} }
-                if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
+                if (Test-DashboardCommand 'RegisterConfiguredHotkeys') { try { RegisterConfiguredHotkeys } catch {} }
+                if (Test-DashboardCommand 'RefreshHotkeysList') { try { RefreshHotkeysList } catch {} }
             }
             else {
                 Write-Verbose "Error: CreateMacroForm returned unexpected type: $($newForm.GetType().FullName)"
@@ -2174,7 +2272,12 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
             if (-not $form -or -not $form.Tag) { return }
             $data = $form.Tag
             if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging) {
-                UpdateMacroSettings $data -forceWrite
+                if ($data.PSObject.Properties['SuppressPersist'] -and $data.SuppressPersist) {
+                    UpdateMacroSettings $data
+                }
+                else {
+                    UpdateMacroSettings $data -forceWrite
+                }
             }
         })
 
@@ -2183,7 +2286,12 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($data.InstanceId)'
             if (-not $form -or -not $form.Tag) { return }
             $data = $form.Tag
             if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging) {
-                UpdateMacroSettings $data -forceWrite
+                if ($data.PSObject.Properties['SuppressPersist'] -and $data.SuppressPersist) {
+                    UpdateMacroSettings $data
+                }
+                else {
+                    UpdateMacroSettings $data -forceWrite
+                }
             }
         })
 

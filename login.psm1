@@ -1,4 +1,4 @@
-<# login.psm1 #>
+﻿<# login.psm1 #>
 
 #region Configuration
 
@@ -101,6 +101,81 @@ function ValidateAndRefreshProcessReference
 	return $null
 }
 
+function ResolveLoginProfileName
+{
+	[CmdletBinding()]
+	[OutputType([string])]
+	param(
+		[Parameter()]
+		[string]$Title = '',
+		[Parameter()]
+		$Process = $null
+	)
+
+	$profileName = ''
+	if (-not [string]::IsNullOrWhiteSpace($Title) -and $Title -match '^\[(?<pName>[^\]]+)\]') { $profileName = $Matches['pName'] }
+
+	if ([string]::IsNullOrWhiteSpace($profileName) -and $Process -and $Process.Id)
+	{
+		try { $profileName = GetProcessProfile -Process $Process } catch { $profileName = '' }
+	}
+
+	if ([string]::IsNullOrWhiteSpace($profileName)) { return 'Default' }
+	return $profileName
+}
+
+function GetLoginProfileConfig
+{
+	[CmdletBinding()]
+	[OutputType([System.Collections.IDictionary])]
+	param(
+		[Parameter()]
+		[string]$ProfileName = 'Default'
+	)
+
+	$loginConfig = $null
+	if ($global:DashboardConfig -and $global:DashboardConfig.Config) { $loginConfig = $global:DashboardConfig.Config['LoginConfig'] }
+
+	if ($loginConfig -is [System.Collections.IDictionary])
+	{
+		if (-not [string]::IsNullOrWhiteSpace($ProfileName) -and $loginConfig.Contains($ProfileName) -and $loginConfig[$ProfileName] -is [System.Collections.IDictionary])
+		{
+			return $loginConfig[$ProfileName]
+		}
+		if ($loginConfig.Contains('Default') -and $loginConfig['Default'] -is [System.Collections.IDictionary])
+		{
+			return $loginConfig['Default']
+		}
+	}
+
+	return @{}
+}
+
+function GetClientRootFolder
+{
+	[CmdletBinding()]
+	[OutputType([string])]
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$ExeFolder
+	)
+
+	$candidates = @($ExeFolder)
+	$folderName = Split-Path -Leaf -Path $ExeFolder
+	if ($folderName -match '^(?i)(bin\d*|win\d*|x86|x64)$')
+	{
+		$parentFolder = Split-Path -Parent -Path $ExeFolder
+		if (-not [string]::IsNullOrEmpty($parentFolder)) { $candidates = @($parentFolder) + $candidates }
+	}
+
+	foreach ($candidate in $candidates)
+	{
+		if (Test-Path -LiteralPath (Join-Path -Path $candidate -ChildPath 'Log')) { return $candidate }
+	}
+
+	return $candidates[0]
+}
+
 function GetClientLogPath
 {
 	param(
@@ -116,12 +191,7 @@ function GetClientLogPath
 	if ($null -eq $processTitle) { $processTitle = '' }
 	$null = $entryNum; $entryNum = $Row.Cells[0].Value
 
-	if ($processTitle -match '^\[(?<pName>[^\]]+)\]') { $profileName = $Matches['pName'] }
-
-	if ([string]::IsNullOrEmpty($profileName) -and $process -and $process.Id)
-	{
-		$profileName = GetProcessProfile -Process $process
-	}
+	$profileName = ResolveLoginProfileName -Title ([string]$processTitle) -Process $process
 
 	if ($process -and $process.Id)
 	{
@@ -157,7 +227,7 @@ function GetClientLogPath
 
 	if ([string]::IsNullOrEmpty($determinedLogBaseFolder) -and -not [string]::IsNullOrEmpty($processExeBaseFolder))
 	{
-		$determinedLogBaseFolder = $processExeBaseFolder
+		$determinedLogBaseFolder = GetClientRootFolder -ExeFolder $processExeBaseFolder
 	}
 
 	if ([string]::IsNullOrEmpty($determinedLogBaseFolder))
@@ -268,8 +338,7 @@ function LoginSelectedRow
 			if ($null -ne $actualRow -and $null -ne $actualRow.Cells -and $actualRow.Cells.Count -gt 1)
 			{
 				$title = [string]$actualRow.Cells[1].Value
-				$profileName = 'Default'
-				if ($title -match '^\[(?<pName>[^\]]+)\]') { $profileName = $Matches['pName'] }
+				$profileName = ResolveLoginProfileName -Title $title
                 
 				[PSCustomObject]@{ 
 					OriginalRow = $actualRow
@@ -297,7 +366,7 @@ function LoginSelectedRow
             
 			if ($null -eq $row.Cells -or $null -eq $row.Cells[1].Value) { continue }
 			$processTitle = $row.Cells[1].Value.ToString()
-			$profileName = if ($processTitle -match '^\[(?<pName>[^\]]+)\]') { $Matches['pName'] } else { 'Default' }
+			$profileName = ResolveLoginProfileName -Title $processTitle
 
 			$process = ValidateAndRefreshProcessReference -Row $row -MaxRetries 5 -RetryDelayMs 200
 			if ($null -eq $process)
@@ -305,6 +374,8 @@ function LoginSelectedRow
 				Write-Verbose "LOGIN: Skipping entry $entryNum ($profileName) - process reference could not be established"
 				continue
 			}
+
+			$profileName = ResolveLoginProfileName -Title $processTitle -Process $process
 
 			$actualLogPath = $LogFilePath
 			if ([string]::IsNullOrEmpty($actualLogPath))
@@ -318,7 +389,7 @@ function LoginSelectedRow
 				ProcessId      = $process.Id
 				ExplicitHandle = if (($WindowHandle -ne [IntPtr]::Zero) -and ($RowInput -eq $row -or ($RowInput.Row -eq $row))) { $WindowHandle } else { [IntPtr]::Zero }
 				LogPath        = $actualLogPath
-				Config         = if ($global:DashboardConfig.Config -and $global:DashboardConfig.Config['LoginConfig'] -and $global:DashboardConfig.Config['LoginConfig'][$profileName]) { $global:DashboardConfig.Config['LoginConfig'][$profileName] } else { @{} }
+				Config         = (GetLoginProfileConfig -ProfileName $profileName)
 				ProfileName    = $profileName
 				ClientTitle    = $processTitle
 			}
@@ -328,7 +399,7 @@ function LoginSelectedRow
 		
 		ShowToast -Title 'Login Process' -Message 'Starting Login Process...' -Type 'Info' -Key 9999 -TimeoutSeconds 0
 
-		$global:DashboardConfig.UI.LoginButton.BackColor = [System.Drawing.Color]::FromArgb(90, 90, 90)
+		$global:DashboardConfig.UI.LoginButton.BackColor = Get-Theme 'ButtonBg'
 		$global:DashboardConfig.UI.LoginButton.Text = 'Running...'
 
 		$global:LoginCancellation.IsCancelled = $false
@@ -1260,7 +1331,7 @@ function CleanUpLoginResources
 		$ui = $global:DashboardConfig.UI
 		if ($ui.LoginButton)
 		{
-			$ui.LoginButton.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
+			$ui.LoginButton.BackColor = Get-Theme 'ButtonBg'
 			$ui.LoginButton.Text = 'Login'
 		}
         

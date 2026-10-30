@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Entropia Node Maps — every field, dungeon &amp; event map</title>
+<link rel="canonical" href="https://immortal-divine.github.io/Entropia_Dashboard/maps/">
+<meta name="description" content="Interactive maps for every Entropia world: monster and item spawns, NPCs, place names and harvest nodes, each filterable by name.">
+<style>
+:root{
+  --bg:#0a0e13; --panel:#111823; --panel2:#18212e; --panel3:#1f2a39;
+  --line:#263345; --line2:#31415a;
+  --fg:#e7eef7; --mut:#8496ac; --dim:#5d6e83;
+  --acc:#5ab0ff; --ore:#FFB020; --plant:#3FD16A; --warn:#ff6b6b;
+  --mob:#78dcff; --item:#ffb64a; --boss:#ff6ea8;
+  --shadow:0 12px 30px rgba(0,0,0,.45);
+  --mono:ui-monospace,SFMono-Regular,"Cascadia Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 var(--sans);
+  display:flex;flex-direction:column;overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+
+/* ---------------------------------------------------------------- header */
+#top{
+  display:flex;align-items:center;gap:14px;flex:0 0 auto;
+  padding:0 14px;height:50px;background:var(--panel);
+  border-bottom:1px solid var(--line);z-index:30;position:relative;
+}
+.brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:.2px;white-space:nowrap}
+.brand .glyph{
+  width:22px;height:22px;flex:0 0 auto;border-radius:6px;
+  background:linear-gradient(140deg,var(--ore),#c25a1a 60%,#7a2fa8);
+  display:grid;place-items:center;font-size:12px;color:#12060a;font-weight:900;
+}
+.brand small{color:var(--mut);font-weight:450;font-size:12px;margin-left:2px}
+
+#mapnav{
+  display:flex;align-items:stretch;gap:0;flex:0 0 auto;
+  background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+  overflow:hidden;
+}
+#mapprev,#mapnext{
+  flex:0 0 auto;background:var(--panel2);border:1px solid var(--line);
+  color:var(--mut);border-radius:9px;padding:6px 12px;font-size:15px;
+  line-height:1;font-weight:700;
+}
+#mapprev:hover:not(:disabled),#mapnext:hover:not(:disabled){color:var(--acc);border-color:var(--line2)}
+#mapprev:disabled,#mapnext:disabled{opacity:.32;cursor:default}
+#mapgroup{
+  background:var(--panel2);border:1px solid var(--line);color:var(--mut);
+  border-radius:9px;padding:6px 8px;font-weight:550;white-space:nowrap;
+  outline:none;flex:0 0 auto;
+}
+#mapgroup:hover{color:var(--fg);border-color:var(--line2)}
+#mapgroup:focus{border-color:var(--acc)}
+/* The jump list beside the tabs: one grouped dropdown over every world
+ * plus a step back and a step forward through the tabs in view.  A
+ * hundred worlds do not fit a tab bar without scrolling it blind, and a
+ * select is searchable from the keyboard out of the box - typing the
+ * first letters of a world lands on it. */
+#mapnav{
+  display:flex;align-items:stretch;gap:0;flex:0 0 auto;
+  background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+  overflow:hidden;
+}
+#mapnav:hover{border-color:var(--line2)}
+#mapjump{
+  background:none;border:0;color:var(--mut);padding:6px 4px;font-weight:550;
+  outline:none;max-width:190px;text-overflow:ellipsis;flex:0 1 auto;min-width:0;
+}
+#mapjump:hover{color:var(--fg)}
+#mapjump:focus{color:var(--fg)}
+#mapjump option,#mapjump optgroup{background:var(--panel2);color:var(--fg)}
+#mapnav button{
+  background:none;border:0;color:var(--mut);padding:6px 10px;font-size:15px;
+  line-height:1;flex:0 0 auto;
+}
+#mapnav button:hover:not(:disabled){color:var(--acc)}
+#mapnav button:disabled{opacity:.32;cursor:default}
+
+#qwrap{margin-left:auto;display:flex;align-items:center;gap:8px;flex:0 0 auto}
+#q{
+  width:190px;background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+  border-radius:8px;padding:6px 10px;outline:none;transition:border-color .12s,width .16s;
+}
+#q::placeholder{color:var(--dim)}
+#q:focus{border-color:var(--acc);width:230px}
+.tog{
+  background:var(--panel2);border:1px solid var(--line);color:var(--mut);
+  border-radius:8px;padding:6px 10px;white-space:nowrap;
+}
+.tog:hover{color:var(--fg);border-color:var(--line2)}
+.tog[aria-pressed=true]{background:rgba(90,176,255,.14);border-color:var(--acc);color:var(--acc)}
+/* Guide shortcuts in the middle of the header: one press filters the world
+ * to the guide's subject and lists every other world's hits above the
+ * sidebar list, a second press clears it.  Centered between the world
+ * stepper and the search box; the statue guide leads and reads bolder so
+ * the main guide feature is found first. */
+#guides{display:flex;align-items:center;gap:6px;margin:0 auto;flex:0 1 auto;min-width:0;flex-wrap:wrap;justify-content:center}
+#guideslab{color:var(--dim);font-size:11px;letter-spacing:.9px;text-transform:uppercase;font-weight:650;white-space:nowrap}
+#guides .guide{padding:6px 9px;font-size:13px}
+#guides .primary{font-weight:700;padding:6px 14px}
+
+/* ------------------------------------------------------------------ body */
+main{flex:1 1 auto;display:flex;min-height:0;position:relative}
+
+#side{
+  flex:0 0 268px;background:var(--panel);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0;z-index:20;
+}
+.sidehead{
+  display:flex;align-items:center;gap:6px;padding:9px 12px;
+  border-bottom:1px solid var(--line);color:var(--mut);
+  font-size:11px;letter-spacing:.9px;text-transform:uppercase;font-weight:650;
+}
+.sidehead .sp{flex:1 1 auto}
+.sidehead button{
+  background:var(--panel2);border:1px solid var(--line);color:var(--mut);
+  border-radius:6px;padding:2px 8px;font-size:11px;letter-spacing:.3px;
+}
+.sidehead button:hover{color:var(--fg);border-color:var(--line2)}
+/* Folding the whole sidebar is two steps the arrows already do one at a
+ * time, so it gets its own line under the switches rather than a fourth
+ * button squeezed in beside them. */
+.foldbar{
+  display:flex;gap:6px;padding:8px 12px 9px;border-bottom:1px solid var(--line);
+}
+.foldbar button{
+  flex:1 1 0;background:var(--panel2);border:1px solid var(--line);color:var(--mut);
+  border-radius:6px;padding:3px 6px;font-size:11px;letter-spacing:.3px;
+}
+.foldbar button:hover{color:var(--fg);border-color:var(--line2)}
+/* Recommended ore sets for Cardia and Cardia Cave: one press filters to
+ * the set's ores here and on the other world, a second press clears it.
+ * Shown only on the two worlds the sets belong to. */
+#mining{border-bottom:1px solid var(--line)}
+.minehead{padding:9px 12px 0;color:var(--mut);font-size:11px;letter-spacing:.9px;text-transform:uppercase;font-weight:650}
+.minehead span{white-space:nowrap}
+.minebar{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px 9px}
+.minebar button{
+  flex:1 1 22%;background:var(--panel2);border:1px solid var(--line);color:var(--mut);
+  border-radius:6px;padding:3px 6px;font-size:11px;letter-spacing:.3px;white-space:nowrap;
+}
+.minebar button:hover{color:var(--fg);border-color:var(--line2)}
+.minebar button[aria-pressed=true]{background:rgba(90,176,255,.14);border-color:var(--acc);color:var(--acc)}
+#mining[hidden]{display:none}
+#groups{overflow:auto;padding:6px 0 18px;scrollbar-width:thin}
+#groups::-webkit-scrollbar{width:9px}
+#groups::-webkit-scrollbar-thumb{background:var(--line2);border-radius:9px;border:2px solid var(--panel)}
+
+.grp{border-bottom:1px solid rgba(38,51,69,.55)}
+.grp>h3{
+  margin:0;display:flex;align-items:center;gap:9px;padding:9px 12px;
+  font-size:12.5px;font-weight:650;letter-spacing:.3px;user-select:none;
+}
+.grp>h3 .n{margin-left:auto;color:var(--dim);font-size:11px;font-weight:500;font-variant-numeric:tabular-nums}
+.grp>h3 .arrow{color:var(--dim);font-size:9px;transition:transform .16s}
+.grp[data-open=false] .arrow{transform:rotate(-90deg)}
+.grp[data-open=false] .rows{display:none}
+/* The arrow at the far end of a list's own line is a second, smaller fold:
+ * it takes the areas under this one list out of the way and leaves every
+ * other list standing.  The switch is over the whole list, and the first
+ * arrow folds the whole list; this one is for a reader who wants the
+ * sidebar shorter without wanting the monsters and the items gone. */
+.grp>h3 .subf{
+  background:none;border:0;padding:0 1px;margin-left:2px;cursor:pointer;
+  color:var(--dim);font-size:9px;line-height:1;transition:transform .16s;
+}
+.grp>h3 .subf.closed{transform:rotate(-90deg)}
+.grp>h3 .subf:hover{color:var(--fg)}
+
+.rows{padding:0 0 8px}
+.row{
+  display:flex;align-items:center;gap:9px;padding:4px 12px 4px 15px;
+  cursor:pointer;user-select:none;border-left:2px solid transparent;
+}
+.row:hover{background:var(--panel2);border-left-color:var(--acc)}
+.row input{accent-color:var(--acc);width:14px;height:14px;margin:0;flex:0 0 auto;cursor:pointer}
+.row .swatch{width:16px;height:16px;flex:0 0 auto;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+.row .swatch.ore{border-radius:50%}
+.row .swatch.plant{transform:rotate(45deg) scale(.86)}
+/* The sidebar mark is the same shape the map draws: a creature is a dot
+ * standing where a cross is drawn, a single ground object is the diamond
+ * it is drawn as, and a boss keeps the ring that makes it findable in a
+ * field of its own kind. */
+.row .swatch.mob{border-radius:50%}
+.row .swatch.boss{border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.5),0 0 0 3px var(--boss)}
+.row .swatch.item{transform:rotate(45deg) scale(.86)}
+/* A statue is the diamond the map draws it as - the same shape an item
+ * wears, in the one blue nothing else on the map uses. */
+.row .swatch.statue{transform:rotate(45deg) scale(.86)}
+/* An NPC is the diamond the map draws it as - the same shape an item
+ * wears, in the one green nothing else on the map uses. */
+.row .swatch.npc{transform:rotate(45deg) scale(.86)}
+.row .star{color:var(--boss);font-size:10px;line-height:1;flex:0 0 auto}
+.row .nm{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+/* The second language a row carries, shown beside the first: the same
+ * creature reads one way on the English client and another on the German,
+ * so both are on the row and a search matches either.  Dimmer and smaller
+ * than the name it translates, and it ellipsises rather than pushing the
+ * count off the row. */
+.row .alt{
+  flex:0 1 auto;max-width:38%;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;color:var(--mut);font-size:11px;font-style:italic;
+}
+.row input:not(:checked)+.swatch{opacity:.28}
+.row input:not(:checked)~.nm{color:var(--dim);text-decoration:line-through;text-decoration-color:rgba(132,150,172,.4)}
+.row .n{color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums}
+.row.hide{display:none}
+/* Where an entry hangs.  Nothing above it but the group and it sits where
+ * it always did; an area or a set above it and its switch is placed just
+ * past that heading's own switch; an area inside a set and it goes one
+ * further still.  The result reads as the tree it is - a switch always
+ * under and slightly right of the switch it belongs to - instead of a list
+ * of entries sitting to the left of the heading they are in. */
+.row.in{padding-left:52px}
+.row.in.deep{padding-left:66px}
+/* The picture itself, where the game has one, bare: no frame and no ring,
+ * in the same order of sizes the map draws and half as large again, so a
+ * list of two hundred names is read by eye rather than squinted at - a
+ * boss has to be found among its own pack and is the largest, an item is
+ * one point being hunted for and comes next, a creature is one of a
+ * hundred and is a little smaller than it, and an ore or a plant is a
+ * hundred things in a field, so it is the smallest of the four.  A frame
+ * around every one of two hundred names would be a column of frames
+ * rather than a list. */
+/* The rim is the silhouette's, not a box's: four one-pixel shadows pushed
+ * off in the four directions add up to a single pixel of outline wherever
+ * the picture's own alpha ends, so a dragon is ringed along the dragon and
+ * not along a square the dragon happens to stand in.  The colour is the
+ * kind's - a boss edged in red, a plant in green, an ore in grey, an item
+ * in yellow - the same colours the map paints into the same pictures, and
+ * a creature keeps the black the whole rim started as. */
+.row .ic{
+  width:26px;height:26px;flex:0 0 auto;display:block;object-fit:contain;
+  filter:drop-shadow(1px 0 0 #333) drop-shadow(-1px 0 0 #333)
+         drop-shadow(0 1px 0 #333) drop-shadow(0 -1px 0 #333);
+}
+.row .ic.ic-mob{width:24px;height:24px}
+.row .ic.ic-boss{width:30px;height:30px}
+.row .ic.ic-ore,.row .ic.ic-plant{width:16px;height:16px}
+.row .ic.ic-boss{
+  filter:drop-shadow(1px 0 0 #ff5a4d) drop-shadow(-1px 0 0 #ff5a4d)
+         drop-shadow(0 1px 0 #ff5a4d) drop-shadow(0 -1px 0 #ff5a4d);
+}
+.row .ic.ic-item{
+  filter:drop-shadow(1px 0 0 #ffdc4d) drop-shadow(-1px 0 0 #ffdc4d)
+         drop-shadow(0 1px 0 #ffdc4d) drop-shadow(0 -1px 0 #ffdc4d);
+}
+.row .ic.ic-ore{
+  filter:drop-shadow(1px 0 0 #8a9099) drop-shadow(-1px 0 0 #8a9099)
+         drop-shadow(0 1px 0 #8a9099) drop-shadow(0 -1px 0 #8a9099);
+}
+.row .ic.ic-plant{
+  filter:drop-shadow(1px 0 0 #5a4b70) drop-shadow(-1px 0 0 #5a4b70)
+         drop-shadow(0 1px 0 #5a4b70) drop-shadow(0 -1px 0 #5a4b70);
+}
+.row .ic.ic-treasure{
+  width:40px;height:40px;
+  filter:drop-shadow(1px 0 0 #d4953a) drop-shadow(-1px 0 0 #d4953a)
+         drop-shadow(0 1px 0 #d4953a) drop-shadow(0 -1px 0 #d4953a);
+}
+.row .ic.ic-statue{
+  filter:drop-shadow(1px 0 0 #4d9de0) drop-shadow(-1px 0 0 #4d9de0)
+         drop-shadow(0 1px 0 #4d9de0) drop-shadow(0 -1px 0 #4d9de0);
+}
+.row input:not(:checked)+.ic{opacity:.3}
+/* An area heading: the same tri-state switch as the group above it, over
+ * just what stands in that part of the world.  Sorted by area outside and
+ * alphabetically inside, with Mixed last for anything found in several.
+ *
+ * Every sub-level heading - an area, and a set over areas - is indented,
+ * whether or not the group above it was split into sets, so a heading one
+ * level down always reads one level down instead of only when the group
+ * happens to have two levels.  Each is also foldable: the arrow turns and
+ * everything it owns goes with it, the way the group above folds. */
+.zone{
+  display:flex;align-items:center;gap:9px;padding:6px 12px 3px 20px;
+  font-size:11.5px;font-weight:650;color:var(--dim);letter-spacing:.3px;
+  user-select:none;cursor:pointer;border-left:2px solid transparent;
+}
+.zone .arrow,.cat .arrow{
+  color:var(--dim);font-size:8px;line-height:1;flex:0 0 auto;
+  transition:transform .16s;
+}
+.zone[data-open=false] .arrow,.cat[data-open=false] .arrow{transform:rotate(-90deg)}
+.collapsed{display:none}
+.zone:hover{background:var(--panel2);border-left-color:var(--acc)}
+.zone input{accent-color:var(--acc);width:13px;height:13px;margin:0;flex:0 0 auto;cursor:pointer}
+.zone .n{margin-left:auto;color:var(--dim);font-size:10.5px;font-weight:500;font-variant-numeric:tabular-nums}
+.zone.hide{display:none}
+/* A set heading over an area heading.  Cardia's omega glyphs are a quest
+ * of their own - the gems, the map notes and the book four notes are made
+ * into - and Lilly's seven pickups are another, so they are grouped
+ * together before they belong to any part of the
+ * world.  Brighter than an area and ruled off from the group above it, so
+ * the two levels read as two levels.  Indented like every other sub-level
+ * heading, and a zone under one of these is indented deeper still, which is
+ * what says it belongs to the set rather than standing beside it. */
+.cat{
+  display:flex;align-items:center;gap:9px;padding:10px 12px 3px 20px;
+  font-size:10.5px;font-weight:750;color:var(--acc);letter-spacing:.7px;
+  text-transform:uppercase;
+  user-select:none;cursor:pointer;border-left:2px solid transparent;
+  border-top:1px solid rgba(38,51,69,.55);margin-top:5px;
+}
+.cat:hover{background:var(--panel2);border-left-color:var(--acc)}
+.cat input{accent-color:var(--acc);width:13px;height:13px;margin:0;flex:0 0 auto;cursor:pointer}
+.cat .n{margin-left:auto;color:var(--dim);font-size:10.5px;font-weight:500;font-variant-numeric:tabular-nums}
+.cat.hide{display:none}
+.cat~.zone{padding-left:34px}
+.more{
+  padding:3px 12px 7px 52px;color:var(--dim);font-size:10.5px;font-style:italic;
+}
+/* A match found on a world the sidebar is not showing.  Same list, same
+ * fold, but the switch is a jump: clicking one leaves for that world with
+ * the search still in the box, so the row that was wanted is the row that
+ * is shown. */
+.row.xrow{padding-left:52px}
+.row.xrow .xg{
+  flex:0 0 auto;font-size:9.5px;letter-spacing:.4px;color:var(--dim);
+  border:1px solid var(--line2);border-radius:3px;padding:1px 4px;
+}
+.row.xrow:hover .xg{color:var(--acc);border-color:var(--acc)}
+/* Where an Other-worlds hit stands: the area its pins belong to, dimmer and
+ * smaller than the name and ellipsised rather than pushing the name off the
+ * row - the same treatment the second language gets, but upright instead of
+ * italic, since an area is not a translation. */
+.row.xrow .xn{
+  flex:0 1 auto;max-width:38%;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;color:var(--dim);font-size:11px;
+}
+.empty{padding:16px 14px;color:var(--dim);font-size:12.5px}
+
+/* ----------------------------------------------------------------- stage */
+#stage{flex:1 1 auto;position:relative;min-width:0;background:var(--bg);overflow:hidden}
+#cv{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+#cv.drag{cursor:grabbing}
+#cv.over{cursor:pointer}
+
+#zoomctl{
+  position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;gap:6px;z-index:12;
+}
+#zoomctl button{
+  width:34px;height:34px;background:rgba(17,24,35,.92);border:1px solid var(--line2);
+  color:var(--fg);border-radius:9px;font-size:17px;line-height:1;
+  display:grid;place-items:center;backdrop-filter:blur(6px);box-shadow:var(--shadow);
+}
+#zoomctl button:hover{border-color:var(--acc);color:var(--acc)}
+#zoomctl button:active{transform:translateY(1px)}
+
+.tip{
+  position:absolute;pointer-events:none;z-index:14;background:rgba(8,12,18,.95);
+  border:1px solid var(--line2);border-radius:7px;padding:5px 9px;font-size:12px;
+  box-shadow:var(--shadow);white-space:nowrap;transform:translate(10px,-50%);
+  backdrop-filter:blur(6px);
+}
+.tip b{font-weight:650}
+.tip i{font-style:normal;color:var(--mut);font-family:var(--mono);font-size:11px;margin-left:6px}
+.tip .tag{
+  font-style:normal;font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;
+  color:var(--boss);border:1px solid var(--boss);border-radius:4px;
+  padding:0 4px;margin-left:6px;vertical-align:1px;
+}
+/* A monster's tier level reads after its name, in both the sidebar row
+ * and the hover tip, without becoming part of the name the switches,
+ * links and search match. */
+.tip .lvl,.row .lvl{
+  font-style:normal;font-family:var(--mono);font-size:10.5px;color:var(--mut);
+  margin-left:6px;white-space:nowrap;
+}
+/* A treasure map's tooltip is the map: the riddle is baked into the
+ * parchment, so the picture has to be big enough to read and the tip has to
+ * stop pretending to be one line of text. */
+.tip.big{white-space:normal;padding:7px;max-width:244px}
+.tip.big img{
+  display:block;width:230px;height:auto;border-radius:5px;margin:0 0 6px;
+  box-shadow:0 0 0 1px rgba(212,149,58,.5);
+}
+.tip.big b{display:block;font-size:12.5px;color:var(--fg)}
+.tip.big i{display:block;margin:1px 0 0}
+
+.detail{
+  position:absolute;right:60px;bottom:14px;width:236px;z-index:13;
+  background:rgba(17,24,35,.96);border:1px solid var(--line2);border-radius:11px;
+  box-shadow:var(--shadow);overflow:hidden;backdrop-filter:blur(8px);
+}
+.detail .bar{height:3px}
+.detail .in{padding:11px 13px 12px}
+.detail h4{margin:0 0 2px;font-size:14.5px;font-weight:650;display:flex;align-items:center;gap:8px}
+.detail .kind{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.7px}
+/* A treasure map is read, not counted, so its card grows to hold the
+ * parchment at a size the riddle can be read off it - the one detail that
+ * is wider than the ordinary one, for the one thing that needs it. */
+.detail.wide{width:330px}
+.detail .tmap{
+  display:block;width:100%;height:auto;border-radius:6px;margin:9px 0 0;
+  box-shadow:0 0 0 1px rgba(212,149,58,.5);
+}
+.detail dl{margin:9px 0 0;display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px}
+.detail dt{color:var(--dim)}
+.detail dd{margin:0;font-family:var(--mono);font-size:11.5px}
+.detail .acts{display:flex;gap:6px;margin-top:11px}
+.detail .acts button{
+  flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--mut);
+  border-radius:7px;padding:5px 6px;font-size:11.5px;
+}
+.detail .acts button:hover{color:var(--fg);border-color:var(--line2)}
+.detail .x{position:absolute;top:7px;right:8px;background:none;border:0;color:var(--dim);font-size:16px;line-height:1;padding:2px 4px}
+.detail .x:hover{color:var(--fg)}
+
+#loading{
+  position:absolute;inset:0;display:grid;place-items:center;z-index:15;
+  color:var(--mut);font-size:13px;letter-spacing:.3px;pointer-events:none;
+}
+#loading[hidden]{display:none}
+
+/* ---------------------------------------------------------------- footer */
+#status{
+  flex:0 0 auto;height:26px;display:flex;align-items:center;gap:16px;
+  padding:0 14px;background:var(--panel);border-top:1px solid var(--line);
+  color:var(--mut);font-size:11.5px;font-variant-numeric:tabular-nums;
+}
+#status .mono{font-family:var(--mono);white-space:nowrap}
+#status #stSpots,#status #stMap,#status #stSpawn{white-space:nowrap}
+#status .sp{flex:1 1 auto}
+#status b{color:var(--fg);font-weight:600}
+
+#burger{display:none;background:none;border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:5px 9px}
+
+/* ---------------------------------------------------------------- narrow */
+@media (max-width:1150px){
+  /* Six guide buttons no longer fit beside the search box, so they take
+   * their own centered row rather than squeezing the world stepper. */
+  #top{flex-wrap:wrap;height:auto;min-height:50px;padding:4px 14px;row-gap:6px}
+  #guides{margin:0;flex:1 1 100%;justify-content:flex-start}
+  #guideslab{display:none}
+}
+@media (max-width:860px){
+  #q{width:120px}#q:focus{width:150px}
+  .brand small{display:none}
+  #burger{display:block}
+  #stSpawn{display:none}
+  #mapgroup{max-width:104px}
+  #mapjump{max-width:132px}
+  /* the world step buttons and the jump list keep their place
+   * rather than fighting the search box and the switches for one line */
+  #top{flex-wrap:wrap;height:auto;min-height:50px;padding:4px 14px}
+  main{min-height:0}
+  #side{
+    position:absolute;left:0;top:0;bottom:0;width:280px;
+    transform:translateX(-100%);transition:transform .2s ease;box-shadow:var(--shadow);
+  }
+  #side.open{transform:none}
+  .detail{right:14px;bottom:60px}
+}
+@media (max-width:560px){
+  #mapprev,#mapnext{padding:5px 9px;font-size:12.5px}
+  .brand span.t{display:none}
+  #q{width:96px}
+}
+</style>
+</head>
+<body>
+
+<header id="top">
+  <button id="burger" aria-label="Filters">&#9776;</button>
+  <a class="brand" href="../" title="Back to Entropia Dashboard" style="color:inherit;text-decoration:none"><span class="glyph">&#9679;</span><span class="t">Entropia Node Maps</span></a>
+  <select id="mapgroup" title="Which worlds the step buttons and jump list offer">
+    <option value="all">All Worlds</option>
+    <option value="main">Main Maps</option>
+    <option value="dungeons">Dungeons</option>
+    <option value="fields">Others</option>
+    <option value="event">Event</option>
+    <option disabled>──────────</option>
+    <option value="farm">Farm Maps</option>
+    <option value="platin">Platin Level Maps</option>
+    <option value="royal">Royal Level Maps</option>
+  </select>
+  <button id="mapprev" title="Previous world">&#8249;</button>
+  <div id="mapnav" title="Jump to any world">
+    <select id="mapjump" aria-label="Jump to a world"></select>
+  </div>
+  <button id="mapnext" title="Next world">&#8250;</button>
+  <div id="guides" title="Guide shortcuts: filter this world and list every other world's hits">
+    <span id="guideslab">Guides</span>
+    <button id="tgstatue" class="tog guide primary" aria-pressed="false" title="Statue guide: show all statues here and on every other world">&#128511; Statues</button>
+    <button id="tgore" class="tog guide" aria-pressed="false" title="Ore guide: show all ore nodes here and on every other world">&#9935; Ore</button>
+    <button id="tgplant" class="tog guide" aria-pressed="false" title="Plant guide: show all plant nodes here and on every other world">&#10048; Plant</button>
+    <button id="tgomega" class="tog guide" aria-pressed="false" title="Omega guide: show all omega glyph pickups here and on every other world">&#937; Omega</button>
+    <button id="tgastral" class="tog guide" aria-pressed="false" title="Astral guide: show the Astral Crystal Notes and the Celestial Treasure here and on every other world">&#10027; Astral</button>
+    <button id="tgtreasure" class="tog guide" aria-pressed="false" title="Treasure guide: show all treasure maps here and on every other world">&#9672; Treasure</button>
+    <button id="tgdaily" class="tog guide" aria-pressed="false" title="Daily Quest guide: Kebaria and Cardia monsters, bosses and items; Aurania and Kogarashi monsters and items">&#9876; Daily Quest</button>
+  </div>
+  <div id="qwrap">
+    <input id="q" type="search" placeholder="Search names, areas &amp; every world&hellip;" autocomplete="off" spellcheck="false">
+    <button id="tgspawns" class="tog" aria-pressed="true" title="Show monster and item spawn points">&#10022; Spawns</button>
+    <button id="tgplaces" class="tog" aria-pressed="true" title="Show zone names">&#128205; Zones</button>
+  </div>
+</header>
+
+<main>
+  <aside id="side">
+    <div class="sidehead">
+      <span>Filters</span><span class="sp"></span>
+      <button id="bAll" title="Select everything on this world">All</button><button id="bNone" title="Deselect everything on this world">None</button>
+    </div>
+    <div class="foldbar">
+      <button id="bAllMaps" title="Select everything on every world">Select all worlds</button>
+      <button id="bNoneMaps" title="Deselect everything on every world">Clear all worlds</button>
+    </div>
+    <div class="foldbar">
+      <button id="bUnfold" title="Open every list, and every area inside it">Expand all</button>
+      <button id="bFold" title="Collapse every list, and every area inside it">Collapse all</button>
+    </div>
+    <div id="mining" hidden>
+      <div class="minehead"><span>Mining Sets</span></div>
+      <div class="minebar">
+        <button data-mine="0" title="Adamantite, Aquamarine, Argentum, Copper">Set 1</button><button data-mine="1" title="Crusium, Crystalwing, Duckharukon, Dureline">Set 2</button><button data-mine="2" title="Emeralnd, Fairy Swing, Hearthstone, Iron">Set 3</button><button data-mine="3" title="Lifestone, Manastone, Mithril, Moonlightstone">Set 4</button><button data-mine="4" title="Obsidian, Opal, Perl, Regency">Set 5</button><button data-mine="5" title="Retion, Ruby, Runecarore, Sapphire">Set 6</button><button data-mine="6" title="Adamantite, Aquamarine, Spiritstone, Thunderboltstone">Set 7</button>
+      </div>
+    </div>
+    <div id="groups"></div>
+  </aside>
+
+  <section id="stage">
+    <canvas id="cv"></canvas>
+    <div id="loading">Loading map&hellip;</div>
+    <div id="zoomctl">
+      <button id="zin"  title="Zoom in">&#43;</button>
+      <button id="zout" title="Zoom out">&#8722;</button>
+      <button id="bfit" title="Fit the whole map">&#8982;</button>
+    </div>
+    <div id="detail" hidden></div>
+  </section>
+</main>
+
+<footer id="status">
+  <span id="stMap"><b>&mdash;</b></span>
+  <span id="stSpots"></span>
+  <span id="stSpawn"></span>
+  <span class="sp"></span>
+  <span id="stScale" class="mono"></span>
+  <span id="stXY" class="mono"></span>
+</footer>
+
+<script>
+/* The pictures never change under a name and the data file is half a
+ * megabyte, so a returning visitor should not fetch them twice: the
+ * worker beside this page keeps both.  It needs https or localhost and
+ * simply does nothing where it cannot run. */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  });
+}
+</script>
+<script src="src/data.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>

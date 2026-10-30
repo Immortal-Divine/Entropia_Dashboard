@@ -1,4 +1,4 @@
-<# ftool.psm1 #>
+﻿<# ftool.psm1 #>
 
 #region Hotkey Management
 
@@ -76,7 +76,7 @@ function ToggleInstanceHotkeys
 			$form.BeginInvoke([System.Action]{ ToggleInstanceHotkeys -InstanceId $InstanceId -ToggleState $ToggleState }) | Out-Null
 			return
 		}
-		if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue -Verbose:$False)
+		if (Test-DashboardCommand 'RefreshHotkeysList')
 		{
 			try { RefreshHotkeysList } catch {}
 		}
@@ -343,22 +343,35 @@ function LoadFtoolSettings
 {
 	param($formData)
     
-	$profilePrefix = FindOrCreateProfile $formData.WindowTitle
+	$profilePrefix = FindOrCreateProfile $formData.WindowTitle -ProfileHint (Get-RowProfileHint -formData $formData)
 	$formData.ProfilePrefix = $profilePrefix
 
 	if ($profilePrefix)
 	{
 		$globalHotkeyName = "GlobalHotkey_$profilePrefix"
+		$storedGlobalHotkey = $null
 		if ($global:DashboardConfig.Config['Ftool'].Contains($globalHotkeyName))
 		{
-			$formData.GlobalHotkey = $global:DashboardConfig.Config['Ftool'][$globalHotkeyName]
+			$storedGlobalHotkey = [string]$global:DashboardConfig.Config['Ftool'][$globalHotkeyName]
+		}
+		if (-not [string]::IsNullOrWhiteSpace($storedGlobalHotkey))
+		{
+			$formData.GlobalHotkey = $storedGlobalHotkey
+		}
+		else
+		{
+			$formData.GlobalHotkey = $null
 		}
         
 		$hotkeyName = "Hotkey_$profilePrefix"
+		$storedHotkey = $null
 		if ($global:DashboardConfig.Config['Ftool'].Contains($hotkeyName))
 		{
-			[Custom.Native]::keybd_event([byte]$modVk, 0, 2, [IntPtr]::Zero)
-			$formData.Hotkey = $global:DashboardConfig.Config['Ftool'][$hotkeyName]
+			$storedHotkey = [string]$global:DashboardConfig.Config['Ftool'][$hotkeyName]
+		}
+		if (-not [string]::IsNullOrWhiteSpace($storedHotkey))
+		{
+			$formData.Hotkey = $storedHotkey
 			$formData.BtnHotKey.Text = $formData.Hotkey 
 		}
 		else
@@ -395,21 +408,21 @@ function LoadFtoolSettings
 		}
 		else
 		{
-			$formData.BtnKeySelect.Text = 'none'
+			$formData.BtnKeySelect.Text = 'Select'
 		}
         
 		if ($global:DashboardConfig.Config['Ftool'].Contains($intervalName))
 		{
 			$intervalValue = [int]$global:DashboardConfig.Config['Ftool'][$intervalName]
-			if ($intervalValue -lt 10)
+			if ($intervalValue -lt 1)
 			{
-				$intervalValue = 100
+				$intervalValue = 1
 			}
 			$formData.Interval.Text = $intervalValue.ToString()
 		}
 		else
 		{
-			$formData.Interval.Text = '100'
+			$formData.Interval.Text = '1000'
 		}
 
 		if ($global:DashboardConfig.Config['Ftool'].Contains($nameName))
@@ -419,7 +432,7 @@ function LoadFtoolSettings
 		}
 		else
 		{
-			$formData.Name.Text = 'Main'
+			$formData.Name.Text = 'Ftool Name'
 		}
 
 		if ($global:DashboardConfig.Config['Ftool'].Contains($positionXName))
@@ -464,63 +477,188 @@ function LoadFtoolSettings
 			$formData.IsCollapsed = $false
 		}
 
+		$extCountName = "extCount_$profilePrefix"
+		$restoredExtCount = 0
+		if ($global:DashboardConfig.Config['Ftool'].Contains($extCountName))
+		{
+			$storedExtCount = 0
+			if ([int]::TryParse([string]$global:DashboardConfig.Config['Ftool'][$extCountName], [ref]$storedExtCount))
+			{
+				$restoredExtCount = $storedExtCount
+			}
+		}
+		if ($restoredExtCount -lt 0) { $restoredExtCount = 0 }
+		if ($restoredExtCount -gt 8) { $restoredExtCount = 8 }
+		$formData.RestoredExtCount = $restoredExtCount
+
+		$computedHeight = 110 + (55 * $restoredExtCount)
 		$origHeightName = "origHeight_$profilePrefix"
+		$savedHeight = $computedHeight
 		if ($global:DashboardConfig.Config['Ftool'].Contains($origHeightName))
 		{
-			$formData.OriginalHeight = [int]$global:DashboardConfig.Config['Ftool'][$origHeightName]
+			$storedHeight = 0
+			if ([int]::TryParse([string]$global:DashboardConfig.Config['Ftool'][$origHeightName], [ref]$storedHeight) -and $storedHeight -gt 0)
+			{
+				$savedHeight = $storedHeight
+			}
 		}
-		else
-		{
-			$formData.OriginalHeight = $formData.Form.Height
-		}
+		$formData.OriginalHeight = [Math]::Max(110, [Math]::Min($savedHeight, $computedHeight))
 	}
 	else
 	{
 		$formData.Hotkey = $null
+		$formData.RestoredExtCount = 0
 		$formData.BtnHotKey.Text = 'Hotkey' 
-		$formData.BtnKeySelect.Text = 'none'
+		$formData.BtnKeySelect.Text = 'Select'
 		$formData.Interval.Text = '1000'
-		$formData.Name.Text = 'Main'
+		$formData.Name.Text = 'Ftool Name'
 	}
+}
+
+function Split-WindowTitleParts
+{
+	[CmdletBinding()]
+	[OutputType([hashtable])]
+	param($Title)
+
+	$result = @{ Profile = $null; Base = [string]$Title }
+	if ($result.Base -match '^\s*\[(?<prof>[^\]]+)\]\s*(?<rest>.*)$')
+	{
+		$result.Profile = $Matches['prof']
+		$result.Base = $Matches['rest']
+	}
+	return $result
+}
+
+function Get-WindowTitleCore
+{
+	[CmdletBinding()]
+	[OutputType([string])]
+	param([string]$Title)
+
+	$base = [string]$Title
+	$idx = $base.IndexOf(' - ')
+	if ($idx -gt 0) { return $base.Substring(0, $idx) }
+	return $base
+}
+
+function Get-RowProfileHint
+{
+	[CmdletBinding()]
+	[OutputType([string])]
+	param($formData)
+
+	try
+	{
+		if ($formData -and $formData.PSObject.Properties['Row'] -and $formData.Row -and
+			$formData.Row.Cells -and $formData.Row.Cells.Count -gt 1 -and $formData.Row.Cells[1].Value)
+		{
+			$title = $formData.Row.Cells[1].Value.ToString()
+			if ($title -match '^\s*\[([^\]]+)\]') { return $Matches[1] }
+		}
+	}
+	catch {}
+	return ''
 }
 
 function FindOrCreateProfile
 {
-	param($windowTitle)
+	param($windowTitle, [string]$ProfileHint)
     
 	$profilePrefix = $null
 	$profileFound = $false
     
 	if ($windowTitle)
 	{
-		foreach ($key in $global:DashboardConfig.Config['Ftool'].Keys)
+		$ftoolCfg = $null
+		if ($global:DashboardConfig -and $global:DashboardConfig.Config -and $global:DashboardConfig.Config['Ftool'])
 		{
-			if ($key -like 'profile_*' -and $global:DashboardConfig.Config['Ftool'][$key] -eq $windowTitle)
+			$ftoolCfg = $global:DashboardConfig.Config['Ftool']
+		}
+
+		$current = Split-WindowTitleParts -Title $windowTitle
+		$currentBase = ([string]$current.Base).Trim()
+		$currentCore = (Get-WindowTitleCore -Title $currentBase).Trim()
+
+		$bestKey = $null
+		$bestScore = 0
+
+		if ($ftoolCfg)
+		{
+			foreach ($key in @($ftoolCfg.Keys))
 			{
-				$profilePrefix = $key -replace 'profile_', ''
-				$profileFound = $true
-				break
+				if ($key -notlike 'profile_*') { continue }
+				$stored = [string]$ftoolCfg[$key]
+				if ([string]::IsNullOrWhiteSpace($stored)) { continue }
+
+				$parts = Split-WindowTitleParts -Title $stored
+				$trust = 'unknown'
+				if ($parts.Profile)
+				{
+					if (-not [string]::IsNullOrEmpty($ProfileHint))
+					{
+						$trust = if ($parts.Profile -ieq $ProfileHint) { 'confirmed' } else { 'contradict' }
+					}
+					elseif ($current.Profile)
+					{
+						$trust = if ($parts.Profile -ieq $current.Profile) { 'confirmed' } else { 'contradict' }
+					}
+				}
+				if ($trust -eq 'contradict') { continue }
+
+				$storedBase = ([string]$parts.Base).Trim()
+				$score = 0
+				if ($stored -ieq [string]$windowTitle) { $score = 100 }
+				elseif ($storedBase -ieq $currentBase) { $score = 80 }
+				elseif ((Get-WindowTitleCore -Title $storedBase).Trim() -ieq $currentCore) { $score = 60 }
+
+				if ($score -gt 0)
+				{
+					if ($trust -eq 'unknown') { $score -= 40 }
+					elseif (-not [string]::IsNullOrEmpty($ProfileHint)) { $score += 10 }
+				}
+
+				if ($score -gt $bestScore)
+				{
+					$bestScore = $score
+					$bestKey = $key
+				}
 			}
+		}
+
+		if ($bestKey)
+		{
+			$profilePrefix = $bestKey -replace 'profile_', ''
+			$profileFound = $true
 		}
         
 		if (-not $profileFound)
 		{
 			$maxProfileNum = 0
-			foreach ($key in $global:DashboardConfig.Config['Ftool'].Keys)
+			if ($ftoolCfg)
 			{
-				if ($key -match 'profile_(\d+)')
+				foreach ($key in $ftoolCfg.Keys)
 				{
-					$profileNum = [int]$matches[1]
-					if ($profileNum -gt $maxProfileNum)
+					if ($key -match 'profile_(\d+)')
 					{
-						$maxProfileNum = $profileNum
+						$profileNum = [int]$matches[1]
+						if ($profileNum -gt $maxProfileNum)
+						{
+							$maxProfileNum = $profileNum
+						}
 					}
 				}
 			}
             
 			$profilePrefix = ($maxProfileNum + 1).ToString()
 			$profileKey = "profile_$profilePrefix"
-			$global:DashboardConfig.Config['Ftool'][$profileKey] = $windowTitle
+			if (-not $ftoolCfg)
+			{
+				$global:DashboardConfig.Config['Ftool'] = [ordered]@{}
+				$ftoolCfg = $global:DashboardConfig.Config['Ftool']
+			}
+			$ftoolCfg[$profileKey] = $windowTitle
+			Write-Verbose "F-Tool: created new profile $profileKey for window title '$windowTitle'."
 		}
 	}
 	return $profilePrefix
@@ -684,9 +822,14 @@ function LoadExtensionSettings
 	$nameName = "name${extNum}_$profilePrefix"
 	$extHotkeyName = "ExtHotkey_${extNum}_$profilePrefix" 
     
+	$storedExtHotkey = $null
 	if ($global:DashboardConfig.Config['Ftool'].Contains($extHotkeyName))
 	{
-		$extData.Hotkey = $global:DashboardConfig.Config['Ftool'][$extHotkeyName]
+		$storedExtHotkey = [string]$global:DashboardConfig.Config['Ftool'][$extHotkeyName]
+	}
+	if (-not [string]::IsNullOrWhiteSpace($storedExtHotkey))
+	{
+		$extData.Hotkey = $storedExtHotkey
 		$extData.BtnHotKey.Text = $extData.Hotkey
 	}
 	else
@@ -702,7 +845,7 @@ function LoadExtensionSettings
 	}
 	else
 	{
-		$extData.BtnKeySelect.Text = 'none'
+		$extData.BtnKeySelect.Text = 'Select'
 	}
     
 	if ($global:DashboardConfig.Config['Ftool'].Contains($intervalName))
@@ -727,7 +870,7 @@ function LoadExtensionSettings
 	}
 	else
 	{
-		$extData.Name.Text = 'Name'
+		$extData.Name.Text = 'Ftool Name'
 	}
 }
 
@@ -735,7 +878,7 @@ function UpdateSettings
 {
 	param($formData, $extData = $null, [switch]$forceWrite)
     
-	$profilePrefix = FindOrCreateProfile $formData.WindowTitle
+	$profilePrefix = FindOrCreateProfile $formData.WindowTitle -ProfileHint (Get-RowProfileHint -formData $formData)
     
 	if ($profilePrefix)
 	{
@@ -776,8 +919,28 @@ function UpdateSettings
 		}
 		else
 		{
-			$global:DashboardConfig.Config['Ftool']["GlobalHotkey_$profilePrefix"] = $formData.GlobalHotkey
-			$global:DashboardConfig.Config['Ftool']["Hotkey_$profilePrefix"] = $formData.Hotkey
+			$hotkeyName = "Hotkey_$profilePrefix"
+			$storedHotkey = [string]$formData.Hotkey
+			if (-not [string]::IsNullOrWhiteSpace($storedHotkey))
+			{
+				$global:DashboardConfig.Config['Ftool'][$hotkeyName] = $storedHotkey
+			}
+			elseif ($global:DashboardConfig.Config['Ftool'].Contains($hotkeyName))
+			{
+				$global:DashboardConfig.Config['Ftool'].Remove($hotkeyName)
+			}
+
+			$globalHotkeyName = "GlobalHotkey_$profilePrefix"
+			$storedGlobalHotkey = [string]$formData.GlobalHotkey
+			if (-not [string]::IsNullOrWhiteSpace($storedGlobalHotkey))
+			{
+				$global:DashboardConfig.Config['Ftool'][$globalHotkeyName] = $storedGlobalHotkey
+			}
+			elseif ($global:DashboardConfig.Config['Ftool'].Contains($globalHotkeyName))
+			{
+				$global:DashboardConfig.Config['Ftool'].Remove($globalHotkeyName)
+			}
+
 			$global:DashboardConfig.Config['Ftool']["hotkeys_enabled_$profilePrefix"] = $formData.BtnHotkeyToggle.Checked
 			$global:DashboardConfig.Config['Ftool']["key1_$profilePrefix"] = $formData.BtnKeySelect.Text
 			$global:DashboardConfig.Config['Ftool']["inpt1_$profilePrefix"] = $formData.Interval.Text
@@ -786,6 +949,23 @@ function UpdateSettings
 			$global:DashboardConfig.Config['Ftool']["pos1Y_$profilePrefix"] = $formData.PositionSliderY.Value
 			$global:DashboardConfig.Config['Ftool']["collapsed_$profilePrefix"] = $formData.IsCollapsed
 			$global:DashboardConfig.Config['Ftool']["origHeight_$profilePrefix"] = $formData.OriginalHeight
+			$extCount = 0
+			$instanceKey = "instance_$($formData.InstanceId)"
+			if ($global:DashboardConfig.Resources.ExtensionTracking -and $global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
+			{
+				foreach ($extKey in $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions)
+				{
+					if ($global:DashboardConfig.Resources.ExtensionData -and $global:DashboardConfig.Resources.ExtensionData.Contains($extKey))
+					{
+						$extCount++
+					}
+				}
+			}
+			elseif ($formData.PSObject.Properties['ExtensionCount'])
+			{
+				$extCount = [int]$formData.ExtensionCount
+			}
+			$global:DashboardConfig.Config['Ftool']["extCount_$profilePrefix"] = $extCount
 		}
         
 		if ($forceWrite)
@@ -798,34 +978,7 @@ function UpdateSettings
 		}
 		else
 		{
-			if (-not $global:DashboardConfig.Resources.Timers.Contains('ConfigWriteTimer'))
-			{
-				$ConfigWriteTimer = New-Object System.Windows.Forms.Timer
-				$ConfigWriteTimer.Interval = 1000
-				$ConfigWriteTimer.Add_Tick({
-						param($timerSender, $timerArgs)
-						try
-						{
-							if ($timerSender)
-							{
-								$timerSender.Stop()
-							}
-							WriteConfig
-						}
-						catch
-						{
-							Write-Verbose ('FTOOL: Error in config write timer: {0}' -f $_.Exception.Message)
-						}
-					})
-				$global:DashboardConfig.Resources.Timers['ConfigWriteTimer'] = $ConfigWriteTimer
-			}
-			else
-			{
-				$ConfigWriteTimer = $global:DashboardConfig.Resources.Timers['ConfigWriteTimer']
-			}
-            
-			$ConfigWriteTimer.Stop()
-			$ConfigWriteTimer.Start()
+			Request-DashboardConfigWrite
 		}
 	}
 }
@@ -912,12 +1065,16 @@ function CreatePositionTimer
 										$maxX = $formData.PositionSliderX.Maximum
 										if ($minX -gt $maxX) { $tmp = $minX; $minX = $maxX; $maxX = $tmp }
 										$newX = [int]([Math]::Max($minX, [Math]::Min($maxX, $formData.PositionSliderX.Value + $dx)))
-										$formData.PositionSliderX.Value = $newX
-										$minY = $formData.PositionSliderY.Minimum
-										$maxY = $formData.PositionSliderY.Maximum
-										if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
-										$newY = [int]([Math]::Max($minY, [Math]::Min($maxY, $formData.PositionSliderY.Value + $dy)))
-										$formData.PositionSliderY.Value = $newY
+										$formData.SuppressPersist = $true
+										try {
+											$formData.PositionSliderX.Value = $newX
+											$minY = $formData.PositionSliderY.Minimum
+											$maxY = $formData.PositionSliderY.Maximum
+											if ($minY -gt $maxY) { $tmp = $minY; $minY = $maxY; $maxY = $tmp }
+											$newY = [int]([Math]::Max($minY, [Math]::Min($maxY, $formData.PositionSliderY.Value + $dy)))
+											$formData.PositionSliderY.Value = $newY
+										}
+										finally { $formData.SuppressPersist = $false }
 										
 										$timerData.RealLeft = $timerData.RealLeft + $dx
 										$timerData.RealTop = $timerData.RealTop + $dy
@@ -1035,7 +1192,8 @@ function RepositionExtensions
     
 	try
 	{
-		$baseHeight = 130
+		$baseHeight = 110
+		$rowHeight = 55
         
 		$activeExtensions = @()
 		if ($global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions)
@@ -1043,7 +1201,7 @@ function RepositionExtensions
 			$activeExtensions = $global:DashboardConfig.Resources.ExtensionTracking[$instanceKey].ActiveExtensions
 		}
         
-		$newHeight = 130  
+		$newHeight = 110  
 		$position = 0
         
 		if ($activeExtensions.Count -gt 0)
@@ -1070,7 +1228,7 @@ function RepositionExtensions
 					$extData = $global:DashboardConfig.Resources.ExtensionData[$extKey]
 					if ($extData -and $extData.Panel -and -not $extData.Panel.IsDisposed)
 					{
-						$newTop = $baseHeight + ($position * 70)
+						$newTop = $baseHeight + ($position * $rowHeight)
                         
 						$extData.Panel.Top = $newTop
 						$extData.Position = $position
@@ -1082,7 +1240,7 @@ function RepositionExtensions
             
 			if ($position -gt 0)
 			{
-				$newHeight = 130 + ($position * 70)
+				$newHeight = $baseHeight + ($position * $rowHeight)
 			}
 		}
         
@@ -1090,7 +1248,7 @@ function RepositionExtensions
 		{
 			$form.Height = $newHeight
 			$form.Tag.OriginalHeight = $newHeight
-			$form.Tag.PositionSliderY.Height = $newHeight - 20
+			$form.Tag.PositionSliderY.Height = $newHeight
 		}
 	}
 	catch
@@ -1291,7 +1449,7 @@ function CleanupInstanceResources
 	
 	try
 	{
-		if (Get-Command UnregisterHotkeysByOwnerPattern -ErrorAction SilentlyContinue)
+		if (Test-DashboardCommand 'UnregisterHotkeysByOwnerPattern')
 		{
 			
 			UnregisterHotkeysByOwnerPattern -OwnerPattern "ext_${instanceId}_*"
@@ -1372,15 +1530,13 @@ function CleanupInstanceResources
 	}
 
 	
-	if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
+	if (Test-DashboardCommand 'RefreshHotkeysList') { try { RefreshHotkeysList } catch {} }
 
 	if ($global:DashboardConfig.Resources.ExtensionTracking.Contains($instanceKey))
 	{
 		$global:DashboardConfig.Resources.ExtensionTracking.Remove($instanceKey)
 	}
     
-	[System.GC]::Collect()
-	[System.GC]::WaitForPendingFinalizers()
 }
 
 function StopFtoolForm
@@ -1502,9 +1658,14 @@ function RemoveExtension
 			}
 		}
         
-        if (Get-Command RefreshHotkeysList -ErrorAction SilentlyContinue) { try { RefreshHotkeysList } catch {} }
+        if (Test-DashboardCommand 'RefreshHotkeysList') { try { RefreshHotkeysList } catch {} }
         
 		RepositionExtensions $form $instanceId
+
+		if ($form.Tag -and $form.Tag -isnot [string] -and $form.Tag.PSObject.Properties['InstanceId'])
+		{
+			try { UpdateSettings $form.Tag -forceWrite | Out-Null } catch { Write-Verbose ('FTOOL: Failed to persist extension count after removal: {0}' -f $_.Exception.Message) }
+		}
         
 		return $true
 	}
@@ -1583,6 +1744,7 @@ function FtoolSelectedRow
 	$ftoolForm = CreateFtoolForm $instanceId $targetWindowRect $windowTitle $row $Config
     
 	if ($ftoolForm -and $ftoolForm -is [System.Windows.Forms.Form]) {
+		Register-OpenForm $ftoolForm
 		$ftoolForm.Show()
 		$ftoolForm.BringToFront()
 	}
@@ -1596,12 +1758,12 @@ function CreateFtoolForm
 	$ftoolForm = New-Object Custom.FtoolFormWindow
     
 	
-	$ftoolForm.Width = 235
-	$ftoolForm.Height = 130
+	$ftoolForm.Width = 230
+	$ftoolForm.Height = 110
 	$ftoolForm.Top = ($targetWindowRect.Top + 30)
 	$ftoolForm.Left = ($targetWindowRect.Left + 10)
-	$ftoolForm.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
-	$ftoolForm.ForeColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+	$ftoolForm.BackColor = Get-Theme 'MainBg'
+	$ftoolForm.ForeColor = Get-Theme 'WhiteText'
 	$ftoolForm.Text = "FTool - $instanceId"
 	$ftoolForm.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
 	$ftoolForm.Opacity = 1.0 
@@ -1634,12 +1796,23 @@ function CreateFtoolForm
 	$ftoolToolTip.ReshowDelay = 10
 	$ftoolToolTip.ShowAlways = $true
 	$ftoolToolTip.OwnerDraw = $true
-	$ftoolToolTip | Add-Member -MemberType NoteProperty -Name 'TipFont' -Value (New-Object System.Drawing.Font('Segoe UI', 9))
+	$ftoolToolTip | Add-Member -MemberType NoteProperty -Name 'TipFont' -Value (Get-UIFont 'Segoe UI' 9)
 	$ftoolToolTip.Add_Draw({
-			$g, $b, $c = $_.Graphics, $_.Bounds, [System.Drawing.Color]
-			$g.FillRectangle((New-Object System.Drawing.SolidBrush $c::FromArgb(30,30,30)), $b)
-			$g.DrawRectangle((New-Object System.Drawing.Pen $c::FromArgb(100,100,100)), $b.X, $b.Y, $b.Width-1, $b.Height-1)
-			$g.DrawString($_.ToolTipText, $this.TipFont, (New-Object System.Drawing.SolidBrush $c::FromArgb(240,240,240)), 3, 3, [System.Drawing.StringFormat]::GenericTypographic)
+			$g, $b = $_.Graphics, $_.Bounds
+			$tc = Get-Theme
+			$bgBrush = New-Object System.Drawing.SolidBrush $tc['ToolTipBg']
+			$borderPen = New-Object System.Drawing.Pen $tc['TooltipBorderColor']
+			$fgBrush = New-Object System.Drawing.SolidBrush $tc['ToolTipFg']
+			try
+			{
+				$g.FillRectangle($bgBrush, $b)
+				$g.DrawRectangle($borderPen, $b.X, $b.Y, $b.Width-1, $b.Height-1)
+				$g.DrawString($_.ToolTipText, $this.TipFont, $fgBrush, 3, 3, [System.Drawing.StringFormat]::GenericTypographic)
+			}
+			finally
+			{
+				$bgBrush.Dispose(); $borderPen.Dispose(); $fgBrush.Dispose()
+			}
 		})
 	$ftoolToolTip.Add_Popup({
 			$g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero)
@@ -1656,55 +1829,72 @@ function CreateFtoolForm
 
 	try
 	{
-		$headerPanel = SetUIElement -type 'Panel' -visible $true -width 250 -height 20 -top 0 -left 0 -bg @(40, 40, 40)
+		$headerPanel = SetUIElement -type 'Panel' -visible $true -width 228 -height 24 -top 1 -left 1 -tag 'TopBar'
 		$ftoolForm.Controls.Add($headerPanel)
 
-		$labelWinTitle = SetUIElement -type 'Label' -visible $true -width 120 -height 20 -top 5 -left 5 -bg @(40, 40, 40, 0) -fg @(255, 255, 255) -text $row.Cells[1].Value -font (New-Object System.Drawing.Font('Segoe UI', 6, [System.Drawing.FontStyle]::Regular))
+		$headerPanel.Add_Paint({
+				param($s, $e)
+				try {
+					$tc = Get-Theme
+					$accent = $null
+					try { $accent = $tc['TopBarAccent'] } catch {}
+					if ($accent -is [System.Drawing.Color]) {
+						$brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(170, $accent.R, $accent.G, $accent.B))
+						$e.Graphics.FillRectangle($brush, 0, ($s.ClientSize.Height - 1), $s.ClientSize.Width, 1)
+						$brush.Dispose()
+					}
+				}
+				catch {}
+			})
+
+		$labelText = if ($row.Cells[1].Value) { $row.Cells[1].Value.ToString() } else { "" }
+		$labelWinTitle = SetUIElement -type 'Label' -visible $true -width 150 -height 30 -top 2 -left 2 -text ($labelText) -font (Get-UIFont 'Segoe UI' 6 'Regular')
 		$headerPanel.Controls.Add($labelWinTitle)
 
-		$btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 15 -height 15 -top 2 -left 120 -bg @(40, 40, 40) -fg @(255, 255, 255) -text ([char]0x2328) -font (New-Object System.Drawing.Font('Segoe UI', 10)) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
-		$headerPanel.Controls.Add($btnInstanceHotkeyToggle)
+		$btnInstanceHotkeyToggle = SetUIElement -type 'Label' -visible $true -width 16 -height 16 -top 30 -left 2 -text ([char]0x2328) -font (Get-UIFont 'Segoe UI' 10) -tooltip "Set Master Hotkey`nAssign a global hotkey to toggle all hotkeys for this instance."
+		$ftoolForm.Controls.Add($btnInstanceHotkeyToggle)
 
-		$btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 30 -height 15 -top 3 -left 135 -bg @(40, 80, 80) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific macro instance."
+		$btnHotkeyToggle = SetUIElement -type 'Toggle' -visible $true -width 32 -height 16 -top 4 -left 157 -text '' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -checked $true -tooltip "Toggle Hotkeys`nEnable or disable all hotkeys for this specific ftool instance."
 		$headerPanel.Controls.Add($btnHotkeyToggle)
-			
-		$btnAdd = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 165 -bg @(40, 80, 80) -fg @(255, 255, 255) -text ([char]0x2795) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Add Sequence`nAdds a new key sequence step to the macro list."
-		$headerPanel.Controls.Add($btnAdd)
-		
-		
-		$btnShowHide = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 180 -bg @(60, 60, 100) -fg @(255, 255, 255) -text ([char]0x25B2) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Minimize/Expand`nCollapse or expand the macro window to save screen space."
-		$headerPanel.Controls.Add($btnShowHide)
-			
-		
-		$btnReset = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 195 -bg @(100, 100, 100) -fg @(255, 255, 255) -text ([char]0x21BB) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Reset`nReset all settings for this instance to default."
-		$headerPanel.Controls.Add($btnReset)
 
-		$btnClose = SetUIElement -type 'Button' -visible $true -width 15 -height 15 -top 3 -left 215 -bg @(150, 20, 20) -fg @(255, 255, 255) -text ([char]0x166D) -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 11)) -tooltip "Close`nStops the macro and closes this window."
+		$btnReset = SetUIElement -type 'Button' -visible $true -width 38 -height 18 -top 30 -left 23 -text 'Reset' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tag 'HeaderButton' -tooltip "Reset`nReset all settings for this instance to default."
+		$ftoolForm.Controls.Add($btnReset)
+
+		$btnAdd = SetUIElement -type 'Button' -visible $true -width 58 -height 18 -top 30 -left 166 -text 'Add Ftool' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tag 'HeaderButton' -tooltip "Add Ftool`nAdds a new ftool sequence to this window."
+		$ftoolForm.Controls.Add($btnAdd)
+
+		$btnShowHide = SetUIElement -type 'Button' -visible $true -width 16 -height 16 -top 4 -left 191 -text ([char]0x25B2) -fs 'Flat' -font (Get-UIFont 'Segoe UI' 11) -tag 'HeaderButton' -tooltip "Minimize/Expand`nCollapse or expand the ftool window to save screen space."
+		$headerPanel.Controls.Add($btnShowHide)
+
+		$btnClose = SetUIElement -type 'Button' -visible $true -width 16 -height 16 -top 4 -left 209 -text ([char]0x166D) -fs 'Flat' -font (Get-UIFont 'Segoe UI' 11) -tag 'Danger' -tooltip "Close`nStops the ftool and closes this window."
 		$headerPanel.Controls.Add($btnClose)
-        
-		$panelSettings = SetUIElement -type 'Panel' -visible $true -width 190 -height 60 -top 60 -left 40 -bg @(50, 50, 50)
+
+		$panelSettings = SetUIElement -type 'Panel' -visible $true -width 220 -height 50 -top 52 -left 5
 		$ftoolForm.Controls.Add($panelSettings)
-        
-		$btnKeySelect = SetUIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Bind Key`nClick here, then press a key to assign it to this spammer."
-		$panelSettings.Controls.Add($btnKeySelect)
-        
-		$interval = SetUIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Interval (ms)`nTime in milliseconds between key presses."
-		$panelSettings.Controls.Add($interval)
-        
-		$name = SetUIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Main' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Name`nGive this spammer a name."
+
+		$name = SetUIElement -type 'TextBox' -visible $true -width 105 -height 17 -top 4 -left 3 -text 'Ftool Name' -font (Get-UIFont 'Segoe UI' 8 'Regular') -tooltip "Name`nGive this spammer a name."
 		$panelSettings.Controls.Add($name)
-        
-		$btnStart = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Start`nBegin spamming the assigned key."
+
+		$interval = SetUIElement -type 'TextBox' -visible $true -width 40 -height 17 -top 4 -left 115 -text '1000' -font (Get-UIFont 'Segoe UI' 7) -tooltip "Interval (ms)`nTime in milliseconds between key presses."
+		$panelSettings.Controls.Add($interval)
+
+		$lblms = SetUIElement -type 'Label' -visible $true -width 15 -height 10 -top 15 -left 155 -text 'ms' -font (Get-UIFont 'Segoe UI' 5) -tooltip "Interval (ms)`nTime in milliseconds between key presses."
+		$panelSettings.Controls.Add($lblms)
+
+		$btnKeySelect = SetUIElement -type 'Button' -visible $true -width 53 -height 19 -top 27 -left 3 -text 'Select' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tooltip "Bind Key`nClick here, then press a key to assign it to this spammer."
+		$panelSettings.Controls.Add($btnKeySelect)
+
+		$btnHotKey = SetUIElement -type 'Button' -visible $true -width 53 -height 19 -top 27 -left 55 -text 'Hotkey' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tooltip "Global Hotkey`nAssign a global hotkey to toggle this specific spammer on/off."
+		$panelSettings.Controls.Add($btnHotKey)
+
+		$btnStart = SetUIElement -type 'Button' -visible $true -width 50 -height 20 -top 26 -left 115 -text 'Start' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tag 'Primary' -tooltip "Start`nBegin spamming the assigned key."
 		$panelSettings.Controls.Add($btnStart)
-        
-		$btnStop = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Stop`nStop spamming the key."
+
+		$btnStop = SetUIElement -type 'Button' -visible $true -width 50 -height 20 -top 26 -left 115 -text 'Stop' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tag 'Danger' -tooltip "Stop`nStop spamming the key."
 		$btnStop.Enabled = $false
 		$btnStop.Visible = $false
 		$panelSettings.Controls.Add($btnStop)
 
-		$btnHotKey = SetUIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip "Global Hotkey`nAssign a global hotkey to toggle this specific spammer on/off."
-		$panelSettings.Controls.Add($btnHotKey)
-        
 		
 		
 		try {
@@ -1736,25 +1926,18 @@ function CreateFtoolForm
 		$positionSliderY.Orientation = 'Vertical'
 		$positionSliderY.Minimum = $minY
 		$positionSliderY.Maximum = $maxY
-		$positionSliderY.TickFrequency = 300
-		
-		
 		$initialY = [Math]::Max($minY, [Math]::Min($maxY, $ftoolForm.Top))
 		$positionSliderY.Value = $initialY
-		$positionSliderY.Size = New-Object System.Drawing.Size(15, 110)
-		$positionSliderY.Location = New-Object System.Drawing.Point(5, 20)
-		$ftoolForm.Controls.Add($positionSliderY)
-		
+		$positionSliderY.Size = New-Object System.Drawing.Size(0, 0)
+		$positionSliderY.Location = New-Object System.Drawing.Point(0, 0)
+
 		$positionSliderX = New-Object System.Windows.Forms.TrackBar
 		$positionSliderX.Minimum = $minX
 		$positionSliderX.Maximum = $maxX
-		$positionSliderX.TickFrequency = 300
-		
 		$initialX = [Math]::Max($minX, [Math]::Min($maxX, $ftoolForm.Left))
 		$positionSliderX.Value = $initialX
-		$positionSliderX.Size = New-Object System.Drawing.Size(200, 15)
-		$positionSliderX.Location = New-Object System.Drawing.Point(45, 25)
-		$ftoolForm.Controls.Add($positionSliderX)
+		$positionSliderX.Size = New-Object System.Drawing.Size(0, 0)
+		$positionSliderX.Location = New-Object System.Drawing.Point(0, 0)
 
 	}
  	finally
@@ -1787,12 +1970,14 @@ function CreateFtoolForm
 		RunningSpammer          = $null
 		WindowTitle             = $windowTitle
 		Process                 = $row.Tag
+		Row                     = $row
 		OriginalLeft            = $targetWindowRect.Left
 		IsCollapsed             = $false
 		LastExtensionAdded      = 0
 		ExtensionCount          = 0
+		RestoredExtCount        = 0
 		ControlToExtensionMap   = @{}
-		OriginalHeight          = 130
+		OriginalHeight          = 110
 		HotkeyId                = $null 
 		GlobalHotkeyId          = $null 
 		ProfilePrefix           = $null 
@@ -1807,39 +1992,86 @@ function CreateFtoolForm
     
 	LoadFtoolSettings $formData
     
-	if ($null -ne $Config -and $Config.ExtCount -gt 0) {
-	    for ($j = 0; $j -lt $Config.ExtCount; $j++) {
-	        $extKeyName = "Ext_$j"
-	        $extSavedData = $Config.$extKeyName
-	        
-	        if ($extSavedData) {
-	            
-	            $newExt = CreateExtensionPanel -form $ftoolForm `
-	                                         -currentHeight $formData.OriginalHeight `
-	                                         -extNum (GetNextExtensionNumber $instanceId) `
-	                                         -instanceId $instanceId `
-	                                         -windowHandle $formData.SelectedWindow
-	            
-	            
-	            $newExt.BtnKeySelect.Text = $extSavedData.key
-	            $newExt.Interval.Text     = $extSavedData.interval
-	            $newExt.Name.Text         = $extSavedData.name
-	            $newExt.Hotkey           = $extSavedData.hotkey
-	            $newExt.BtnHotKey.Text    = if ($extSavedData.hotkey) { $extSavedData.hotkey } else { "Hotkey" }
-	            
-	            
-	            if ($extSavedData.hotkey) {
-	                $extKey = "ext_$($instanceId)_$($newExt.ExtNum)"
-	                $scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$instanceId' -ExtKey '$extKey'")
-	                $newExt.HotkeyId = SetHotkey -KeyCombinationString $extSavedData.hotkey -Action $scriptBlock -OwnerKey $extKey
-	            }
-	            
-	            
-	            AddExtensionEventHandlers $newExt $formData
-	        }
-	    }
-	    
-	    RepositionExtensions $ftoolForm $instanceId
+	$extensionsToRestore = 0
+	$savedExtConfig = $null
+	if ($null -ne $Config)
+	{
+		$savedExtConfig = $Config
+		$storedExtCount = 0
+		if ([int]::TryParse([string]$Config.ExtCount, [ref]$storedExtCount))
+		{
+			$extensionsToRestore = $storedExtCount
+		}
+	}
+	elseif ($formData.RestoredExtCount -gt 0)
+	{
+		$extensionsToRestore = [int]$formData.RestoredExtCount
+	}
+	if ($extensionsToRestore -lt 0) { $extensionsToRestore = 0 }
+	if ($extensionsToRestore -gt 8) { $extensionsToRestore = 8 }
+
+	for ($j = 0; $j -lt $extensionsToRestore; $j++)
+	{
+		$extSavedData = $null
+		if ($savedExtConfig)
+		{
+			$extKeyName = "Ext_$j"
+			$extSavedData = $savedExtConfig.$extKeyName
+		}
+
+		$newExt = CreateExtensionPanel -form $ftoolForm `
+			-currentHeight $formData.OriginalHeight `
+			-extNum (GetNextExtensionNumber $instanceId) `
+			-instanceId $instanceId `
+			-windowHandle $formData.SelectedWindow
+
+		if ($extSavedData)
+		{
+			if (-not [string]::IsNullOrWhiteSpace([string]$extSavedData.key)) { $newExt.BtnKeySelect.Text = [string]$extSavedData.key }
+			if (-not [string]::IsNullOrWhiteSpace([string]$extSavedData.interval)) { $newExt.Interval.Text = [string]$extSavedData.interval }
+			if (-not [string]::IsNullOrWhiteSpace([string]$extSavedData.name)) { $newExt.Name.Text = [string]$extSavedData.name }
+			if (-not [string]::IsNullOrWhiteSpace([string]$extSavedData.hotkey)) { $newExt.Hotkey = [string]$extSavedData.hotkey }
+			else { $newExt.Hotkey = $null }
+		}
+		else
+		{
+			LoadExtensionSettings $newExt $formData.ProfilePrefix
+		}
+
+		$newExt.BtnHotKey.Text = if (-not [string]::IsNullOrWhiteSpace($newExt.Hotkey)) { $newExt.Hotkey } else { 'Hotkey' }
+
+		if (-not [string]::IsNullOrWhiteSpace($newExt.Hotkey))
+		{
+			try
+			{
+				$extKey = "ext_$($instanceId)_$($newExt.ExtNum)"
+				$scriptBlock = [scriptblock]::Create("ToggleSpecificFtoolInstance -InstanceId '$instanceId' -ExtKey '$extKey'")
+
+				$ownerLabel = $null
+				$mainName = if ($formData.Name -and $formData.Name.Text) { $formData.Name.Text } else { $null }
+				$extName = if ($newExt.Name -and $newExt.Name.Text) { $newExt.Name.Text } else { $null }
+				if (-not [string]::IsNullOrEmpty($mainName) -and -not [string]::IsNullOrEmpty($extName)) { $ownerLabel = "$($mainName): $extName" }
+				elseif (-not [string]::IsNullOrEmpty($extName)) { $ownerLabel = $extName }
+				else { $ownerLabel = "Ftool Extension: $($extKey)" }
+				$newExt.HotkeyId = SetHotkey -KeyCombinationString $newExt.Hotkey -Action $scriptBlock -OwnerKey $extKey -OwnerLabel $ownerLabel
+				Write-Verbose "FTOOL: Registered hotkey $($newExt.Hotkey) (ID: $($newExt.HotkeyId)) for extension $($extKey) on restore."
+			}
+			catch
+			{
+				Write-Warning "FTOOL: Failed to register hotkey $($newExt.Hotkey) for extension $($extKey) on restore. Error: $_"
+				$newExt.HotkeyId = $null
+			}
+		}
+
+		AddExtensionEventHandlers $newExt $formData
+		$formData.ExtensionCount++
+		$formData.RestoredExtCount = $formData.ExtensionCount
+	}
+
+	if ($extensionsToRestore -gt 0)
+	{
+		AddFormCleanupHandler $ftoolForm
+		RepositionExtensions $ftoolForm $instanceId
 	}
 	
 	if (-not [string]::IsNullOrEmpty($formData.Hotkey))
@@ -1916,7 +2148,7 @@ if (`$global:DashboardConfig.Resources.FtoolForms.Contains('$($formData.Instance
 
 	if ($formData.IsCollapsed)
 	{
-		$ftoolForm.Height = 25
+		$ftoolForm.Height = 26
 		$formData.BtnShowHide.Text = [char]0x25BC
 	}
 	else
@@ -2175,7 +2407,14 @@ function AddFtoolEventHandlers
 			
 			if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging)
 			{
-				UpdateSettings $data -forceWrite
+				if ($data.PSObject.Properties['SuppressPersist'] -and $data.SuppressPersist)
+				{
+					UpdateSettings $data
+				}
+				else
+				{
+					UpdateSettings $data -forceWrite
+				}
 			}
 		})
 
@@ -2189,7 +2428,14 @@ function AddFtoolEventHandlers
 			
 			if (-not $data.PSObject.Properties['IsDragging'] -or -not $data.IsDragging)
 			{
-				UpdateSettings $data -forceWrite
+				if ($data.PSObject.Properties['SuppressPersist'] -and $data.SuppressPersist)
+				{
+					UpdateSettings $data
+				}
+				else
+				{
+					UpdateSettings $data -forceWrite
+				}
 			}
 		})
     
@@ -2229,7 +2475,7 @@ function AddFtoolEventHandlers
 			$data = $form.Tag
         
 			
-			$profilePrefix = FindOrCreateProfile $data.WindowTitle
+			$profilePrefix = FindOrCreateProfile $data.WindowTitle -ProfileHint (Get-RowProfileHint -formData $data)
 			$templateKey = "Template_$profilePrefix"
 			if ($global:DashboardConfig.Config['Ftool'].Contains($templateKey)) {
 				$template = $global:DashboardConfig.Config['Ftool'][$templateKey]
@@ -2242,7 +2488,7 @@ function AddFtoolEventHandlers
 			}
 
 			$keyValue = $data.BtnKeySelect.Text
-			if (-not $keyValue -or $keyValue.Trim() -eq '')
+			if (-not $keyValue -or $keyValue.Trim() -eq 'Select')
 			{
 				Show-DarkMessageBox 'Please select a key' 'Missing Ftool Key' 'Ok' 'Information'
 				return
@@ -2255,12 +2501,25 @@ function AddFtoolEventHandlers
 				$data.Interval.Text = '100'
 			}
         
-			ToggleButtonState $data.BtnStart $data.BtnStop $true
         
-			$spamTimer = CreateSpammerTimer $data.SelectedWindow $keyValue $data.InstanceId $intervalNum
+        ToggleButtonState $data.BtnStart $data.BtnStop $true
         
-			$data.RunningSpammer = $spamTimer
-			$global:DashboardConfig.Resources.Timers["ExtSpammer_$($data.InstanceId)_1"] = $spamTimer
+        $timerKey = "ExtSpammer_$($data.InstanceId)_1"
+        if ($global:DashboardConfig.Resources.Timers.Contains($timerKey))
+        {
+            $existingTimer = $global:DashboardConfig.Resources.Timers[$timerKey]
+            if ($existingTimer)
+            {
+                $existingTimer.Stop()
+                $existingTimer.Dispose()
+                $global:DashboardConfig.Resources.Timers.Remove($timerKey)
+            }
+        }
+        
+        $spamTimer = CreateSpammerTimer $data.SelectedWindow $keyValue $data.InstanceId $intervalNum
+        
+        $data.RunningSpammer = $spamTimer
+        $global:DashboardConfig.Resources.Timers[$timerKey] = $spamTimer
 		})
     
 	$formData.BtnStop.Add_Click({
@@ -2322,21 +2581,24 @@ function AddFtoolEventHandlers
 					Write-Warning "FTOOL: Failed to register hotkey $($data.Hotkey) for main instance $($data.InstanceId). Error: $_"
 					$data.HotkeyId = $null 
 					$data.Hotkey = $currentHotkeyText
-					$data.BtnHotKey.Text = $currentHotkeyText -or 'Hotkey'
+					$data.BtnHotKey.Text = if (-not [string]::IsNullOrWhiteSpace($currentHotkeyText)) { $currentHotkeyText } else { 'Hotkey' }
 				}
             
 				UpdateSettings $data -forceWrite 
 			}
-			elseif (-not $newHotkey -and $oldHotkeyIdToUnregister)
+			elseif (-not $newHotkey)
 			{ 
-				try
+				if ($oldHotkeyIdToUnregister)
 				{
-					UnregisterHotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $data.InstanceId
-					Write-Verbose "FTOOL: Unregistered hotkey (ID: $($oldHotkeyIdToUnregister)) for main instance $($data.InstanceId) due to user clear."
-				}
-				catch
-				{
-					Write-Warning "FTOOL: Failed to unregister hotkey (ID: $($oldHotkeyIdToUnregister)) for main instance $($data.InstanceId) on clear. Error: $_"
+					try
+					{
+						UnregisterHotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $data.InstanceId
+						Write-Verbose "FTOOL: Unregistered hotkey (ID: $($oldHotkeyIdToUnregister)) for main instance $($data.InstanceId) due to user clear."
+					}
+					catch
+					{
+						Write-Warning "FTOOL: Failed to unregister hotkey (ID: $($oldHotkeyIdToUnregister)) for main instance $($data.InstanceId) on clear. Error: $_"
+					}
 				}
 				$data.HotkeyId = $null
 				$data.Hotkey = $null
@@ -2458,7 +2720,7 @@ function AddFtoolEventHandlers
 			else
 			{
 				$data.OriginalHeight = $form.Height
-				$form.Height = 25
+				$form.Height = 26
 				$data.IsCollapsed = $true
 				$this.Text = [char]0x25BC  
 			}
@@ -2505,9 +2767,9 @@ function AddFtoolEventHandlers
             }
 
             
-            $data.BtnKeySelect.Text = ""
+            $data.BtnKeySelect.Text = "Select"
             $data.Interval.Text = "1000"
-            $data.Name.Text = "Main"
+            $data.Name.Text = "Ftool Name"
             $data.BtnHotKey.Text = "Hotkey"
             $data.BtnHotkeyToggle.Checked = $true
 			
@@ -2534,8 +2796,8 @@ function AddFtoolEventHandlers
 
             
             UpdateSettings $data -forceWrite
-            $form.Height = 130
-            $data.OriginalHeight = 130
+            $form.Height = 110
+            $data.OriginalHeight = 110
         }
     })
     
@@ -2567,7 +2829,7 @@ function AddFtoolEventHandlers
 			$extData = CreateExtensionPanel $form $currentHeight $extNum $data.InstanceId $data.SelectedWindow
 			$extKeyForScriptBlock = "ext_$($data.InstanceId)_$extNum"
         
-			$profilePrefix = FindOrCreateProfile $data.WindowTitle
+			$profilePrefix = FindOrCreateProfile $data.WindowTitle -ProfileHint (Get-RowProfileHint -formData $data)
         
 			LoadExtensionSettings $extData $profilePrefix
             
@@ -2600,6 +2862,8 @@ function AddFtoolEventHandlers
 			AddFormCleanupHandler $form
         
 			RepositionExtensions $form $extData.InstanceId
+
+			UpdateSettings $data -forceWrite | Out-Null
                 
 			$form.Refresh()
 		})
@@ -2652,31 +2916,34 @@ function CreateExtensionPanel
 	try
 	{
 
-		$panelExt = SetUIElement -type 'Panel' -visible $true -width 190 -height 60 -top 0 -left 40 -bg @(50, 50, 50)
+		$panelExt = SetUIElement -type 'Panel' -visible $true -width 220 -height 50 -top 0 -left 5
 		$form.Controls.Add($panelExt)
 		$panelExt.BringToFront()
     
-		$btnKeySelectExt = SetUIElement -type 'Button' -visible $true -width 55 -height 25 -top 4 -left 3 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 8)) -tooltip "Bind Key`nClick here, then press a key to assign it to this spammer."
-		$panelExt.Controls.Add($btnKeySelectExt)
-    
-		$intervalExt = SetUIElement -type 'TextBox' -visible $true -width 47 -height 15 -top 5 -left 59 -bg @(40, 40, 40) -fg @(255, 255, 255) -text '1000' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Interval (ms)`nTime in milliseconds between key presses."
+		$nameExt = SetUIElement -type 'TextBox' -visible $true -width 105 -height 17 -top 4 -left 3 -text 'Ftool Name' -font (Get-UIFont 'Segoe UI' 8 'Regular') -tooltip "Name`nGive this spammer a name."
+		$panelExt.Controls.Add($nameExt)
+
+		$intervalExt = SetUIElement -type 'TextBox' -visible $true -width 40 -height 17 -top 4 -left 115 -text '1000' -font (Get-UIFont 'Segoe UI' 7) -tooltip "Interval (ms)`nTime in milliseconds between key presses."
 		$panelExt.Controls.Add($intervalExt)
-    
-		$btnStartExt = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 10 -bg @(0, 120, 215) -fg @(255, 255, 255) -text 'Start' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Start`nBegin spamming the assigned key."
+
+		$lblmsExt = SetUIElement -type 'Label' -visible $true -width 15 -height 10 -top 15 -left 155 -text 'ms' -font (Get-UIFont 'Segoe UI' 5) -tooltip "Interval (ms)`nTime in milliseconds between key presses."
+		$panelExt.Controls.Add($lblmsExt)
+
+		$btnKeySelectExt = SetUIElement -type 'Button' -visible $true -width 53 -height 19 -top 27 -left 3 -text 'Select' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tooltip "Bind Key`nClick here, then press a key to assign it to this spammer."
+		$panelExt.Controls.Add($btnKeySelectExt)
+
+		$btnHotKeyExt = SetUIElement -type 'Button' -visible $true -width 53 -height 19 -top 27 -left 55 -text 'Hotkey' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 7) -tooltip "Global Hotkey`nAssign a global hotkey to toggle this specific spammer on/off."
+		$panelExt.Controls.Add($btnHotKeyExt)
+
+		$btnStartExt = SetUIElement -type 'Button' -visible $true -width 50 -height 20 -top 26 -left 115 -text 'Start' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tag 'Primary' -tooltip "Start`nBegin spamming the assigned key."
 		$panelExt.Controls.Add($btnStartExt)
-    
-		$btnStopExt = SetUIElement -type 'Button' -visible $true -width 45 -height 20 -top 35 -left 67 -bg @(200, 50, 50) -fg @(255, 255, 255) -text 'Stop' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 9)) -tooltip "Stop`nStop spamming the key."
+
+		$btnStopExt = SetUIElement -type 'Button' -visible $true -width 50 -height 20 -top 26 -left 115 -text 'Stop' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8) -tag 'Danger' -tooltip "Stop`nStop spamming the key."
 		$btnStopExt.Enabled = $false
 		$btnStopExt.Visible = $false
 		$panelExt.Controls.Add($btnStopExt)
 
-		$btnHotKeyExt = SetUIElement -type 'Button' -visible $true -width 40 -height 24 -top 4 -left 146 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Hotkey' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 6)) -tooltip "Global Hotkey`nAssign a global hotkey to toggle this specific spammer on/off."
-		$panelExt.Controls.Add($btnHotKeyExt)
-    
-		$nameExt = SetUIElement -type 'TextBox' -visible $true -width 37 -height 17 -top 5 -left 108 -bg @(40, 40, 40) -fg @(255, 255, 255) -text 'Name' -font (New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Regular)) -tooltip "Name`nGive this spammer a name."
-		$panelExt.Controls.Add($nameExt)
-    
-		$btnRemoveExt = SetUIElement -type 'Button' -visible $true -width 40 -height 20 -top 35 -left 120 -bg @(150, 50, 50) -fg @(255, 255, 255) -text 'Close' -fs 'Flat' -font (New-Object System.Drawing.Font('Segoe UI', 7)) -tooltip "Remove Extension`nDelete this Ftool extension slot."
+		$btnRemoveExt = SetUIElement -type 'Button' -visible $true -width 28 -height 43 -top 3 -left 189 -text 'X' -fs 'Flat' -font (Get-UIFont 'Segoe UI' 8 'Bold') -tag 'Danger' -tooltip "Remove Ftool`nDelete this Ftool sequence slot."
 		$panelExt.Controls.Add($btnRemoveExt)
 
 	}
@@ -2776,7 +3043,7 @@ function AddExtensionEventHandlers
 				return 
 			}
     
-			$extKey = FindExtensionKeyByControl $this 'Name'
+			$extKey = FindExtensionKeyByControl $this 'Ftool Name'
 			if (-not $extKey)
 			{
 				return 
@@ -2873,7 +3140,7 @@ function AddExtensionEventHandlers
 			$extNum = $extData.ExtNum
         
 			$keyValue = $extData.BtnKeySelect.Text
-			if (-not $keyValue -or $keyValue.Trim() -eq '')
+			if (-not $keyValue -or $keyValue.Trim() -eq 'Select')
 			{
 				Show-DarkMessageBox 'Please select a key' 'Missing Ftool Key' 'Ok' 'Information'
 				return
@@ -3022,21 +3289,24 @@ function AddExtensionEventHandlers
 					Write-Warning "FTOOL: Failed to register hotkey $($extData.Hotkey) for extension $($extKey). Error: $_"
 					$extData.HotkeyId = $null 
 					$extData.Hotkey = $currentHotkeyText
-					$extData.BtnHotKey.Text = $currentHotkeyText -or 'Hotkey'
+					$extData.BtnHotKey.Text = if (-not [string]::IsNullOrWhiteSpace($currentHotkeyText)) { $currentHotkeyText } else { 'Hotkey' }
 				}
             
 				UpdateSettings $formData $extData -forceWrite
 			}
-			elseif (-not $newHotkey -and $oldHotkeyIdToUnregister)
+			elseif (-not $newHotkey)
 			{ 
-				try
+				if ($oldHotkeyIdToUnregister)
 				{
-					UnregisterHotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $extKey
-					Write-Verbose "FTOOL: Unregistered hotkey (ID: $($oldHotkeyIdToUnregister)) for extension $($extKey) due to user clear."
-				}
-				catch
-				{
-					Write-Warning "FTOOL: Failed to unregister hotkey (ID: $($oldHotkeyIdToUnregister)) for extension $($extKey) on clear. Error: $_"
+					try
+					{
+						UnregisterHotkeyInstance -Id $oldHotkeyIdToUnregister -OwnerKey $extKey
+						Write-Verbose "FTOOL: Unregistered hotkey (ID: $($oldHotkeyIdToUnregister)) for extension $($extKey) due to user clear."
+					}
+					catch
+					{
+						Write-Warning "FTOOL: Failed to unregister hotkey (ID: $($oldHotkeyIdToUnregister)) for extension $($extKey) on clear. Error: $_"
+					}
 				}
 				$extData.HotkeyId = $null
 				$extData.Hotkey = $null

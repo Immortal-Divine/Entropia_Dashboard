@@ -1,4 +1,4 @@
-<# extras.psm1 #>
+﻿<# extras.psm1 #>
 
 $ProxyUrl = 'https://worldboss.entropia-dashboard.workers.dev/'
 
@@ -455,7 +455,7 @@ function Update-ChestRewardControls {
     foreach ($site in $chestData.RewardSites) {
         $cmb = New-Object Custom.DarkComboBox
         $cmb.DropDownStyle = 'DropDownList'
-        $cmb.Font = New-Object System.Drawing.Font('Segoe UI', 8)
+        $cmb.Font = Get-UIFont 'Segoe UI' 8
 
         foreach ($opt in $site.Options) {
             $cmb.Items.Add($opt.Name) | Out-Null
@@ -471,14 +471,14 @@ function Update-ChestRewardControls {
             $pnlRow = New-Object System.Windows.Forms.Panel
             $pnlRow.Size = New-Object System.Drawing.Size(325, 30)
             $pnlRow.Location = New-Object System.Drawing.Point(5, $topOffset)
-            $pnlRow.BackColor = [System.Drawing.Color]::FromArgb(30, 32, 37)
+            $pnlRow.BackColor = Get-Theme 'SecondaryBg'
 
             $lbl = New-Object System.Windows.Forms.Label
             $lbl.Text = "$($site.SiteName):"
             $lbl.Location = New-Object System.Drawing.Point(5, 6)
             $lbl.Size = New-Object System.Drawing.Size(90, 18)
-            $lbl.ForeColor = [System.Drawing.Color]::FromArgb(225, 228, 232)
-            $lbl.Font = New-Object System.Drawing.Font('Segoe UI', 8)
+            $lbl.ForeColor = Get-Theme 'PrimaryText'
+            $lbl.Font = Get-UIFont 'Segoe UI' 8
 
             $cmb.Location = New-Object System.Drawing.Point(100, 3)
             $cmb.Size = New-Object System.Drawing.Size(215, 22)
@@ -676,7 +676,6 @@ function Stop-ChestOpener {
 }
 
 function Start-ChestOpenerHotkeyTimer {
-    # Hotkey is handled natively by SetHotkey via hotkeys.psm1
     return
 }
 
@@ -700,7 +699,7 @@ function Stop-WorldBossListener {
                 }
             } catch { Write-Verbose "Error stopping WorldBoss job: $_" }
         }
-		if (Get-Command DisposeManagedRunspace -ErrorAction SilentlyContinue -Verbose:$False)
+		if (Test-DashboardCommand 'DisposeManagedRunspace')
 		{
 			$jobToDispose = $global:DashboardConfig.State.WorldBossListener.CurrentJob
 			if (-not $jobToDispose)
@@ -1086,15 +1085,21 @@ function ProcessSpawnEvent {
                 $localPath = Join-Path $global:DashboardConfig.Paths.Bosses $fileName
 
                 if (-not (Test-Path $localPath)) {
-                    try {
-                        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-                        $wc = New-Object System.Net.WebClient
-                        $wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')
-                        $tempPath = "$localPath.$([Guid]::NewGuid()).tmp"
-                        $wc.DownloadFile($bData.url, $tempPath)
-                        $wc.Dispose()
-                        Move-Item -LiteralPath $tempPath -Destination $localPath -Force
-                    } catch {}
+                    $dlUrl = [string]$bData.url
+                    $dlTarget = [string]$localPath
+                    [System.Threading.Tasks.Task]::Run([System.Action]{
+                        try {
+                            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+                            $wc = New-Object System.Net.WebClient
+                            try {
+                                $wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')
+                                $tempPath = "$dlTarget.$([Guid]::NewGuid()).tmp"
+                                $wc.DownloadFile($dlUrl, $tempPath)
+                                Move-Item -LiteralPath $tempPath -Destination $dlTarget -Force
+                            }
+                            finally { $wc.Dispose() }
+                        } catch {}
+                    }) | Out-Null
                 }
 
                 if (Test-Path $localPath) { $bossImg = $localPath }
@@ -1187,7 +1192,7 @@ function Start-WorldBossListener {
     }
 
     if (-not $global:DashboardConfig.State.WorldBossListener.RunspacePool) {
-        if (Get-Command NewManagedRunspace -ErrorAction SilentlyContinue) {
+        if (Test-DashboardCommand 'NewManagedRunspace') {
             $global:DashboardConfig.State.WorldBossListener.RunspacePool = NewManagedRunspace -Name 'WorldBossListener' -MinRunspaces 1 -MaxRunspaces 1
         } else { return }
     }
@@ -1395,7 +1400,7 @@ function Start-WorldBossListener {
                 }
             }
 
-            if ($state.RunspacePool -and (Get-Command InvokeInManagedRunspace -ErrorAction SilentlyContinue)) {
+            if ($state.RunspacePool -and (Test-DashboardCommand 'InvokeInManagedRunspace')) {
                 $job = InvokeInManagedRunspace -RunspacePool $state.RunspacePool -ScriptBlock $scriptBlock -ArgumentList $script:ProxyUrl, $accessCode, $isMinimal -AsJob
                 $state.CurrentJob = $job
             }
@@ -1468,7 +1473,7 @@ function RefreshNoteGrid {
 					}
 					catch { Write-Verbose "Error processing note '$key': $_" }
 				}
-				if ($notesModified -and (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False))
+				if ($notesModified -and (Test-DashboardCommand 'WriteConfig'))
 				{
 					WriteConfig
 				}
@@ -1489,51 +1494,51 @@ function Show-NoteDialog {
 	$form.Size = New-Object System.Drawing.Size(400, 460)
 	$form.StartPosition = 'CenterParent'
 	$form.FormBorderStyle = 'None'
-	$form.BackColor = [System.Drawing.Color]::FromArgb(28, 28, 28)
-	$form.ForeColor = [System.Drawing.Color]::FromArgb(230, 230, 230)
+	$form.BackColor = Get-Theme 'MainBg'
+	$form.ForeColor = Get-Theme 'PrimaryText'
     
-	$topBar = New-Object System.Windows.Forms.Panel; $topBar.Height = 30; $topBar.Dock = 'Top'; $topBar.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 48); $form.Controls.Add($topBar)
+	$topBar = New-Object System.Windows.Forms.Panel; $topBar.Height = 30; $topBar.Dock = 'Top'; $topBar.BackColor = Get-Theme 'SecondaryBg'; $form.Controls.Add($topBar)
 	$topBar.Add_MouseDown({ param($s,$e) if ($e.Button -eq 'Left') { if ('Custom.Native' -as [Type]) { [Custom.Native]::ReleaseCapture(); [Custom.Native]::SendMessage($form.Handle, 0xA1, 0x2, 0) } } })
     
-	$lblHeader = New-Object System.Windows.Forms.Label; $lblHeader.Text = $form.Text; $lblHeader.AutoSize = $true; $lblHeader.Location = New-Object System.Drawing.Point(10, 7); $lblHeader.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold); $topBar.Controls.Add($lblHeader)
+	$lblHeader = New-Object System.Windows.Forms.Label; $lblHeader.Text = $form.Text; $lblHeader.AutoSize = $true; $lblHeader.Location = New-Object System.Drawing.Point(10, 7); $lblHeader.Font = Get-UIFont 'Segoe UI' 9 'Bold'; $topBar.Controls.Add($lblHeader)
 	$lblHeader.Add_MouseDown({ param($s,$e) if ($e.Button -eq 'Left') { if ('Custom.Native' -as [Type]) { [Custom.Native]::ReleaseCapture(); [Custom.Native]::SendMessage($form.Handle, 0xA1, 0x2, 0) } } })
     
-	$btnClose = New-Object System.Windows.Forms.Label; $btnClose.Text = 'X'; $btnClose.AutoSize = $true; $btnClose.Cursor = 'Hand'; $btnClose.Location = New-Object System.Drawing.Point(375, 7); $btnClose.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold); $btnClose.ForeColor = [System.Drawing.Color]::Gray; $topBar.Controls.Add($btnClose)
+	$btnClose = New-Object System.Windows.Forms.Label; $btnClose.Text = 'X'; $btnClose.AutoSize = $true; $btnClose.Cursor = 'Hand'; $btnClose.Location = New-Object System.Drawing.Point(375, 7); $btnClose.Font = Get-UIFont 'Segoe UI' 9 'Bold'; $btnClose.ForeColor = Get-Theme 'HeaderSubtitleText'; $topBar.Controls.Add($btnClose)
 	$btnClose.Add_Click({ $form.DialogResult = 'Cancel'; $form.Close() })
-	$btnClose.Add_MouseEnter({ $this.ForeColor = [System.Drawing.Color]::White }); $btnClose.Add_MouseLeave({ $this.ForeColor = [System.Drawing.Color]::Gray })
+	$btnClose.Add_MouseEnter({ $this.ForeColor = Get-Theme 'WhiteText' }); $btnClose.Add_MouseLeave({ $this.ForeColor = Get-Theme 'HeaderSubtitleText' })
     
 	$pnlContent = New-Object System.Windows.Forms.Panel; $pnlContent.Location = New-Object System.Drawing.Point(0, 30); $pnlContent.Size = New-Object System.Drawing.Size(400, 430); $form.Controls.Add($pnlContent)
     
-	$AddLabel = { param($txt, $y) $l = New-Object System.Windows.Forms.Label; $l.Text = $txt; $l.Location = New-Object System.Drawing.Point(20, $y); $l.AutoSize = $true; $l.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 160); $l.Font = New-Object System.Drawing.Font('Segoe UI', 9); $pnlContent.Controls.Add($l) }
+	$AddLabel = { param($txt, $y) $l = New-Object System.Windows.Forms.Label; $l.Text = $txt; $l.Location = New-Object System.Drawing.Point(20, $y); $l.AutoSize = $true; $l.ForeColor = Get-Theme 'HeaderSubtitleText'; $l.Font = Get-UIFont 'Segoe UI' 9; $pnlContent.Controls.Add($l) }
     
 	&$AddLabel 'Title' 15
-	$txtTitle = New-Object System.Windows.Forms.TextBox; $txtTitle.Location = New-Object System.Drawing.Point(20, 35); $txtTitle.Size = New-Object System.Drawing.Size(360, 25); $txtTitle.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 48); $txtTitle.ForeColor = [System.Drawing.Color]::White; $txtTitle.BorderStyle = 'FixedSingle'; if ($NoteData) { $txtTitle.Text = $NoteData.Title }; $pnlContent.Controls.Add($txtTitle)
+	$txtTitle = New-Object System.Windows.Forms.TextBox; $txtTitle.Location = New-Object System.Drawing.Point(20, 35); $txtTitle.Size = New-Object System.Drawing.Size(360, 25); $txtTitle.BackColor = Get-Theme 'SecondaryBg'; $txtTitle.ForeColor = Get-Theme 'WhiteText'; $txtTitle.BorderStyle = 'FixedSingle'; if ($NoteData) { $txtTitle.Text = $NoteData.Title }; $pnlContent.Controls.Add($txtTitle)
     
 	&$AddLabel 'Type' 70
-	$cmbType = if ('Custom.DarkComboBox' -as [Type]) { New-Object Custom.DarkComboBox } else { New-Object System.Windows.Forms.ComboBox; $cmbType.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 48); $cmbType.ForeColor = [System.Drawing.Color]::White }
+	$cmbType = if ('Custom.DarkComboBox' -as [Type]) { New-Object Custom.DarkComboBox } else { New-Object System.Windows.Forms.ComboBox; $cmbType.BackColor = Get-Theme 'SecondaryBg'; $cmbType.ForeColor = Get-Theme 'WhiteText' }
 	$cmbType.Location = New-Object System.Drawing.Point(20, 90); $cmbType.Size = New-Object System.Drawing.Size(150, 25); $cmbType.DropDownStyle = 'DropDownList'; $cmbType.Items.AddRange(@('Note', 'Timer', 'Reminder')); if ($NoteData) { $cmbType.SelectedItem = $NoteData.Type } else { $cmbType.SelectedIndex = 0 }; $pnlContent.Controls.Add($cmbType)
     
 	$pnlDynamic = New-Object System.Windows.Forms.Panel; $pnlDynamic.Location = New-Object System.Drawing.Point(180, 70); $pnlDynamic.Size = New-Object System.Drawing.Size(215, 60); $pnlContent.Controls.Add($pnlDynamic)
     
-	$lblTimerDuration = New-Object System.Windows.Forms.Label; $lblTimerDuration.Text = 'Duration:'; $lblTimerDuration.AutoSize = $true; $lblTimerDuration.Location = New-Object System.Drawing.Point(0, 0); $lblTimerDuration.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 160)
-	$txtTimerDuration = New-Object System.Windows.Forms.TextBox; $txtTimerDuration.Location = New-Object System.Drawing.Point(0, 20); $txtTimerDuration.Size = New-Object System.Drawing.Size(215, 25); $txtTimerDuration.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 48); $txtTimerDuration.ForeColor = [System.Drawing.Color]::White; $txtTimerDuration.BorderStyle = 'FixedSingle'
-	$lblTimerHint = New-Object System.Windows.Forms.Label; $lblTimerHint.Text = 'e.g. 10m, 1h 30m, 1d'; $lblTimerHint.AutoSize = $true; $lblTimerHint.Location = New-Object System.Drawing.Point(0, 46); $lblTimerHint.ForeColor = [System.Drawing.Color]::Gray; $lblTimerHint.Font = New-Object System.Drawing.Font('Segoe UI', 8)
+	$lblTimerDuration = New-Object System.Windows.Forms.Label; $lblTimerDuration.Text = 'Duration:'; $lblTimerDuration.AutoSize = $true; $lblTimerDuration.Location = New-Object System.Drawing.Point(0, 0); $lblTimerDuration.ForeColor = Get-Theme 'HeaderSubtitleText'
+	$txtTimerDuration = New-Object System.Windows.Forms.TextBox; $txtTimerDuration.Location = New-Object System.Drawing.Point(0, 20); $txtTimerDuration.Size = New-Object System.Drawing.Size(215, 25); $txtTimerDuration.BackColor = Get-Theme 'SecondaryBg'; $txtTimerDuration.ForeColor = Get-Theme 'WhiteText'; $txtTimerDuration.BorderStyle = 'FixedSingle'
+	$lblTimerHint = New-Object System.Windows.Forms.Label; $lblTimerHint.Text = 'e.g. 10m, 1h 30m, 1d'; $lblTimerHint.AutoSize = $true; $lblTimerHint.Location = New-Object System.Drawing.Point(0, 46); $lblTimerHint.ForeColor = Get-Theme 'HeaderSubtitleText'; $lblTimerHint.Font = Get-UIFont 'Segoe UI' 8
     
-	$lblDate = New-Object System.Windows.Forms.Label; $lblDate.Text = 'Date'; $lblDate.AutoSize = $true; $lblDate.Location = New-Object System.Drawing.Point(0, 0); $lblDate.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 160)
-	$dtDate = New-Object System.Windows.Forms.DateTimePicker; $dtDate.Format = 'Short'; $dtDate.Location = New-Object System.Drawing.Point(0, 20); $dtDate.Size = New-Object System.Drawing.Size(100, 25); $dtDate.CalendarMonthBackground = [System.Drawing.Color]::FromArgb(45, 45, 48); $dtDate.CalendarForeColor = [System.Drawing.Color]::White
-	$lblTime = New-Object System.Windows.Forms.Label; $lblTime.Text = 'Time'; $lblTime.AutoSize = $true; $lblTime.Location = New-Object System.Drawing.Point(110, 0); $lblTime.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 160)
-	$dtTime = New-Object System.Windows.Forms.DateTimePicker; $dtTime.Format = 'Time'; $dtTime.ShowUpDown = $true; $dtTime.Location = New-Object System.Drawing.Point(110, 20); $dtTime.Size = New-Object System.Drawing.Size(80, 25); $dtTime.CalendarMonthBackground = [System.Drawing.Color]::FromArgb(45, 45, 48)
+	$lblDate = New-Object System.Windows.Forms.Label; $lblDate.Text = 'Date'; $lblDate.AutoSize = $true; $lblDate.Location = New-Object System.Drawing.Point(0, 0); $lblDate.ForeColor = Get-Theme 'HeaderSubtitleText'
+	$dtDate = New-Object System.Windows.Forms.DateTimePicker; $dtDate.Format = 'Short'; $dtDate.Location = New-Object System.Drawing.Point(0, 20); $dtDate.Size = New-Object System.Drawing.Size(100, 25); $dtDate.CalendarMonthBackground = Get-Theme 'SecondaryBg'; $dtDate.CalendarForeColor = Get-Theme 'WhiteText'
+	$lblTime = New-Object System.Windows.Forms.Label; $lblTime.Text = 'Time'; $lblTime.AutoSize = $true; $lblTime.Location = New-Object System.Drawing.Point(110, 0); $lblTime.ForeColor = Get-Theme 'HeaderSubtitleText'
+	$dtTime = New-Object System.Windows.Forms.DateTimePicker; $dtTime.Format = 'Time'; $dtTime.ShowUpDown = $true; $dtTime.Location = New-Object System.Drawing.Point(110, 20); $dtTime.Size = New-Object System.Drawing.Size(80, 25); $dtTime.CalendarMonthBackground = Get-Theme 'SecondaryBg'
     
 	$lblRenewInterval = New-Object System.Windows.Forms.Label; $lblRenewInterval.Text = 'Interval (e.g. 10m, 2h, 1d):'; $lblRenewInterval.Location = New-Object System.Drawing.Point(20, 357); $lblRenewInterval.AutoSize = $true; $lblRenewInterval.Visible = $false; $pnlContent.Controls.Add($lblRenewInterval)
-	$txtRenewInterval = New-Object System.Windows.Forms.TextBox; $txtRenewInterval.Location = New-Object System.Drawing.Point(200, 355); $txtRenewInterval.Size = New-Object System.Drawing.Size(180, 25); $txtRenewInterval.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 48); $txtRenewInterval.ForeColor = [System.Drawing.Color]::White; $txtRenewInterval.BorderStyle = 'FixedSingle'; $txtRenewInterval.Visible = $false; if ($NoteData -and $NoteData.RenewInterval) { $txtRenewInterval.Text = $NoteData.RenewInterval } else { $txtRenewInterval.Text = '1d' }; $pnlContent.Controls.Add($txtRenewInterval)
+	$txtRenewInterval = New-Object System.Windows.Forms.TextBox; $txtRenewInterval.Location = New-Object System.Drawing.Point(200, 355); $txtRenewInterval.Size = New-Object System.Drawing.Size(180, 25); $txtRenewInterval.BackColor = Get-Theme 'SecondaryBg'; $txtRenewInterval.ForeColor = Get-Theme 'WhiteText'; $txtRenewInterval.BorderStyle = 'FixedSingle'; $txtRenewInterval.Visible = $false; if ($NoteData -and $NoteData.RenewInterval) { $txtRenewInterval.Text = $NoteData.RenewInterval } else { $txtRenewInterval.Text = '1d' }; $pnlContent.Controls.Add($txtRenewInterval)
 
 	&$AddLabel 'Content' 130
-	$txtContent = New-Object System.Windows.Forms.TextBox; $txtContent.Location = New-Object System.Drawing.Point(20, 150); $txtContent.Size = New-Object System.Drawing.Size(360, 100); $txtContent.Multiline = $true; $txtContent.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 48); $txtContent.ForeColor = [System.Drawing.Color]::White; $txtContent.BorderStyle = 'FixedSingle'; if ($NoteData) { $txtContent.Text = $NoteData.Content }; $pnlContent.Controls.Add($txtContent)
+	$txtContent = New-Object System.Windows.Forms.TextBox; $txtContent.Location = New-Object System.Drawing.Point(20, 150); $txtContent.Size = New-Object System.Drawing.Size(360, 100); $txtContent.Multiline = $true; $txtContent.BackColor = Get-Theme 'SecondaryBg'; $txtContent.ForeColor = Get-Theme 'WhiteText'; $txtContent.BorderStyle = 'FixedSingle'; if ($NoteData) { $txtContent.Text = $NoteData.Content }; $pnlContent.Controls.Add($txtContent)
     
 	&$AddLabel 'Options' 260
-	$chkShowOnStartup = New-Object System.Windows.Forms.CheckBox; $chkShowOnStartup.Text = 'Show on Startup'; $chkShowOnStartup.AutoSize = $true; $chkShowOnStartup.Location = New-Object System.Drawing.Point(20, 280); $chkShowOnStartup.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 160); if ($NoteData -and $NoteData.ShowOnStartup) { $chkShowOnStartup.Checked = $true }; $pnlContent.Controls.Add($chkShowOnStartup)
-	$chkDeleteExpired = New-Object System.Windows.Forms.CheckBox; $chkDeleteExpired.Text = 'Delete when expired (on restart)'; $chkDeleteExpired.AutoSize = $true; $chkDeleteExpired.Location = New-Object System.Drawing.Point(20, 305); $chkDeleteExpired.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 160); if ($NoteData -and $NoteData.DeleteWhenExpired) { $chkDeleteExpired.Checked = $true }; $pnlContent.Controls.Add($chkDeleteExpired)
-	$chkAutoRenew = New-Object System.Windows.Forms.CheckBox; $chkAutoRenew.Text = 'Renew automatically'; $chkAutoRenew.AutoSize = $true; $chkAutoRenew.Location = New-Object System.Drawing.Point(20, 330); $chkAutoRenew.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 160); if ($NoteData -and $NoteData.AutoRenew) { $chkAutoRenew.Checked = $true }; $pnlContent.Controls.Add($chkAutoRenew)
+	$chkShowOnStartup = New-Object System.Windows.Forms.CheckBox; $chkShowOnStartup.Text = 'Show on Startup'; $chkShowOnStartup.AutoSize = $true; $chkShowOnStartup.Location = New-Object System.Drawing.Point(20, 280); $chkShowOnStartup.ForeColor = Get-Theme 'HeaderSubtitleText'; if ($NoteData -and $NoteData.ShowOnStartup) { $chkShowOnStartup.Checked = $true }; $pnlContent.Controls.Add($chkShowOnStartup)
+	$chkDeleteExpired = New-Object System.Windows.Forms.CheckBox; $chkDeleteExpired.Text = 'Delete when expired (on restart)'; $chkDeleteExpired.AutoSize = $true; $chkDeleteExpired.Location = New-Object System.Drawing.Point(20, 305); $chkDeleteExpired.ForeColor = Get-Theme 'HeaderSubtitleText'; if ($NoteData -and $NoteData.DeleteWhenExpired) { $chkDeleteExpired.Checked = $true }; $pnlContent.Controls.Add($chkDeleteExpired)
+	$chkAutoRenew = New-Object System.Windows.Forms.CheckBox; $chkAutoRenew.Text = 'Renew automatically'; $chkAutoRenew.AutoSize = $true; $chkAutoRenew.Location = New-Object System.Drawing.Point(20, 330); $chkAutoRenew.ForeColor = Get-Theme 'HeaderSubtitleText'; if ($NoteData -and $NoteData.AutoRenew) { $chkAutoRenew.Checked = $true }; $pnlContent.Controls.Add($chkAutoRenew)
 
 	$UpdateDynamic = {
 		$pnlDynamic.Controls.Clear()
@@ -1582,7 +1587,7 @@ function Show-NoteDialog {
 
 	&$UpdateDynamic
 
-	$btnSave = New-Object System.Windows.Forms.Button; $btnSave.Text = 'Save'; $btnSave.DialogResult = 'OK'; $btnSave.Location = New-Object System.Drawing.Point(200, 385); $btnSave.Size = New-Object System.Drawing.Size(80, 30); $btnSave.FlatStyle = 'Flat'; $btnSave.BackColor = [System.Drawing.Color]::FromArgb(0, 120, 215); $btnSave.ForeColor = [System.Drawing.Color]::White; $btnSave.FlatAppearance.BorderSize = 0; $pnlContent.Controls.Add($btnSave)
+	$btnSave = New-Object System.Windows.Forms.Button; $btnSave.Text = 'Save'; $btnSave.DialogResult = 'OK'; $btnSave.Location = New-Object System.Drawing.Point(200, 385); $btnSave.Size = New-Object System.Drawing.Size(80, 30); $btnSave.FlatStyle = 'Flat'; $btnSave.BackColor = Get-Theme 'AccentBlue'; $btnSave.ForeColor = Get-Theme 'WhiteText'; $btnSave.FlatAppearance.BorderSize = 0; $pnlContent.Controls.Add($btnSave)
 	$btnSave.Add_Click({ 
 			$finalDueDate = $null
 			if ($cmbType.SelectedItem -eq 'Timer')
@@ -1609,7 +1614,7 @@ function Show-NoteDialog {
 			}
 			$form.DialogResult = 'OK'; $form.Close() 
 		})
-	$btnCancel = New-Object System.Windows.Forms.Button; $btnCancel.Text = 'Cancel'; $btnCancel.DialogResult = 'Cancel'; $btnCancel.Location = New-Object System.Drawing.Point(290, 385); $btnCancel.Size = New-Object System.Drawing.Size(80, 30); $btnCancel.FlatStyle = 'Flat'; $btnCancel.BackColor = [System.Drawing.Color]::FromArgb(60, 60, 60); $btnCancel.ForeColor = [System.Drawing.Color]::White; $btnCancel.FlatAppearance.BorderSize = 0; $pnlContent.Controls.Add($btnCancel)
+	$btnCancel = New-Object System.Windows.Forms.Button; $btnCancel.Text = 'Cancel'; $btnCancel.DialogResult = 'Cancel'; $btnCancel.Location = New-Object System.Drawing.Point(290, 385); $btnCancel.Size = New-Object System.Drawing.Size(80, 30); $btnCancel.FlatStyle = 'Flat'; $btnCancel.BackColor = Get-Theme 'ButtonBg'; $btnCancel.ForeColor = Get-Theme 'WhiteText'; $btnCancel.FlatAppearance.BorderSize = 0; $pnlContent.Controls.Add($btnCancel)
 	$btnCancel.Add_Click({ $form.DialogResult = 'Cancel'; $form.Close() })
     
 	$form.AcceptButton = $btnSave; $form.CancelButton = $btnCancel
@@ -1629,7 +1634,7 @@ function AddNote {
 			$data.CreationDate = [DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')
 			$data.Notified = $false
 			$global:DashboardConfig.Config['Notes'][$id] = $data
-			if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
+			if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
 			RefreshNoteGrid
 		}
 	}
@@ -1656,7 +1661,7 @@ function EditNote {
 					$data.CreationDate = [DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')
 				}
 				$global:DashboardConfig.Config['Notes'][$id] = $data
-				if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
+				if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
 				RefreshNoteGrid
 			}
 		}
@@ -1674,7 +1679,7 @@ function RemoveNote {
 			if ($notifKey -gt 0) { $notifKey = - $notifKey }
 			CloseToast -Key $notifKey
 			$global:DashboardConfig.Config['Notes'].Remove($id)
-			if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
+			if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
 			RefreshNoteGrid
 		}
 	}
@@ -1732,8 +1737,8 @@ if (-not $global:DashboardConfig.State.NoteTimer)
 									$note.DueDate = $newDueDate.ToString('yyyy-MM-dd HH:mm:ss')
 									$note.CreationDate = [DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')
 									if ($note -is [System.Collections.IDictionary]) { $note['Notified'] = $false } else { $note | Add-Member -MemberType NoteProperty -Name 'Notified' -Value $false -Force }
-									if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
-									if (Get-Command RefreshNoteGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNoteGrid }
+									if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
+									if (Test-DashboardCommand 'RefreshNoteGrid') { RefreshNoteGrid }
 									continue
 								}
 								elseif (-not $note.Notified)
@@ -1745,7 +1750,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
 
 									$hideAction = [scriptblock]::Create("CloseToast -Key $notifKey")
 									$editAction = [scriptblock]::Create("
-                                    if (Get-Command EditNote -ErrorAction SilentlyContinue -Verbose:`$False) {
+                                    if (Test-DashboardCommand 'EditNote' -Verbose:`$False) {
                                         `$grid = `$global:DashboardConfig.UI.NoteGrid
                                         if (`$grid) {
                                             `$rowToSelect = `$null
@@ -1765,7 +1770,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
                                     CloseToast -Key $notifKey
                                 ")
 									$deleteAction = [scriptblock]::Create("
-                                    if (Get-Command RemoveNote -ErrorAction SilentlyContinue -Verbose:`$False) {
+                                    if (Test-DashboardCommand 'RemoveNote' -Verbose:`$False) {
                                         `$grid = `$global:DashboardConfig.UI.NoteGrid
                                         if (`$grid) {
                                             `$rowToSelect = `$null
@@ -1785,7 +1790,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
                                     CloseToast -Key $notifKey
                                 ")
 									$btns = @( @{ Text = 'Hide'; Action = $hideAction }, @{ Text = 'Edit'; Action = $editAction }, @{ Text = 'Delete'; Action = $deleteAction } )
-									if (Get-Command ShowInteractiveNotification -ErrorAction SilentlyContinue -Verbose:$False) { ShowInteractiveNotification -Title "Timer Finished: $($note.Title)" -Message $note.Content -Buttons $btns -Type 'Info' -Key $notifKey -TimeoutSeconds 0 -IgnoreCancellation } else { ShowToast -Title "Timer Finished: $($note.Title)" -Message $note.Content -Type 'Info' -TimeoutSeconds 0 -IgnoreCancellation }
+									if (Test-DashboardCommand 'ShowInteractiveNotification') { ShowInteractiveNotification -Title "Timer Finished: $($note.Title)" -Message $note.Content -Buttons $btns -Type 'Info' -Key $notifKey -TimeoutSeconds 0 -IgnoreCancellation } else { ShowToast -Title "Timer Finished: $($note.Title)" -Message $note.Content -Type 'Info' -TimeoutSeconds 0 -IgnoreCancellation }
 									if ($note -is [System.Collections.IDictionary])
 									{
 										$note['Notified'] = $true
@@ -1830,11 +1835,11 @@ if (-not $global:DashboardConfig.State.NoteTimer)
                                             }
                                         } catch {}
                                     }
-                                    if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:`$False) { WriteConfig }
+                                    if (Test-DashboardCommand 'WriteConfig' -Verbose:`$False) { WriteConfig }
                                 }
                             ")
-								$editAction = [scriptblock]::Create("if (Get-Command EditNote -ErrorAction SilentlyContinue -Verbose:`$False) { `$grid = `$global:DashboardConfig.UI.NoteGrid; if (`$grid) { `$rowToSelect = `$null; foreach (`$r in `$grid.Rows) { if (`$r.Tag -and `$r.Tag.ToString() -eq '$key') { `$rowToSelect = `$r; break } }; if (`$rowToSelect) { `$grid.ClearSelection(); `$rowToSelect.Selected = `$true; EditNote } }; CloseToast -Key $notifKey }")
-								$deleteAction = [scriptblock]::Create("if (Get-Command RemoveNote -ErrorAction SilentlyContinue -Verbose:`$False) { `$grid = `$global:DashboardConfig.UI.NoteGrid; if (`$grid) { `$rowToSelect = `$null; foreach (`$r in `$grid.Rows) { if (`$r.Tag -and `$r.Tag.ToString() -eq '$key') { `$rowToSelect = `$r; break } }; if (`$rowToSelect) { `$grid.ClearSelection(); `$rowToSelect.Selected = `$true; RemoveNote } }; CloseToast -Key $notifKey }")
+								$editAction = [scriptblock]::Create("if (Test-DashboardCommand 'EditNote' -Verbose:`$False) { `$grid = `$global:DashboardConfig.UI.NoteGrid; if (`$grid) { `$rowToSelect = `$null; foreach (`$r in `$grid.Rows) { if (`$r.Tag -and `$r.Tag.ToString() -eq '$key') { `$rowToSelect = `$r; break } }; if (`$rowToSelect) { `$grid.ClearSelection(); `$rowToSelect.Selected = `$true; EditNote } }; CloseToast -Key $notifKey }")
+								$deleteAction = [scriptblock]::Create("if (Test-DashboardCommand 'RemoveNote' -Verbose:`$False) { `$grid = `$global:DashboardConfig.UI.NoteGrid; if (`$grid) { `$rowToSelect = `$null; foreach (`$r in `$grid.Rows) { if (`$r.Tag -and `$r.Tag.ToString() -eq '$key') { `$rowToSelect = `$r; break } }; if (`$rowToSelect) { `$grid.ClearSelection(); `$rowToSelect.Selected = `$true; RemoveNote } }; CloseToast -Key $notifKey }")
 
 								$currentState = if ($note.IsPaused) { 'Paused' } else { 'Running' }
                             
@@ -1918,7 +1923,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
                             
 							$hideAction = [scriptblock]::Create("CloseToast -Key $notifKey")
 							$deleteAction = [scriptblock]::Create("
-                            if (Get-Command RemoveNote -ErrorAction SilentlyContinue -Verbose:`$False) {
+                            if (Test-DashboardCommand 'RemoveNote' -Verbose:`$False) {
                                 `$grid = `$global:DashboardConfig.UI.NoteGrid
                                 if (`$grid) {
                                     `$rowToSelect = `$null
@@ -1938,7 +1943,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
                             CloseToast -Key $notifKey
                         ")
 							$editAction = [scriptblock]::Create("
-                            if (Get-Command EditNote -ErrorAction SilentlyContinue -Verbose:`$False) {
+                            if (Test-DashboardCommand 'EditNote' -Verbose:`$False) {
                                 `$grid = `$global:DashboardConfig.UI.NoteGrid
                                 if (`$grid) {
                                     `$rowToSelect = `$null
@@ -1958,7 +1963,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
                             CloseToast -Key $notifKey
                         ")
 							$btns = @( @{ Text = 'Hide'; Action = $hideAction }, @{ Text = 'Edit'; Action = $editAction }, @{ Text = 'Delete'; Action = $deleteAction } )
-							if (Get-Command ShowInteractiveNotification -ErrorAction SilentlyContinue -Verbose:$False)
+							if (Test-DashboardCommand 'ShowInteractiveNotification')
 							{ 
 								ShowInteractiveNotification -Title "Note: $($note.Title)" -Message $note.Content -Buttons $btns -Type 'Info' -Key $notifKey -TimeoutSeconds 0 -IgnoreCancellation
 							}
@@ -1982,7 +1987,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
                             
 							$hideAction = [scriptblock]::Create("CloseToast -Key $notifKey")
 							$editAction = [scriptblock]::Create("
-                            if (Get-Command EditNote -ErrorAction SilentlyContinue -Verbose:`$False) {
+                            if (Test-DashboardCommand 'EditNote' -Verbose:`$False) {
                                 `$grid = `$global:DashboardConfig.UI.NoteGrid
                                 if (`$grid) {
                                     `$rowToSelect = `$null
@@ -2002,7 +2007,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
                             CloseToast -Key $notifKey
                         ")
 							$deleteAction = [scriptblock]::Create("
-                            if (Get-Command RemoveNote -ErrorAction SilentlyContinue -Verbose:`$False) {
+                            if (Test-DashboardCommand 'RemoveNote' -Verbose:`$False) {
                                 `$grid = `$global:DashboardConfig.UI.NoteGrid
                                 if (`$grid) {
                                     `$rowToSelect = `$null
@@ -2027,7 +2032,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
 								@{ Text = 'Delete'; Action = $deleteAction }
 							)
 							$message = "Due: $($note.DueDate)`n$($note.Content)"
-							if (Get-Command ShowInteractiveNotification -ErrorAction SilentlyContinue -Verbose:$False) { ShowInteractiveNotification -Title "$($note.Type): $($note.Title)" -Message $message -Buttons $btns -Type 'Info' -Key $notifKey -TimeoutSeconds 0 -IgnoreCancellation } else { ShowToast -Title "$($note.Type): $($note.Title)" -Message $message -Type 'Info' -TimeoutSeconds 0 -IgnoreCancellation }
+							if (Test-DashboardCommand 'ShowInteractiveNotification') { ShowInteractiveNotification -Title "$($note.Type): $($note.Title)" -Message $message -Buttons $btns -Type 'Info' -Key $notifKey -TimeoutSeconds 0 -IgnoreCancellation } else { ShowToast -Title "$($note.Type): $($note.Title)" -Message $message -Type 'Info' -TimeoutSeconds 0 -IgnoreCancellation }
 							if ($note -is [System.Collections.IDictionary]) { $note['StartupHandled'] = $true } else { $note | Add-Member -MemberType NoteProperty -Name 'StartupHandled' -Value $true -Force }
 						}
 
@@ -2039,8 +2044,8 @@ if (-not $global:DashboardConfig.State.NoteTimer)
 								$newDueDate = &$GetNewDueDate $due $note.RenewInterval
 								$note.DueDate = $newDueDate.ToString('yyyy-MM-dd HH:mm:ss')
 								if ($note -is [System.Collections.IDictionary]) { $note['Notified'] = $false } else { $note | Add-Member -MemberType NoteProperty -Name 'Notified' -Value $false -Force }
-								if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
-								if (Get-Command RefreshNoteGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNoteGrid }
+								if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
+								if (Test-DashboardCommand 'RefreshNoteGrid') { RefreshNoteGrid }
 								continue
 							}
 
@@ -2050,7 +2055,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
 								if ($notifKey -gt 0) { $notifKey = - $notifKey }
                             
 								$editAction = [scriptblock]::Create("
-                                if (Get-Command EditNote -ErrorAction SilentlyContinue -Verbose:`$False) {
+                                if (Test-DashboardCommand 'EditNote' -Verbose:`$False) {
                                     `$grid = `$global:DashboardConfig.UI.NoteGrid
                                     if (`$grid) {
                                         `$rowToSelect = `$null
@@ -2070,7 +2075,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
                                 CloseToast -Key $notifKey
                             ")
 								$deleteAction = [scriptblock]::Create("
-                                if (Get-Command RemoveNote -ErrorAction SilentlyContinue -Verbose:`$False) {
+                                if (Test-DashboardCommand 'RemoveNote' -Verbose:`$False) {
                                     `$grid = `$global:DashboardConfig.UI.NoteGrid
                                     if (`$grid) {
                                         `$rowToSelect = `$null
@@ -2097,7 +2102,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
 								$message = "Due: $($note.DueDate)`n$($note.Content)"
 								try
 								{
-									if (Get-Command ShowInteractiveNotification -ErrorAction SilentlyContinue -Verbose:$False) { ShowInteractiveNotification -Title "$($note.Type): $($note.Title)" -Message $message -Buttons $btns -Type 'Info' -Key $notifKey -TimeoutSeconds 0 -IgnoreCancellation } else { ShowToast -Title "$($note.Type): $($note.Title)" -Message $message -Type 'Info' -TimeoutSeconds 0 -IgnoreCancellation }
+									if (Test-DashboardCommand 'ShowInteractiveNotification') { ShowInteractiveNotification -Title "$($note.Type): $($note.Title)" -Message $message -Buttons $btns -Type 'Info' -Key $notifKey -TimeoutSeconds 0 -IgnoreCancellation } else { ShowToast -Title "$($note.Type): $($note.Title)" -Message $message -Type 'Info' -TimeoutSeconds 0 -IgnoreCancellation }
 								}
 								catch
 								{
@@ -2109,13 +2114,13 @@ if (-not $global:DashboardConfig.State.NoteTimer)
 									$newDueDate = &$GetNewDueDate $due $note.RenewInterval
 									$note.DueDate = $newDueDate.ToString('yyyy-MM-dd HH:mm:ss')
 									if ($note -is [System.Collections.IDictionary]) { $note['Notified'] = $false } else { $note | Add-Member -MemberType NoteProperty -Name 'Notified' -Value $false -Force }
-									if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
-									if (Get-Command RefreshNoteGrid -ErrorAction SilentlyContinue -Verbose:$False) { RefreshNoteGrid }
+									if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
+									if (Test-DashboardCommand 'RefreshNoteGrid') { RefreshNoteGrid }
 								}
 								else
 								{
 									if ($note -is [System.Collections.IDictionary]) { $note['Notified'] = $true } else { $note | Add-Member -MemberType NoteProperty -Name 'Notified' -Value $true -Force }
-									if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
+									if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
 								}
 							}
 						}
@@ -2394,7 +2399,7 @@ function AddUpgradeItem {
 		$cartRef = $global:DashboardConfig.Resources.UpgradeCart
 		if ($null -eq $cartRef -or -not ($cartRef -is [System.Collections.IList])) {
 			$newCart = [System.Collections.ArrayList]::new()
-			if ($cartRef -ne $null) {
+			if ($null -ne $cartRef) {
 				try {
 					if ($cartRef -is [System.Collections.IEnumerable]) {
 						foreach ($el in $cartRef) { $newCart.Add($el) | Out-Null }
@@ -2423,6 +2428,24 @@ function AddUpgradeItem {
 	}
 }
 
+function GetRebuiltCart {
+    param($Collection, $ItemToRemove)
+
+    $new = [System.Collections.ArrayList]::new()
+    $removed = $false
+
+    foreach ($el in $Collection) {
+        if (-not $removed -and $el -eq $ItemToRemove) {
+            $removed = $true
+            continue
+        }
+
+        $new.Add($el) | Out-Null
+    }
+
+    $new
+}
+
 function RemoveUpgradeItem {
 	try
 	{
@@ -2437,27 +2460,6 @@ function RemoveUpgradeItem {
 		try { $levelsVal = $selRow.Cells[2].Value.ToString() } catch { $levelsVal = $null }
 
 		$cart = if ($global:DashboardConfig.Resources) { $global:DashboardConfig.Resources.UpgradeCart } else { $null }
-
-		function GetRebuiltCart
-		{
-			param($Collection, $ItemToRemove)
-
-			$new = [System.Collections.ArrayList]::new()
-			$removed = $false
-
-			foreach ($el in $Collection)
-			{
-				if (-not $removed -and $el -eq $ItemToRemove)
-				{
-					$removed = $true
-					continue
-				}
-
-				$new.Add($el) | Out-Null
-			}
-
-			$new
-		}
 
 		if ($null -ne $cart -and $null -ne $dispVal -and $null -ne $levelsVal)
 		{

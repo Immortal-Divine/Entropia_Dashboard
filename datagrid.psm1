@@ -1,7 +1,9 @@
-<# datagrid.psm1 #>
+﻿<# datagrid.psm1 #>
 
 #region Global Configuration
 $script:UpdateInterval = 750
+
+$script:ResponsivenessProbeTimeout = 20
 
 $script:States = @{
 	Checking  = 'Checking...'
@@ -13,6 +15,8 @@ $script:States = @{
 $script:ProcessCache = @{}
 
 $script:PendingChecks = [System.Collections.Generic.HashSet[int]]::new()
+
+$script:UpdatingGrid = $false
 
 #endregion
 
@@ -110,7 +114,15 @@ function UpdateRowIndices
 			if ($null -eq $row.Cells -or $row.Cells.Count -lt 2) { continue }
 			$processTitle = $row.Cells[1].Value
 			$profileName = ''
-			if ($processTitle -match '^\[(?<pName>[^\]]+)\]') { $profileName = $Matches['pName'] }
+			if ($processTitle -is [string])
+			{
+				$start = $processTitle.IndexOf('[')
+				if ($start -eq 0)
+				{
+					$end = $processTitle.IndexOf(']', 1)
+					if ($end -gt 1) { $profileName = $processTitle.Substring(1, $end - 1) }
+				}
+			}
 			if ([string]::IsNullOrEmpty($profileName)) { $profileName = 'NoProfile' }
 			if (-not $profileCounters.ContainsKey($profileName)) { $profileCounters[$profileName] = 0 }
 			$profileCounters[$profileName]++
@@ -135,6 +147,59 @@ function AddNewProcessRow
 		return $Grid.Rows[$rowIndex]
 	}
  catch { return $null }
+}
+
+function Test-ClientWindowHidden
+{
+	[CmdletBinding()]
+	[OutputType([bool])]
+	param([string]$RowTitle)
+
+	try
+	{
+		$config = $global:DashboardConfig.Config
+		if (-not $config -or [string]::IsNullOrWhiteSpace($RowTitle)) { return $false }
+
+		$profileName = $RowTitle
+		$clientName = ''
+		if ($RowTitle -match '^\[(?<pName>[^\]]+)\](?<rest>.*)')
+		{
+			$profileName = $Matches['pName']
+			$clientName = ([string]$Matches['rest']).Trim()
+		}
+		elseif ($RowTitle -match '\[(?<pName>.*?)\]')
+		{
+			$profileName = $Matches['pName']
+			$clientName = ([string]($RowTitle -replace '^\[.*?\]', '')).Trim()
+		}
+		else
+		{
+			return $false
+		}
+
+		if (-not [string]::IsNullOrWhiteSpace($clientName) -and $config.Contains('RememberedClients'))
+		{
+			$section = $config['RememberedClients']
+			if ($section)
+			{
+				foreach ($key in @($section.Keys))
+				{
+					$parts = [string]$key -split '\|', 2
+					if ($parts.Count -ne 2) { continue }
+					if (-not ($parts[0] -ieq $profileName -and $parts[1] -ieq $clientName)) { continue }
+
+					$tokens = @(([string]$section[$key]) -split ',')
+					if ($tokens.Count -gt 4) { return ($tokens[4].Trim() -eq '1') }
+					break
+				}
+			}
+		}
+
+		return (Test-HideProfilesDefault)
+	}
+	catch { }
+
+	return $false
 }
 
 function StartWindowStateCheck
@@ -187,12 +252,7 @@ function StartWindowStateCheck
 					$shouldHide = $false
 					if ($null -ne $targetRow.Cells -and $targetRow.Cells.Count -gt 1)
 					{
-						$rowTitle = $targetRow.Cells[1].Value
-						if ($rowTitle -match '^\[(?<pName>.*?)\]')
-						{
-							$profileName = $Matches['pName']
-							if ($global:DashboardConfig.Config['HideProfiles'] -and $global:DashboardConfig.Config['HideProfiles'].Contains($profileName)) { $shouldHide = $true }
-						}
+						$shouldHide = Test-ClientWindowHidden -RowTitle ([string]$targetRow.Cells[1].Value)
 					}
 					if ($shouldHide)
 					{
@@ -268,6 +328,60 @@ function ClearOldProcessCache
 		}
 	}
 	foreach ($key in $keysToRemove) { if ($script:ProcessCache.ContainsKey($key)) { $script:ProcessCache.Remove($key) } }
+}
+
+function Get-DataGridState
+{
+	[CmdletBinding()]
+	[OutputType([System.Collections.Specialized.OrderedDictionary])]
+	param()
+
+	$state = [ordered]@{}
+	foreach ($processId in @($script:ProcessCache.Keys))
+	{
+		$entry = $script:ProcessCache[$processId]
+		if ($null -eq $entry) { continue }
+		$state[$processId] = @{
+			hWnd          = $entry['hWnd']
+			LastSeen      = $entry['LastSeen']
+			LastFlashSeen = $entry['LastFlashSeen']
+		}
+	}
+	return $state
+}
+
+function Sync-DataGridState
+{
+	[CmdletBinding()]
+	[OutputType([int])]
+	param()
+
+	$grid = $global:DashboardConfig.UI.DataGridMain
+	$live = [System.Collections.Generic.HashSet[int]]::new()
+	if ($grid -and -not $grid.IsDisposed)
+	{
+		foreach ($row in $grid.Rows)
+		{
+			try
+			{
+				if ($row.Tag -and $null -ne $row.Tag.Id) { [void]$live.Add([int]$row.Tag.Id) }
+			}
+			catch {}
+		}
+	}
+
+	$removed = 0
+	foreach ($processId in @($script:ProcessCache.Keys))
+	{
+		$id = 0
+		if (-not [int]::TryParse([string]$processId, [ref]$id)) { continue }
+		if (-not $live.Contains($id))
+		{
+			$script:ProcessCache.Remove($processId)
+			$removed++
+		}
+	}
+	return $removed
 }
 
 function GetProcessProfile
@@ -361,9 +475,9 @@ function Save-WindowPositions
 	
 	if ($savedCount -gt 0)
 	{
-		if (Get-Command WriteConfig -ErrorAction SilentlyContinue -Verbose:$False) { WriteConfig }
+		if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
 	}
-	if (Get-Command Show-DarkMessageBox -ErrorAction SilentlyContinue -Verbose:$False) { Show-DarkMessageBox "Window positions saved for $($savedCount) of $($selectedRows.Count) client(s).`nMinimized windows were skipped." "Position Saved" "OK" "Information" "success" }
+	if (Test-DashboardCommand 'Show-DarkMessageBox') { Show-DarkMessageBox "Window positions saved for $($savedCount) of $($selectedRows.Count) client(s).`nMinimized windows were skipped." "Position Saved" "OK" "Information" "success" }
 }
 
 function Restore-WindowPositions
@@ -393,10 +507,92 @@ function Restore-WindowPositions
 		}
 	}
 }
+
+function Reapply-GridStatusStyling
+{
+	[CmdletBinding()]
+	param()
+
+	$grid = $global:DashboardConfig.UI.DataGridMain
+	if (-not $grid -or $grid.IsDisposed) { return }
+	if (-not $global:DashboardConfig.State -or -not $global:DashboardConfig.State.UIInitialized) { return }
+
+	try
+	{
+			$now = [DateTime]::Now
+
+		$cDisconnected = Get-Theme 'StatusDisconnected'
+		$cDisconnectedText = Get-Theme 'StatusDisconnectedText'
+		$cFlashing = Get-Theme 'StatusFlashing'
+		$cFlashingSelect = Get-Theme 'StatusFlashingSelect'
+		$cWhiteText = Get-Theme 'WhiteText'
+		$cEmpty = Get-Theme 'Empty'
+
+		foreach ($row in $grid.Rows)
+		{
+			if (-not $row.Tag -or $null -eq $row.Tag.Id) { continue }
+
+			$pid = $row.Tag.Id
+			$isDisconnected = ($global:DashboardConfig.State.FlashingPids -and $global:DashboardConfig.State.FlashingPids.ContainsKey($pid))
+			$isWindowFlashing = $false
+
+			if (-not $isDisconnected -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero -and ('Custom.SafeWindowCore' -as [Type]))
+			{
+				$isWindowFlashing = [Custom.SafeWindowCore]::IsWindowFlashing($row.Tag.MainWindowHandle)
+				if ($isWindowFlashing)
+				{
+					if (-not $script:ProcessCache.ContainsKey($pid)) { $script:ProcessCache[$pid] = @{} }
+					$script:ProcessCache[$pid].LastFlashSeen = $now
+				}
+				elseif ($script:ProcessCache.ContainsKey($pid) -and $script:ProcessCache[$pid].LastFlashSeen -and ($now - $script:ProcessCache[$pid].LastFlashSeen).TotalSeconds -lt 2.5)
+				{
+					$isWindowFlashing = $true
+				}
+			}
+
+			if ($isDisconnected)
+			{
+				$row.DefaultCellStyle.BackColor = $cDisconnected
+				$row.DefaultCellStyle.ForeColor = $cDisconnectedText
+				$row.DefaultCellStyle.SelectionBackColor = $cDisconnected
+				$row.DefaultCellStyle.SelectionForeColor = $cWhiteText
+			}
+			elseif ($isWindowFlashing)
+			{
+				$row.DefaultCellStyle.BackColor = $cFlashing
+				$row.DefaultCellStyle.ForeColor = $cDisconnectedText
+				$row.DefaultCellStyle.SelectionBackColor = $cFlashingSelect
+				$row.DefaultCellStyle.SelectionForeColor = $cWhiteText
+			}
+			else
+			{
+				$row.DefaultCellStyle.BackColor = $cEmpty
+				$row.DefaultCellStyle.ForeColor = $cEmpty
+				$row.DefaultCellStyle.SelectionBackColor = $cEmpty
+				$row.DefaultCellStyle.SelectionForeColor = $cEmpty
+			}
+		}
+	}
+	catch { }
+}
 #endregion
 
 #region Core Functions
 function UpdateDataGrid
+{
+	[CmdletBinding()]
+	param(
+		[System.Windows.Forms.DataGridView]$Grid,
+		[System.Collections.Generic.List[object]]$CurrentProcesses = $null
+	)
+
+	if ($script:UpdatingGrid) { return }
+	$script:UpdatingGrid = $true
+	try { UpdateDataGridCore -Grid $Grid -CurrentProcesses $CurrentProcesses }
+	finally { $script:UpdatingGrid = $false }
+}
+
+function UpdateDataGridCore
 {
 	[CmdletBinding()]
 	param(
@@ -412,6 +608,15 @@ function UpdateDataGrid
 		$profileMap = $global:DashboardConfig.Config.Profiles
 		$processes = [Custom.ProcessHelper]::GetProcessDataList($processName, $profileMap)
 	}
+
+	$syncWork = [System.Collections.Generic.List[object]]::new()
+
+	$cDisconnected = Get-Theme 'StatusDisconnected'
+	$cDisconnectedText = Get-Theme 'StatusDisconnectedText'
+	$cFlashing = Get-Theme 'StatusFlashing'
+	$cFlashingSelect = Get-Theme 'StatusFlashingSelect'
+	$cWhiteText = Get-Theme 'WhiteText'
+	$cEmpty = Get-Theme 'Empty'
 
 	$Grid.SuspendLayout()
 	try
@@ -474,42 +679,44 @@ function UpdateDataGrid
 
 				if ($isDisconnected)
 				{
-					if ($existingRow.DefaultCellStyle.BackColor -ne [System.Drawing.Color]::DarkRed -or $existingRow.DefaultCellStyle.SelectionBackColor -ne [System.Drawing.Color]::DarkRed)
+					if ($existingRow.DefaultCellStyle.BackColor -ne $cDisconnected -or $existingRow.DefaultCellStyle.SelectionBackColor -ne $cDisconnected)
 					{
-						$existingRow.DefaultCellStyle.BackColor = [System.Drawing.Color]::DarkRed
-						$existingRow.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Black
-						$existingRow.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::DarkRed
-						$existingRow.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::White
+						$existingRow.DefaultCellStyle.BackColor = $cDisconnected
+						$existingRow.DefaultCellStyle.ForeColor = $cDisconnectedText
+						$existingRow.DefaultCellStyle.SelectionBackColor = $cDisconnected
+						$existingRow.DefaultCellStyle.SelectionForeColor = $cWhiteText
 					}
 				}
 				elseif ($isWindowFlashing)
 				{
-					if ($existingRow.DefaultCellStyle.BackColor -ne [System.Drawing.Color]::Orange -or $existingRow.DefaultCellStyle.SelectionBackColor -ne [System.Drawing.Color]::DarkOrange)
+					if ($existingRow.DefaultCellStyle.BackColor -ne $cFlashing -or $existingRow.DefaultCellStyle.SelectionBackColor -ne $cFlashingSelect)
 					{
-						$existingRow.DefaultCellStyle.BackColor = [System.Drawing.Color]::Orange
-						$existingRow.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Black
-						$existingRow.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::DarkOrange
-						$existingRow.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::White
+						$existingRow.DefaultCellStyle.BackColor = $cFlashing
+						$existingRow.DefaultCellStyle.ForeColor = $cDisconnectedText
+						$existingRow.DefaultCellStyle.SelectionBackColor = $cFlashingSelect
+						$existingRow.DefaultCellStyle.SelectionForeColor = $cWhiteText
 					}
 				}
 				else
 				{
-					$isHighlighted = ($existingRow.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::DarkRed -or 
-									  $existingRow.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::Orange -or
-									  $existingRow.DefaultCellStyle.SelectionBackColor -eq [System.Drawing.Color]::DarkRed -or
-									  $existingRow.DefaultCellStyle.SelectionBackColor -eq [System.Drawing.Color]::DarkOrange)
+					$isHighlighted = ($existingRow.DefaultCellStyle.BackColor -eq $cDisconnected -or 
+									  $existingRow.DefaultCellStyle.BackColor -eq $cFlashing -or
+									  $existingRow.DefaultCellStyle.SelectionBackColor -eq $cDisconnected -or
+									  $existingRow.DefaultCellStyle.SelectionBackColor -eq $cFlashingSelect)
 
 					if ($isHighlighted)
 					{
 						$script:ProcessCache[$process.Id].LastFlashSeen = $null
-						$existingRow.DefaultCellStyle.BackColor = [System.Drawing.Color]::Empty
-						$existingRow.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Empty
-						$existingRow.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::Empty
-						$existingRow.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::Empty
+						$existingRow.DefaultCellStyle.BackColor = $cEmpty
+						$existingRow.DefaultCellStyle.ForeColor = $cEmpty
+						$existingRow.DefaultCellStyle.SelectionBackColor = $cEmpty
+						$existingRow.DefaultCellStyle.SelectionForeColor = $cEmpty
 					}
 				}
 
 				$hWnd = $process.MainWindowHandle
+
+				if ($hWnd -ne [IntPtr]::Zero) { $syncWork.Add(@{ Row = $existingRow; hWnd = $hWnd }) }
 
 				$previousProfile = $process.Profile
 				$previousRow = $existingRow
@@ -518,8 +725,52 @@ function UpdateDataGrid
 		}
 		UpdateRowIndices -Grid $Grid
 		ClearOldProcessCache
+		Sync-DataGridState | Out-Null
 	}
 	finally { $Grid.ResumeLayout() }
+
+	foreach ($item in $syncWork)
+	{
+		$row = $item.Row
+		$hWnd = $item.hWnd
+		if ($Grid.IsDisposed -or $null -eq $row -or $row.DataGridView -ne $Grid) { continue }
+
+		try
+		{
+			$isResponsiveNow = [Custom.Native]::Responsive($hWnd, $script:ResponsivenessProbeTimeout)
+
+			$isMinSync = $false
+			if ($isResponsiveNow)
+			{
+				if ('Custom.SafeWindowCore' -as [Type]) { $isMinSync = [Custom.SafeWindowCore]::IsMinimized($hWnd) }
+				else { $isMinSync = [Custom.Native]::IsMinimized($hWnd) }
+			}
+
+			if ($row.Cells.Count -gt 3)
+			{
+				$syncState = if (-not $isResponsiveNow) { $script:States.Loading }
+				elseif ($isMinSync) { $script:States.Minimized }
+				else { $script:States.Normal }
+				$existingState = $row.Cells[3].Value
+				if ($existingState -ne $syncState -and $existingState -notin @('Error') -and $existingState -notlike 'Client *')
+				{
+					$row.Cells[3].Value = $syncState
+				}
+			}
+
+			if (-not $isResponsiveNow) { continue }
+
+			$shouldHide = $false
+			if ($null -ne $row.Cells -and $row.Cells.Count -gt 1)
+			{
+				$shouldHide = Test-ClientWindowHidden -RowTitle ([string]$row.Cells[1].Value)
+			}
+
+			if ($shouldHide) { SetWindowToolStyle -hWnd $hWnd -Hide $isMinSync }
+			else { SetWindowToolStyle -hWnd $hWnd -Hide $false }
+		}
+		catch { }
+	}
 }
 
 function StartDataGridUpdateTimer

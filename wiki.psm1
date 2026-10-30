@@ -1,4 +1,4 @@
-<# wiki.psm1 #>
+﻿<# wiki.psm1 #>
 function Show-Wiki
 {
 	[CmdletBinding()]
@@ -73,14 +73,14 @@ public class WikiScrollNative {
     }
 
 	$Theme = @{
-		Background   = [System.Drawing.ColorTranslator]::FromHtml('#0f1219')
-		PanelColor   = [System.Drawing.ColorTranslator]::FromHtml('#232838')
-		InputBack    = [System.Drawing.ColorTranslator]::FromHtml('#161a26')
-		AccentColor  = [System.Drawing.ColorTranslator]::FromHtml('#ff2e4c')
-		TextColor    = [System.Drawing.ColorTranslator]::FromHtml('#ffffff')
-		SubTextColor = [System.Drawing.ColorTranslator]::FromHtml('#a0a5b0')
-		SuccessColor = [System.Drawing.ColorTranslator]::FromHtml('#28a745')
-        ListSelect   = [System.Drawing.ColorTranslator]::FromHtml('#3a3f4b')
+		Background   = Get-Theme 'MainBg'
+		PanelColor   = Get-Theme 'SecondaryBg'
+		InputBack    = Get-Theme 'InputBg'
+		AccentColor  = Get-Theme 'AccentDanger'
+		TextColor    = Get-Theme 'WhiteText'
+		SubTextColor = Get-Theme 'HeaderSubtitleText'
+		SuccessColor = Get-Theme 'StatusActive'
+        ListSelect   = Get-Theme 'TertiaryBg'
 	}
 
 	$form = New-Object System.Windows.Forms.Form
@@ -119,7 +119,7 @@ public class WikiScrollNative {
 	$lblStatus = New-Object System.Windows.Forms.Label
 	$lblStatus.Text = "Source: $SourceUsed"
 	$lblStatus.ForeColor = if ($IsOffline) { $Theme.SubTextColor } else { $Theme.SuccessColor }
-	$lblStatus.Font = New-Object System.Drawing.Font('Segoe UI', 8)
+	$lblStatus.Font = Get-UIFont 'Segoe UI' 8
 	$lblStatus.AutoSize = $true
 	$lblStatus.Location = New-Object System.Drawing.Point(10, 5)
 	$statusPanel.Controls.Add($lblStatus) | Out-Null
@@ -137,7 +137,7 @@ public class WikiScrollNative {
 	$titleLabel = New-Object System.Windows.Forms.Label
 	$titleLabel.Text = 'ENTROPIA KNOWLEDGE BASE'
 	$titleLabel.ForeColor = $Theme.AccentColor
-	$titleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+	$titleLabel.Font = Get-UIFont 'Segoe UI' 11 'Bold'
 	$titleLabel.AutoSize = $true
 	$titleLabel.Location = New-Object System.Drawing.Point(10, 10)
 	$headerPanel.Controls.Add($titleLabel) | Out-Null
@@ -145,7 +145,7 @@ public class WikiScrollNative {
 	$closeBtn = New-Object System.Windows.Forms.Label
 	$closeBtn.Text = 'X'
 	$closeBtn.ForeColor = $Theme.SubTextColor
-	$closeBtn.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+	$closeBtn.Font = Get-UIFont 'Segoe UI' 12 'Bold'
 	$closeBtn.Cursor = 'Hand'
 	$closeBtn.AutoSize = $true
 	$closeBtn.Anchor = 'Top, Right'
@@ -168,7 +168,7 @@ public class WikiScrollNative {
 	$searchBox.BackColor = $Theme.InputBack
 	$searchBox.ForeColor = $Theme.SubTextColor
 	$searchBox.BorderStyle = 'FixedSingle'
-	$searchBox.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+	$searchBox.Font = Get-UIFont 'Segoe UI' 10
 	$searchBox.Text = 'Search...'
 	$searchContainer.Controls.Add($searchBox) | Out-Null
 
@@ -177,7 +177,7 @@ public class WikiScrollNative {
 	$treeView.BackColor = $Theme.InputBack
 	$treeView.ForeColor = $Theme.TextColor
 	$treeView.BorderStyle = 'None'
-	$treeView.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+	$treeView.Font = Get-UIFont 'Segoe UI' 10
 	$treeView.FullRowSelect = $true
 	$treeView.ShowLines = $false
 	$treeView.ShowPlusMinus = $true
@@ -206,7 +206,7 @@ public class WikiScrollNative {
     $btnBack.FlatAppearance.BorderSize = 0
     $btnBack.BackColor = $Theme.SubTextColor
     $btnBack.ForeColor = $Theme.TextColor
-    $btnBack.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnBack.Font = Get-UIFont 'Segoe UI' 9 'Bold'
     $btnBack.Cursor = "Hand"
     $btnBack.Enabled = $false
     $navToolbar.Controls.Add($btnBack) | Out-Null
@@ -274,7 +274,7 @@ public class WikiScrollNative {
     $lstAutocomplete.BackColor = $Theme.PanelColor
     $lstAutocomplete.ForeColor = $Theme.TextColor
     $lstAutocomplete.BorderStyle = 'FixedSingle'
-    $lstAutocomplete.Font = New-Object System.Drawing.Font("Consolas", 10)
+    $lstAutocomplete.Font = Get-UIFont 'Consolas' 10
     $contentPanel.Controls.Add($lstAutocomplete)
     $lstAutocomplete.BringToFront()
 
@@ -294,7 +294,7 @@ public class WikiScrollNative {
     $txtDescription.ForeColor = $Theme.TextColor
     $txtDescription.BorderStyle = "None"
     $txtDescription.ReadOnly = $true
-    $txtDescription.Font = New-Object System.Drawing.Font("Segoe UI", 11)
+    $txtDescription.Font = Get-UIFont 'Segoe UI' 11
     $txtDescription.Text = "Select an item from the menu on the left to view details.`n`nUse the Search box to quickly find guides, items, or systems."
     $txtDescription.HideSelection = $false
     $editPreviewSplitter.Panel1.Controls.Add($txtDescription) | Out-Null
@@ -392,7 +392,7 @@ public class WikiScrollNative {
     $btnSave.FlatAppearance.BorderSize = 0
     $btnSave.BackColor = $Theme.SuccessColor
     $btnSave.ForeColor = "White"
-    $btnSave.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnSave.Font = Get-UIFont 'Segoe UI' 9 'Bold'
     $btnSave.Cursor = "Hand"
     $btnSave.Visible = $false
     $navToolbar.Controls.Add($btnSave) | Out-Null
@@ -404,9 +404,9 @@ public class WikiScrollNative {
     $btnSyncNode.Location = New-Object System.Drawing.Point(($navToolbar.Width - 180), 5)
     $btnSyncNode.FlatStyle = "Flat"
     $btnSyncNode.FlatAppearance.BorderSize = 0
-    $btnSyncNode.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#5bc0de")
+    $btnSyncNode.BackColor = Get-Theme 'AccentBlue'
     $btnSyncNode.ForeColor = "White"
-    $btnSyncNode.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnSyncNode.Font = Get-UIFont 'Segoe UI' 9 'Bold'
     $btnSyncNode.Cursor = "Hand"
     $btnSyncNode.Visible = $false
     $ttSync = New-Object System.Windows.Forms.ToolTip
@@ -420,9 +420,9 @@ public class WikiScrollNative {
     $btnSyncAll.Location = New-Object System.Drawing.Point(($navToolbar.Width - 270), 5)
     $btnSyncAll.FlatStyle = "Flat"
     $btnSyncAll.FlatAppearance.BorderSize = 0
-    $btnSyncAll.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#17a2b8") 
+    $btnSyncAll.BackColor = Get-Theme 'AccentBlue' 
     $btnSyncAll.ForeColor = "White"
-    $btnSyncAll.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnSyncAll.Font = Get-UIFont 'Segoe UI' 9 'Bold'
     $btnSyncAll.Cursor = "Hand"
     $btnSyncAll.Visible = $false
     $ttSync.SetToolTip($btnSyncAll, "Overwrite ALL local data with online data")
@@ -435,9 +435,9 @@ public class WikiScrollNative {
     $btnSmartSync.Location = New-Object System.Drawing.Point(($navToolbar.Width - 370), 5)
     $btnSmartSync.FlatStyle = "Flat"
     $btnSmartSync.FlatAppearance.BorderSize = 0
-    $btnSmartSync.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#20c997")
+    $btnSmartSync.BackColor = Get-Theme 'StatusActive'
     $btnSmartSync.ForeColor = "White"
-    $btnSmartSync.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnSmartSync.Font = Get-UIFont 'Segoe UI' 9 'Bold'
     $btnSmartSync.Cursor = "Hand"
     $btnSmartSync.Visible = $false
     $ttSync.SetToolTip($btnSmartSync, "Merge online data into local wiki (Adds missing nodes, keeps your changes)")
@@ -450,9 +450,9 @@ public class WikiScrollNative {
     $btnDelete.Location = New-Object System.Drawing.Point(($navToolbar.Width - 460), 5)
     $btnDelete.FlatStyle = "Flat"
     $btnDelete.FlatAppearance.BorderSize = 0
-    $btnDelete.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#d9534f")
+    $btnDelete.BackColor = Get-Theme 'AccentDanger'
     $btnDelete.ForeColor = "White"
-    $btnDelete.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnDelete.Font = Get-UIFont 'Segoe UI' 9 'Bold'
     $btnDelete.Cursor = "Hand"
     $btnDelete.Visible = $false
     $navToolbar.Controls.Add($btnDelete) | Out-Null
@@ -464,9 +464,9 @@ public class WikiScrollNative {
     $btnAdd.Location = New-Object System.Drawing.Point(($navToolbar.Width - 550), 5)
     $btnAdd.FlatStyle = "Flat"
     $btnAdd.FlatAppearance.BorderSize = 0
-    $btnAdd.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#0078d7")
+    $btnAdd.BackColor = Get-Theme 'AccentBlue'
     $btnAdd.ForeColor = "White"
-    $btnAdd.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnAdd.Font = Get-UIFont 'Segoe UI' 9 'Bold'
     $btnAdd.Cursor = "Hand"
     $btnAdd.Visible = $false
     $navToolbar.Controls.Add($btnAdd) | Out-Null
@@ -484,7 +484,7 @@ public class WikiScrollNative {
     $chkEdit.BackColor = $Theme.Background
     $chkEdit.ForeColor = $Theme.SubTextColor
     $chkEdit.TextAlign = 'MiddleCenter'
-    $chkEdit.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $chkEdit.Font = Get-UIFont 'Segoe UI' 9 'Bold'
     $chkEdit.Cursor = "Hand"
     $navToolbar.Controls.Add($chkEdit) | Out-Null
 
@@ -501,14 +501,14 @@ public class WikiScrollNative {
     $chkViewMode.BackColor = $Theme.Background
     $chkViewMode.ForeColor = $Theme.SubTextColor
     $chkViewMode.TextAlign = 'MiddleCenter'
-    $chkViewMode.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $chkViewMode.Font = Get-UIFont 'Segoe UI' 9 'Bold'
     $chkViewMode.Cursor = "Hand"
     $navToolbar.Controls.Add($chkViewMode) | Out-Null
 
     $lblContentTitle = New-Object System.Windows.Forms.Label
     $lblContentTitle.Location = New-Object System.Drawing.Point(25, 80)
     $lblContentTitle.Size = New-Object System.Drawing.Size(700, 45)
-    $lblContentTitle.Font = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
+    $lblContentTitle.Font = Get-UIFont 'Segoe UI' 18 'Bold'
     $lblContentTitle.ForeColor = $Theme.TextColor
     $lblContentTitle.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
     $lblContentTitle.Text = "Welcome"
@@ -527,7 +527,7 @@ public class WikiScrollNative {
     $btnOpenLink.FlatAppearance.BorderSize = 0
     $btnOpenLink.BackColor = $Theme.AccentColor
     $btnOpenLink.ForeColor = "White"
-    $btnOpenLink.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnOpenLink.Font = Get-UIFont 'Segoe UI' 9 'Bold'
     $btnOpenLink.Cursor = "Hand"
     $btnOpenLink.Visible = $false
     $btnPanel.Controls.Add($btnOpenLink) | Out-Null
@@ -540,7 +540,7 @@ public class WikiScrollNative {
     $btnCopyLink.FlatAppearance.BorderColor = $Theme.SubTextColor
     $btnCopyLink.BackColor = $Theme.Background
     $btnCopyLink.ForeColor = $Theme.SubTextColor
-    $btnCopyLink.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $btnCopyLink.Font = Get-UIFont 'Segoe UI' 9 'Bold'
     $btnCopyLink.Cursor = "Hand"
     $btnCopyLink.Visible = $false
     $btnCopyLink.Margin = New-Object System.Windows.Forms.Padding(10, 0, 0, 0)
@@ -602,8 +602,7 @@ public class WikiScrollNative {
 		$currentNode.Tag = $nodeData
 		$currentNode.Name = $nodeName
         
-        $currentNode | Add-Member -MemberType NoteProperty -Name "WikiMeta" -Value @{ Parent = $ParentData; Key = $Key } -Force
-        
+		
 		$hasMatches = $false
 		$childFound = $false
 
@@ -687,11 +686,13 @@ public class WikiScrollNative {
 		}
 
 		if ($childFound -and ($hasMatches -or $selfMatches)) {
+			$currentNode | Add-Member -MemberType NoteProperty -Name "WikiMeta" -Value @{ Parent = $ParentData; Key = $Key } -Force
 			$parentNode.Nodes.Add($currentNode) | Out-Null
 			if ($isFiltering -or ($nodeName -in 'Home','Equipment Progression')) { $currentNode.Expand() }
 			return $true
 		}
 		elseif (-not $childFound -and ($hasMatches -or $selfMatches)) { 
+			$currentNode | Add-Member -MemberType NoteProperty -Name "WikiMeta" -Value @{ Parent = $ParentData; Key = $Key } -Force
 			$parentNode.Nodes.Add($currentNode) | Out-Null
 			return $true
 		}
@@ -721,6 +722,21 @@ public class WikiScrollNative {
 			$Tree.EndUpdate()
 		}
 	}.GetNewClosure()
+
+	$searchDebounceTimer = New-Object System.Windows.Forms.Timer
+	$searchDebounceTimer.Interval = 250
+	$Disposables.Add($searchDebounceTimer)
+	$searchDebounceTimer.Add_Tick({
+			try
+			{
+				$searchDebounceTimer.Stop()
+				$txt = $searchBox.Text
+				if ($txt -eq 'Search...') { return }
+				$data = $form.Tag
+				& $PopulateTree $txt $data $treeView
+			}
+			catch {}
+		}.GetNewClosure())
 
     $webDescription.Add_Navigating({
         param($s, $e)
@@ -1331,7 +1347,7 @@ $htmlContent
                 if ($curr.WikiMeta) {
                     $path.Insert(0, $curr.WikiMeta.Key)
                 } else {
-                    if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Error" "Node is missing metadata." "Error" }
+                    if (Test-DashboardCommand 'ShowToast') { ShowToast "Error" "Node is missing metadata." "Error" }
                     return
                 }
                 $curr = $curr.Parent
@@ -1367,7 +1383,7 @@ $htmlContent
             }
 
             if (-not $found -or $null -eq $onlineNodeData) {
-                if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Sync Error" "Could not find corresponding node in online data." "Warning" }
+                if (Test-DashboardCommand 'ShowToast') { ShowToast "Sync Error" "Could not find corresponding node in online data." "Warning" }
                 return
             }
 
@@ -1410,9 +1426,9 @@ $htmlContent
             $btnSave.PerformClick()
             & $RefreshContent
             
-            if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Synced" "Node synced with online version." "Info" }
+            if (Test-DashboardCommand 'ShowToast') { ShowToast "Synced" "Node synced with online version." "Info" }
         } catch {
-            if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Sync Error" "An error occurred during sync: $_" "Error" }
+            if (Test-DashboardCommand 'ShowToast') { ShowToast "Sync Error" "An error occurred during sync: $_" "Error" }
         }
     }.GetNewClosure())
 
@@ -1432,7 +1448,7 @@ $htmlContent
 
             $performSyncAll = {
                 try {
-                    if (Get-Command CloseToast -ErrorAction SilentlyContinue) { CloseToast -Key $confirmKey }
+                    if (Test-DashboardCommand 'CloseToast') { CloseToast -Key $confirmKey }
 
                     $onlineJson = $targetState['OnlineData'] | ConvertTo-Json -Depth 20
                     $newData = $onlineJson | ConvertFrom-Json
@@ -1445,20 +1461,20 @@ $htmlContent
                         & $targetPopulate $null $newData $targetTree
                     }
                     
-                    if (Get-Command ShowToast -Ea SilentlyContinue) { 
+                    if (Test-DashboardCommand 'ShowToast') { 
                         ShowToast -Title "Sync Complete" -Message "Local wiki completely overwritten with online data." -Type "Success" 
                     } else { 
                         [System.Windows.Forms.MessageBox]::Show("Local wiki synced with online version!") | Out-Null 
                     }
                 } catch {
-                     if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Sync Error" "Error: $_" "Error" }
+                     if (Test-DashboardCommand 'ShowToast') { ShowToast "Sync Error" "Error: $_" "Error" }
                      else { [System.Windows.Forms.MessageBox]::Show("Error: $_") | Out-Null }
                 }
             }.GetNewClosure()
 
             $msg = "Are you sure you want to overwrite your ENTIRE local wiki with the online version?`n`nAll local custom edits will be lost."
             
-            if (Get-Command ShowInteractiveNotification -ErrorAction SilentlyContinue) {
+            if (Test-DashboardCommand 'ShowInteractiveNotification') {
                 $btns = @( @{ Text = "Yes, Overwrite"; Action = $performSyncAll }, @{ Text = "Cancel"; Action = { CloseToast -Key $confirmKey }.GetNewClosure() } )
                 ShowInteractiveNotification -Title "Confirm Full Sync" -Message $msg -Buttons $btns -Type "Warning" -Key $confirmKey -TimeoutSeconds 15
             } else {
@@ -1491,99 +1507,7 @@ $htmlContent
 
             $performSmartSync = {
                 try {
-                    if (Get-Command CloseToast -ErrorAction SilentlyContinue) { CloseToast -Key $confirmKey }
-
-                    $MergeLogic = {
-                        param($L, $O)
-                        if ($null -eq $O) { return }
-                        
-                        $oKeys = & $targetGetKeys $O
-                        foreach ($k in $oKeys) {
-                            if ($k -in 'meta','description','url','URL','note') { continue }
-                            
-                            $lHas = $false
-                            $lVal = $null
-                            
-                            if ($L -is [System.Collections.IDictionary]) {
-                                if ($L.Contains($k)) { $lHas = $true; $lVal = $L[$k] }
-                            } elseif ($L.PSObject) {
-                                if ($L.PSObject.Properties[$k]) { $lHas = $true; $lVal = $L.$k }
-                            }
-                            
-                            $oVal = if ($O -is [System.Collections.IDictionary]) { $O[$k] } else { $O.$k }
-                            
-                            if (-not $lHas) {
-                                $clone = $oVal | ConvertTo-Json -Depth 20 -Compress | ConvertFrom-Json
-                                if ($L -is [System.Collections.IDictionary]) { $L[$k] = $clone }
-                                else { $L | Add-Member -MemberType NoteProperty -Name $k -Value $clone -Force }
-                            } else {
-                                $lIsCont = ($lVal -is [System.Collections.IDictionary] -or $lVal -is [System.Management.Automation.PSCustomObject])
-                                $oIsCont = ($oVal -is [System.Collections.IDictionary] -or $oVal -is [System.Management.Automation.PSCustomObject])
-                                if ($lIsCont -and $oIsCont) {
-                                    & $MergeLogic $lVal $oVal
-                                }
-                            }
-                        }
-                    }
-
-                    & $MergeLogic $local $online
-                    
-                    $json = $local | ConvertTo-Json -Depth 20
-                    $json | Set-Content -Path $targetPath -Encoding UTF8 -Force
-                    
-                    if (-not $targetViewMode.Checked) {
-                        $targetForm.Tag = $local
-                        & $targetPopulate $null $local $targetTree
-                    }
-
-                    if (Get-Command ShowToast -Ea SilentlyContinue) { 
-                        ShowToast -Title "Smart Sync Complete" -Message "Missing nodes added from online wiki." -Type "Success" 
-                    } else { 
-                        [System.Windows.Forms.MessageBox]::Show("Smart Sync Complete!") | Out-Null 
-                    }
-
-                } catch {
-                     if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Sync Error" "Error: $_" "Error" }
-                     else { [System.Windows.Forms.MessageBox]::Show("Error: $_") | Out-Null }
-                }
-            }.GetNewClosure()
-
-            $msg = "Smart Sync will add any missing pages/categories from the online wiki to your local wiki.`n`nYour existing pages will NOT be overwritten.`n`nProceed?"
-            
-            if (Get-Command ShowInteractiveNotification -ErrorAction SilentlyContinue) {
-                $btns = @( @{ Text = "Start Sync"; Action = $performSmartSync }, @{ Text = "Cancel"; Action = { CloseToast -Key $confirmKey }.GetNewClosure() } )
-                ShowInteractiveNotification -Title "Confirm Smart Sync" -Message $msg -Buttons $btns -Type "Info" -Key $confirmKey -TimeoutSeconds 15
-            } else {
-                if ([System.Windows.Forms.MessageBox]::Show($msg, "Confirm Smart Sync", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Information) -eq 'Yes') { 
-                    & $performSmartSync 
-                }
-            }
-        } catch {
-            [System.Windows.Forms.MessageBox]::Show("Error initiating sync: $_") | Out-Null
-        }
-    }.GetNewClosure())
-
-    $btnSmartSync.Add_Click({
-        try {
-            $online = $WikiState['OnlineData']
-            if ($null -eq $online) { return }
-            
-            $local = $WikiState['LocalData']
-            if ($null -eq $local) { return }
-
-            $confirmKey = "WikiSmartSync".GetHashCode()
-            
-            $targetPath = $LocalWikiPath
-            $targetForm = $form
-            $targetState = $WikiState
-            $targetTree = $treeView
-            $targetPopulate = $PopulateTree
-            $targetViewMode = $chkViewMode
-            $targetGetKeys = $getKeys
-
-            $performSmartSync = {
-                try {
-                    if (Get-Command CloseToast -ErrorAction SilentlyContinue) { CloseToast -Key $confirmKey }
+                    if (Test-DashboardCommand 'CloseToast') { CloseToast -Key $confirmKey }
 
                     $MergeLogic = {
                         param($L, $O)
@@ -1645,21 +1569,21 @@ $htmlContent
                         & $targetPopulate $null $local $targetTree
                     }
 
-                    if (Get-Command ShowToast -Ea SilentlyContinue) { 
+                    if (Test-DashboardCommand 'ShowToast') { 
                         ShowToast -Title "Smart Sync Complete" -Message "Missing nodes added. Conflicts saved as '(Online)'." -Type "Success" 
                     } else { 
                         [System.Windows.Forms.MessageBox]::Show("Smart Sync Complete!") | Out-Null 
                     }
 
                 } catch {
-                     if (Get-Command ShowToast -Ea SilentlyContinue) { ShowToast "Sync Error" "Error: $_" "Error" }
+                     if (Test-DashboardCommand 'ShowToast') { ShowToast "Sync Error" "Error: $_" "Error" }
                      else { [System.Windows.Forms.MessageBox]::Show("Error: $_") | Out-Null }
                 }
             }.GetNewClosure()
 
             $msg = "Smart Sync will merge online data.`n`n1. Missing nodes will be added.`n2. Nodes with different content will be added as 'Node (Online)'.`n`nYour existing data will NOT be overwritten.`n`nProceed?"
             
-            if (Get-Command ShowInteractiveNotification -ErrorAction SilentlyContinue) {
+            if (Test-DashboardCommand 'ShowInteractiveNotification') {
                 $btns = @( @{ Text = "Start Sync"; Action = $performSmartSync }, @{ Text = "Cancel"; Action = { CloseToast -Key $confirmKey }.GetNewClosure() } )
                 ShowInteractiveNotification -Title "Confirm Smart Sync" -Message $msg -Buttons $btns -Type "Info" -Key $confirmKey -TimeoutSeconds 15
             } else {
@@ -1795,18 +1719,31 @@ $htmlContent
 			{
 				$txt = $this.Text
 				if ($txt -eq 'Search...') { return }
-				$data = $form.Tag
-				& $PopulateTree $txt $data $treeView
+				$searchDebounceTimer.Stop()
+				$searchDebounceTimer.Start()
+			}
+			catch {}
+	}.GetNewClosure())
+	$searchBox.Add_KeyDown({
+			try
+			{
+				if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Enter)
+				{
+					$searchDebounceTimer.Stop()
+					$txt = $this.Text
+					if ($txt -ne 'Search...') { & $PopulateTree $txt $form.Tag $treeView }
+				}
 			}
 			catch {}
 	}.GetNewClosure())
 
+
 	$searchBox.Add_GotFocus({ 
-			try { if ($this.Text -eq 'Search...') { $this.Text = ''; $this.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#ffffff') } } catch {}
+			try { if ($this.Text -eq 'Search...') { $this.Text = ''; $this.ForeColor = Get-Theme 'WhiteText' } } catch {}
 	}.GetNewClosure())
     
 	$searchBox.Add_LostFocus({ 
-			try { if ($this.Text -eq '') { $this.Text = 'Search...'; $this.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#a0a5b0') } } catch {}
+			try { if ($this.Text -eq '') { $this.Text = 'Search...'; $this.ForeColor = Get-Theme 'HeaderSubtitleText' } } catch {}
 	}.GetNewClosure())
 
     $treeView.Add_NodeMouseClick({
@@ -1910,7 +1847,7 @@ $htmlContent
                 elseif ($parent.PSObject) { $exists = $null -ne $parent.PSObject.Properties[$newTitle] }
                 
                 if ($exists) {
-                    if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "Rename Error" -Message "A key with the name '$newTitle' already exists." -Type "Warning" }
+                    if (Test-DashboardCommand 'ShowToast') { ShowToast -Title "Rename Error" -Message "A key with the name '$newTitle' already exists." -Type "Warning" }
                     else { [System.Windows.Forms.MessageBox]::Show("A key with the name '$newTitle' already exists.", "Rename Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null }
                     return
                 }
@@ -1989,7 +1926,7 @@ $htmlContent
             $json = $currentForm.Tag | ConvertTo-Json -Depth 20
             $json | Set-Content -Path $LocalWikiPath -Encoding UTF8 -Force
             
-            if (Get-Command ShowToast -ErrorAction SilentlyContinue) {
+            if (Test-DashboardCommand 'ShowToast') {
                 ShowToast -Title "Wiki Saved" -Message "Changes saved successfully." -Type "Info" -TimeoutSeconds 2
             }
             else { [System.Windows.Forms.MessageBox]::Show("Wiki saved successfully!") | Out-Null }
@@ -2008,7 +1945,7 @@ $htmlContent
             $siblingCount = if ($node.Parent) { $node.Parent.Nodes.Count } else { $treeView.Nodes.Count }
             
             if ($siblingCount -le 1) {
-                if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "Action Blocked" -Message "Cannot delete the last item. Please add another item first." -Type "Warning" }
+                if (Test-DashboardCommand 'ShowToast') { ShowToast -Title "Action Blocked" -Message "Cannot delete the last item. Please add another item first." -Type "Warning" }
                 return
             }
 
@@ -2019,7 +1956,7 @@ $htmlContent
 
             $performDelete = {
                 try {
-                    if (Get-Command CloseToast -ErrorAction SilentlyContinue) { CloseToast -Key $nKey }
+                    if (Test-DashboardCommand 'CloseToast') { CloseToast -Key $nKey }
 
                     $parent = $meta.Parent
                     $key = $meta.Key
@@ -2033,19 +1970,19 @@ $htmlContent
                     $json = $targetForm.Tag | ConvertTo-Json -Depth 20
                     $json | Set-Content -Path $targetPath -Encoding UTF8 -Force
                     
-                    if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "Deleted" -Message "Item deleted successfully." -Type "Info" }
+                    if (Test-DashboardCommand 'ShowToast') { ShowToast -Title "Deleted" -Message "Item deleted successfully." -Type "Info" }
                     else { [System.Windows.Forms.MessageBox]::Show("Item deleted successfully.") | Out-Null }
                 } catch {}
             }.GetNewClosure()
 
-            if (Get-Command ShowInteractiveNotification -ErrorAction SilentlyContinue) {
+            if (Test-DashboardCommand 'ShowInteractiveNotification') {
                 $btns = @( @{ Text = "Yes"; Action = $performDelete }, @{ Text = "No"; Action = { CloseToast -Key $nKey }.GetNewClosure() } )
                 ShowInteractiveNotification -Title "Confirm Delete" -Message "Are you sure you want to delete '$($node.Text)'?" -Buttons $btns -Type "Warning" -Key $nKey -TimeoutSeconds 10
             } else {
                 if ([System.Windows.Forms.MessageBox]::Show("Are you sure you want to delete '$($node.Text)'?", "Confirm Delete", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning) -eq 'Yes') { & $performDelete }
             }
         } catch { 
-            if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "Error" -Message "Error: $_" -Type "Error" }
+            if (Test-DashboardCommand 'ShowToast') { ShowToast -Title "Error" -Message "Error: $_" -Type "Error" }
             else { }
         }
     }.GetNewClosure())
@@ -2066,7 +2003,7 @@ $htmlContent
             $itemSibling = $cms.Items.Add("Add Sibling")
             $itemSibling.Add_Click({
                 try {
-                    $name = $askName
+                    $name = &$askName
                     if ([string]::IsNullOrWhiteSpace($name)) { return }
                     
                     $null = $parentData; $parentData = $null
@@ -2086,7 +2023,7 @@ $htmlContent
                     else { $exists = $null -ne $collection.PSObject.Properties[$name] }
 
                     if ($exists) { 
-                        if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "Add Error" -Message "Item '$name' already exists." -Type "Warning" }
+                        if (Test-DashboardCommand 'ShowToast') { ShowToast -Title "Add Error" -Message "Item '$name' already exists." -Type "Warning" }
                         else { [System.Windows.Forms.MessageBox]::Show("Item '$name' already exists.") | Out-Null }
                         return 
                     }
@@ -2137,7 +2074,7 @@ $htmlContent
                     else { $exists = $null -ne $container.PSObject.Properties[$name] }
 
                     if ($exists) { 
-                        if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "Add Error" -Message "Item '$name' already exists." -Type "Warning" }
+                        if (Test-DashboardCommand 'ShowToast') { ShowToast -Title "Add Error" -Message "Item '$name' already exists." -Type "Warning" }
                         else { [System.Windows.Forms.MessageBox]::Show("Item '$name' already exists.") | Out-Null }
                         return 
                     }
@@ -2176,7 +2113,7 @@ $htmlContent
                     else { $exists = $null -ne $collection.PSObject.Properties[$name] }
 
                     if ($exists) { 
-                        if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "Add Error" -Message "Item '$name' already exists." -Type "Warning" }
+                        if (Test-DashboardCommand 'ShowToast') { ShowToast -Title "Add Error" -Message "Item '$name' already exists." -Type "Warning" }
                         else { [System.Windows.Forms.MessageBox]::Show("Item '$name' already exists.") | Out-Null }
                         return 
                     }
@@ -2230,7 +2167,7 @@ $htmlContent
                     $pNode = $node.Parent; $nodesColl = if ($pNode) { $pNode.Nodes } else { $tv.Nodes }
                     $index = $node.Index; $nodesColl.RemoveAt($index); $nodesColl.Insert($index - 1, $node); $tv.SelectedNode = $node
                     $btnSave.PerformClick()
-                } catch { if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "Move Error" -Message "Error moving up: $_" -Type "Error" } }
+                } catch { if (Test-DashboardCommand 'ShowToast') { ShowToast -Title "Move Error" -Message "Error moving up: $_" -Type "Error" } }
             }.GetNewClosure())
 
             $itemMoveDown = $cms.Items.Add("Move Down")
@@ -2264,14 +2201,14 @@ $htmlContent
                     $pNode = $node.Parent; $nodesColl = if ($pNode) { $pNode.Nodes } else { $tv.Nodes }
                     $index = $node.Index; $nodesColl.RemoveAt($index); $nodesColl.Insert($index + 1, $node); $tv.SelectedNode = $node
                     $btnSave.PerformClick()
-                } catch { if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "Move Error" -Message "Error moving down: $_" -Type "Error" } }
+                } catch { if (Test-DashboardCommand 'ShowToast') { ShowToast -Title "Move Error" -Message "Error moving down: $_" -Type "Error" } }
             }.GetNewClosure())
 
             $cms.Items.Add("-") | Out-Null
 
             $cms.Show($btnAdd, 0, $btnAdd.Height)
         } catch { 
-            if (Get-Command ShowToast -ErrorAction SilentlyContinue) { ShowToast -Title "Error" -Message "Error showing menu: $_" -Type "Error" }
+            if (Test-DashboardCommand 'ShowToast') { ShowToast -Title "Error" -Message "Error showing menu: $_" -Type "Error" }
             else { [System.Windows.Forms.MessageBox]::Show("Error showing menu: $_") | Out-Null }
         }
     }.GetNewClosure())
@@ -2301,7 +2238,7 @@ $htmlContent
 		$gripSize = 6
 		
 		$pBot = New-Object System.Windows.Forms.Panel
-		$pBot.Dock = 'Bottom'; $pBot.Height = $gripSize; $pBot.Cursor = 'SizeNS'; $pBot.BackColor = [System.Drawing.Color]::Transparent
+		$pBot.Dock = 'Bottom'; $pBot.Height = $gripSize; $pBot.Cursor = 'SizeNS'; $pBot.BackColor = Get-Theme 'Transparent'
 		$pBot.Add_MouseDown({ param($s, $e) if ($e.Button -eq 'Left') {
 			[Custom.Native]::ReleaseCapture(); $frm = $s.FindForm()
 			if ($frm) {
@@ -2316,7 +2253,7 @@ $htmlContent
 		$f.Controls.Add($pBot); $pBot.SendToBack()
 
 		$pTop = New-Object System.Windows.Forms.Panel
-		$pTop.Dock = 'Top'; $pTop.Height = $gripSize; $pTop.Cursor = 'SizeNS'; $pTop.BackColor = [System.Drawing.Color]::Transparent
+		$pTop.Dock = 'Top'; $pTop.Height = $gripSize; $pTop.Cursor = 'SizeNS'; $pTop.BackColor = Get-Theme 'Transparent'
 		$pTop.Add_MouseDown({ param($s, $e) if ($e.Button -eq 'Left') {
 			[Custom.Native]::ReleaseCapture(); $frm = $s.FindForm()
 			if ($frm) {
@@ -2331,7 +2268,7 @@ $htmlContent
 		$f.Controls.Add($pTop); $pTop.SendToBack()
 
 		$pLeft = New-Object System.Windows.Forms.Panel
-		$pLeft.Dock = 'Left'; $pLeft.Width = $gripSize; $pLeft.Cursor = 'SizeWE'; $pLeft.BackColor = [System.Drawing.Color]::Transparent
+		$pLeft.Dock = 'Left'; $pLeft.Width = $gripSize; $pLeft.Cursor = 'SizeWE'; $pLeft.BackColor = Get-Theme 'Transparent'
 		$pLeft.Add_MouseDown({ param($s, $e) if ($e.Button -eq 'Left') {
 			[Custom.Native]::ReleaseCapture(); $frm = $s.FindForm()
 			if ($frm) { [Custom.Native]::SendMessage($frm.Handle, 0xA1, 10, 0) }
@@ -2339,7 +2276,7 @@ $htmlContent
 		$f.Controls.Add($pLeft); $pLeft.SendToBack()
 
 		$pRight = New-Object System.Windows.Forms.Panel
-		$pRight.Dock = 'Right'; $pRight.Width = $gripSize; $pRight.Cursor = 'SizeWE'; $pRight.BackColor = [System.Drawing.Color]::Transparent
+		$pRight.Dock = 'Right'; $pRight.Width = $gripSize; $pRight.Cursor = 'SizeWE'; $pRight.BackColor = Get-Theme 'Transparent'
 		$pRight.Add_MouseDown({ param($s, $e) if ($e.Button -eq 'Left') {
 			[Custom.Native]::ReleaseCapture(); $frm = $s.FindForm()
 			if ($frm) { [Custom.Native]::SendMessage($frm.Handle, 0xA1, 11, 0) }
@@ -2380,7 +2317,7 @@ $htmlContent
 				$global:DashboardConfig.Config['WindowPosition']['WikiFormWidth'] = $this.Width
 				$global:DashboardConfig.Config['WindowPosition']['WikiFormHeight'] = $this.Height
             
-				if (Get-Command WriteConfig -ErrorAction SilentlyContinue) { WriteConfig }
+				if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
 			}
 
 			try {
@@ -2497,6 +2434,7 @@ $htmlContent
         $pollTimer.Start()
 	}.GetNewClosure())
 
+	Register-OpenForm $form
 	$form.Show() | Out-Null
 
 }

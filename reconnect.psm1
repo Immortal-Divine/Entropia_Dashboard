@@ -1,4 +1,4 @@
-<# reconnect.psm1 #>
+﻿<# reconnect.psm1 #>
 
 #region Global Configuration & State Wrapper
 
@@ -140,7 +140,7 @@ function SleepWithCancel
 
 function EnsureWindowResponsive
 {
-	if ($Global:CurrentActiveProcessId -eq 0) { return }
+	if (-not $Global:CurrentActiveProcessId) { return }
 	$proc = Get-Process -Id $Global:CurrentActiveProcessId -ErrorAction SilentlyContinue
 	if (-not $proc) { throw "Process with ID $Global:CurrentActiveProcessId has terminated." }
 
@@ -174,7 +174,6 @@ function EnsureWindowState
 		$fg = [Custom.Native]::GetForegroundWindow()
 		if ($fg -ne $hWnd)
 		{
-			[Custom.Native]::SetForegroundWindow($hWnd)
 			if (-not [Custom.Native]::SetForegroundWindow($hWnd))
 			{
 				[Custom.Native]::keybd_event(0x12, 0, 0, [IntPtr]::Zero)
@@ -322,6 +321,39 @@ function ReportLoginProgress
 	Write-Information -MessageData @{ Text = $msg; Percent = $pct } -Tags 'LoginStatus'
 }
 
+function Get-ClientReconnectDecision
+{
+	[CmdletBinding()]
+	param(
+		[string]$ProfileName,
+		[string]$ClientName
+	)
+
+	try
+	{
+		$config = $global:DashboardConfig.Config
+		if (-not $config -or [string]::IsNullOrWhiteSpace($ProfileName) -or [string]::IsNullOrWhiteSpace($ClientName)) { return $null }
+		if (-not $config.Contains('RememberedClients')) { return $null }
+
+		$section = $config['RememberedClients']
+		if (-not $section) { return $null }
+
+		foreach ($key in @($section.Keys))
+		{
+			$parts = [string]$key -split '\|', 2
+			if ($parts.Count -ne 2) { continue }
+			if (-not ($parts[0] -ieq $ProfileName -and $parts[1] -ieq $ClientName)) { continue }
+
+			$tokens = @(([string]$section[$key]) -split ',')
+			if ($tokens.Count -gt 3) { return ($tokens[3].Trim() -eq '1') }
+			return $null
+		}
+	}
+	catch { }
+
+	return $null
+}
+
 function IsProfileAutoReconnectEnabled
 {
 	param(
@@ -332,14 +364,20 @@ function IsProfileAutoReconnectEnabled
 	if ($ProfileName)
 	{
 		$pClean = $ProfileName
-		if ($pClean -match '\[(?<pName>.*?)\]') { $pClean = $Matches['pName'] }
-
-		$rp = if ($global:DashboardConfig.Config.Contains('ReconnectProfiles')) { $global:DashboardConfig.Config['ReconnectProfiles'] } else { $null }
-		if ($rp)
+		$cClean = ''
+		if ($ProfileName -match '^\[(?<pName>[^\]]+)\](?<rest>.*)')
 		{
-			if ($rp -is [System.Collections.Hashtable]) { return ($rp.ContainsKey($ProfileName) -or $rp.ContainsKey($pClean)) }
-			return ($rp.Contains($ProfileName) -or $rp.Contains($pClean))
+			$pClean = $Matches['pName']
+			$cClean = ([string]$Matches['rest']).Trim()
 		}
+		elseif ($ProfileName -match '\[(?<pName>.*?)\]')
+		{
+			$pClean = $Matches['pName']
+			$cClean = ([string]($ProfileName -replace '^\[.*?\]', '')).Trim()
+		}
+
+		$decision = Get-ClientReconnectDecision -ProfileName $pClean -ClientName $cClean
+		if ($null -ne $decision) { return $decision }
 		return $false
 	}
 
@@ -431,16 +469,7 @@ function StartDisconnectWatcher
 								$pName = $m['pName']; $wTitle = $m['rest'] 
 							}
 							
-							$isProfileAutoReconnect = $false
-							$rp = $global:DashboardConfig.Config['ReconnectProfiles']
-							if ($rp)
-							{
-								$pClean = $profileName
-								if ($pClean -match '\[(?<pName>.*?)\]') { $pClean = $Matches['pName'] }
-								if ($rp -is [System.Collections.Hashtable]) { if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true } } 
-								elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
-							}
-							$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
+							$autoRecFlag = if (IsProfileAutoReconnectEnabled -ProfileName $profileName) { 'Yes' } else { 'No' }
 							$details = "Profile: $pName | Title: $wTitle`nPID: $sPid | Proc: $($proc.Name)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 						}
 						
@@ -551,12 +580,12 @@ function StartDisconnectWatcher
 								$global:DashboardConfig.State.ScheduledReconnects.Remove($pidInt)
 							}
 							
-							if ($row.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::DarkRed -or $row.DefaultCellStyle.BackColor -eq [System.Drawing.Color]::Orange)
+							if ($row.DefaultCellStyle.BackColor -eq (Get-Theme 'StatusDisconnected') -or $row.DefaultCellStyle.BackColor -eq (Get-Theme 'StatusFlashing'))
 							{
-								$row.DefaultCellStyle.BackColor = [System.Drawing.Color]::Empty
-								$row.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Empty
-								$row.DefaultCellStyle.SelectionBackColor = [System.Drawing.Color]::Empty
-								$row.DefaultCellStyle.SelectionForeColor = [System.Drawing.Color]::Empty
+								$row.DefaultCellStyle.BackColor = Get-Theme 'Empty'
+								$row.DefaultCellStyle.ForeColor = Get-Theme 'Empty'
+								$row.DefaultCellStyle.SelectionBackColor = Get-Theme 'Empty'
+								$row.DefaultCellStyle.SelectionForeColor = Get-Theme 'Empty'
 							}
 
 							CloseToast -Key $pidInt
@@ -574,22 +603,7 @@ function StartDisconnectWatcher
 						if ($global:DashboardConfig.State.ReconnectQueue.Contains($pidInt)) { continue }
 						if ($global:DashboardConfig.State.ScheduledReconnects.ContainsKey($pidInt)) { continue }
 
-						$isProfileAutoReconnect = $false
-						$rp = $global:DashboardConfig.Config['ReconnectProfiles']
-						if ($rp)
-						{
-							$pClean = $profileName
-							if ($pClean -match '\[(?<pName>.*?)\]') { $pClean = $Matches['pName'] }
-
-							if ($rp -is [System.Collections.Hashtable])
-							{
-								if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true }
-							}
-							elseif ($rp.Contains($profileName) -or $rp.Contains($pClean))
-							{
-								$isProfileAutoReconnect = $true
-							}
-						}
+						$isProfileAutoReconnect = IsProfileAutoReconnectEnabled -ProfileName $profileName
 
 						$isFocused = $false
 						try
@@ -615,7 +629,7 @@ function StartDisconnectWatcher
 
 						$WasInGame.Remove($pidInt)
 						$global:DashboardConfig.State.FlashingPids[$pidInt] = $true
-						$row.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Black
+						$row.DefaultCellStyle.ForeColor = Get-Theme 'StatusDisconnectedText'
 
 						$pName = 'Default'; $wTitle = $profileName
 						if ($profileName -match '^\[(?<pName>.*?)\](?<rest>.*)') { 
@@ -638,14 +652,14 @@ function StartDisconnectWatcher
 						{
 							if ($isCooldown)
 							{
-								$row.DefaultCellStyle.BackColor = [System.Drawing.Color]::Orange
+								$row.DefaultCellStyle.BackColor = Get-Theme 'StatusFlashing'
 								if (IsProfileAutoReconnectEnabled -Pid $pidInt) {
 									ShowReconnectInteractiveNotification -Title 'Cooldown Active' -Message "Disconnected again. Auto-reconnect paused.`n$details" -Type 'Warning' -RelatedPid $pidInt -TimeoutSeconds 15 -Buttons $btns
 								}
 							}
 							else
 							{
-								$row.DefaultCellStyle.BackColor = [System.Drawing.Color]::DarkRed
+								$row.DefaultCellStyle.BackColor = Get-Theme 'StatusDisconnected'
 
 								$global:DashboardConfig.State.ScheduledReconnects[$pidInt] = (Get-Date).AddSeconds(15)
 
@@ -656,7 +670,7 @@ function StartDisconnectWatcher
 						}
 						else
 						{
-							$row.DefaultCellStyle.BackColor = [System.Drawing.Color]::DarkRed
+							$row.DefaultCellStyle.BackColor = Get-Theme 'StatusDisconnected'
 							if ($isCooldown)
 							{
 								ShowReconnectInteractiveNotification -Title 'Cooldown Active' -Message "Disconnected again.`n$details" -Type 'Warning' -RelatedPid $pidInt -TimeoutSeconds 15 -Buttons $btns
@@ -718,16 +732,7 @@ function StartDisconnectWatcher
 								$pName = $m['pName']; $wTitle = $m['rest'] 
 							}
 							
-							$isProfileAutoReconnect = $false
-							$rp = $global:DashboardConfig.Config['ReconnectProfiles']
-							if ($rp)
-							{
-								$pClean = $profileName
-								if ($pClean -match '\[(?<pName>.*?)\]') { $pClean = $Matches['pName'] }
-								if ($rp -is [System.Collections.Hashtable]) { if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true } } 
-								elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
-							}
-							$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
+							$autoRecFlag = if (IsProfileAutoReconnectEnabled -ProfileName $profileName) { 'Yes' } else { 'No' }
 							$details = "Profile: $pName | Title: $wTitle`nPID: $cPid | Proc: $($proc.Name)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 						}
 						if (IsProfileAutoReconnectEnabled -Pid $cPid) {
@@ -762,16 +767,7 @@ function StartDisconnectWatcher
 								$pName = $m['pName']; $wTitle = $m['rest'] 
 							}
 							
-							$isProfileAutoReconnect = $false
-							$rp = $global:DashboardConfig.Config['ReconnectProfiles']
-							if ($rp)
-							{
-								$pClean = $profileName
-								if ($pClean -match '\[(?<pName>.*?)\]') { $pClean = $Matches['pName'] }
-								if ($rp -is [System.Collections.Hashtable]) { if ($rp.ContainsKey($profileName) -or $rp.ContainsKey($pClean)) { $isProfileAutoReconnect = $true } } 
-								elseif ($rp.Contains($profileName) -or $rp.Contains($pClean)) { $isProfileAutoReconnect = $true }
-							}
-							$autoRecFlag = if ($isProfileAutoReconnect) { 'Yes' } else { 'No' }
+							$autoRecFlag = if (IsProfileAutoReconnectEnabled -ProfileName $profileName) { 'Yes' } else { 'No' }
 							$details = "Profile: $pName | Title: $wTitle`nPID: $cPid | Proc: $($proc.Name)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 						}
 
@@ -881,15 +877,11 @@ function InvokeReconnectionSequence
 
 	if ($null -eq $Row.Cells -or $Row.Cells.Count -lt 4) { return }
 	$CachedEntryNumber = [int]$Row.Cells[0].Value
-	$CachedProfileName = [string]$Row.Cells[1].Value
-	if ($CachedProfileName -match '\[(?<pName>.*?)\]') { 
-		$m = $Matches
-		$CachedProfileName = $m['pName'] 
-	}
+	$CachedProfileName = ResolveLoginProfileName -Title ([string]$Row.Cells[1].Value) -Process $Row.Tag
 
 	$global:LoginCancellation.IsCancelled = $false
-	$Row.DefaultCellStyle.BackColor = [System.Drawing.Color]::DarkRed
-	$Row.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Black
+	$Row.DefaultCellStyle.BackColor = Get-Theme 'StatusDisconnected'
+	$Row.DefaultCellStyle.ForeColor = Get-Theme 'StatusDisconnectedText'
 
 	$hookCallback = [Custom.MouseHookManager+HookProc] {
 		param($nCode, $wParam, $lParam)
@@ -939,7 +931,10 @@ try
 
 		if (-not $isManuallyForced)
 		{
-			if (-not ($global:DashboardConfig.Config['ReconnectProfiles'] -and $global:DashboardConfig.Config['ReconnectProfiles'].Contains($CachedProfileName)))
+			$rowTitle = $CachedProfileName
+			if ($null -ne $Row.Cells -and $Row.Cells.Count -gt 1 -and $null -ne $Row.Cells[1].Value) { $rowTitle = [string]$Row.Cells[1].Value }
+
+			if (-not (IsProfileAutoReconnectEnabled -ProfileName $rowTitle))
 			{
 				if ($null -ne $Row.Cells -and $Row.Cells.Count -gt 3) { $Row.Cells[3].Value = 'Disconnected' }
 				return
@@ -1133,7 +1128,7 @@ try
 								if ($hWndRef) { $safeHwnd = $hWndRef }
 
 								Write-Verbose "RECONNECT (UI): Invoking LoginSelectedRow for PID $($rowRef.Tag.Id) (Entry=$CachedEntryNumber)"
-								if (Get-Command 'LoginSelectedRow' -ErrorAction SilentlyContinue -Verbose:$False)
+								if (Test-DashboardCommand 'LoginSelectedRow')
 								{ 
 									LoginSelectedRow -RowInput $rowRef -WindowHandle $safeHwnd -LogFilePath $logRef 
 								}
@@ -1144,28 +1139,33 @@ try
 			else
 			{
 				Write-Verbose "RECONNECT: UI not available, invoking LoginSelectedRow directly for PID $PidToReconnect (Entry=$CachedEntryNumber)"
-				if (Get-Command 'LoginSelectedRow' -ErrorAction SilentlyContinue -Verbose:$False) { LoginSelectedRow -RowInput $Row -WindowHandle $hWnd -LogFilePath $logPath }
+				if (Test-DashboardCommand 'LoginSelectedRow') { LoginSelectedRow -RowInput $Row -WindowHandle $hWnd -LogFilePath $logPath }
 			}
 		}
 		catch { Write-Verbose "RECONNECT: Error while scheduling LoginSelectedRow: $_" }
 
 	}
  catch
-	{
-		if ($hWnd -ne [IntPtr]::Zero)
-		{
-			try { [Custom.Native]::ShowWindow($hWnd, 6) } catch {}
-		}
-	}
+ {
+    if ($_.Exception.Message -eq 'LoginCancelled')
+    {
+        Write-Verbose 'RECONNECT: Cancelled by user.'
+        return
+    }
+    if ($hWnd -ne [IntPtr]::Zero)
+    {
+        try { [Custom.Native]::ShowWindow($hWnd, 6) } catch {}
+    }
+ }
  finally
-	{
-		if (-not $hookStopped)
-		{
-			try { [Custom.MouseHookManager]::Stop() } catch {}
-			$global:LoginCancellation.IsCancelled = $false
-		}
-		$script:ReconnectScriptInitiatedMove = $false
-	}
+ {
+    if (-not $hookStopped)
+    {
+        try { [Custom.MouseHookManager]::Stop() } catch {}
+    }
+    $global:LoginCancellation.IsCancelled = $false
+    $script:ReconnectScriptInitiatedMove = $false
+ }
 }
 
 #endregion
