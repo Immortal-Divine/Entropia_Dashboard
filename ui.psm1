@@ -2896,7 +2896,7 @@ function InitializeUI
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; id = 'TitleLabel'; text = 'Entropia Dashboard'; tag = 'Title'; font = (Get-UIFont 'Segoe UI' 8 'Bold') }
 	$titleLabelForm = SetUIElement @p
 
-	$p = @{ type = 'Label'; width = 160; height = 10; top = 16; left = 10; id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v2.9 Beta'; tag = 'Subtitle'; font = (Get-UIFont 'Segoe UI' 6 'Italic') }
+	$p = @{ type = 'Label'; width = 160; height = 10; top = 16; left = 10; id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v3.0'; tag = 'Subtitle'; font = (Get-UIFont 'Segoe UI' 6 'Italic') }
 	$copyrightLabelForm = SetUIElement @p
 
 	$p = @{ type = 'Button'; width = 30; height = 24; top = 3; left = 327; id = 'ThemeToggle'; text = [char]0x25D0; fs = 'Flat'; tag = 'HeaderButton'; font = (Get-UIFont 'Segoe UI' 20 'Bold'); tooltip = "Theme Manager`nOpen theme selector and custom theme editor."; noCustomPaint = $true }
