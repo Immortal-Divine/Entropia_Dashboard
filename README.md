@@ -1,207 +1,198 @@
-
 <p align="center">
-  <a href="" rel="noopener">
- <img width=400px height=500px src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface-start.png" alt="Entropia Dashboard"></a>
+  <a href="https://immortal-divine.github.io/Entropia_Dashboard/" rel="noopener">
+    <img width="430" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface-start.png" alt="Entropia Dashboard 3.0 main window">
+  </a>
 </p>
 
 <h3 align="center">Entropia Dashboard</h3>
 
+<p align="center"><strong>Version 3.0</strong> &middot; a free, open-source Flyff multi-client companion for Windows</p>
+
 <div align="center">
 
-  [![Homepage](https://img.shields.io/badge/Homepage-gray)](https://immortal-divine.github.io/Entropia_Dashboard/) 
-  [![Download](https://img.shields.io/badge/Download-Now-blue)](https://github.com/Immortal-Divine/Entropia_Dashboard/raw/refs/heads/main/Entropia%20Dashboard.exe) 
+  [![Homepage](https://img.shields.io/badge/Homepage-gray)](https://immortal-divine.github.io/Entropia_Dashboard/)
+  [![Download](https://img.shields.io/badge/Download-Now-blue)](https://github.com/Immortal-Divine/Entropia_Dashboard/raw/refs/heads/main/Entropia%20Dashboard.exe)
   [![Donate Ko-fi](https://shields.io/badge/ko--fi-donate-ff5f5f?logo=ko-fi)](https://ko-fi.com/U7U61S0EGT)
-  [![Donate PayPal](https://shields.io/badge/PayPal-donate-0070ba?logo=paypal)](https://www.paypal.me/immortaldivine) 
+  [![Donate PayPal](https://shields.io/badge/PayPal-donate-0070ba?logo=paypal)](https://ko-fi.com/U7U61S0EGT)
 
 </div>
 
 ---
-A powerful, free, and open-source application designed to streamline your Flyff gameplay.
 
-Written in PowerShell, it offers robust client management, automated launch and logins, and a customizable F-Tool/Macro to enhance your efficiency without compromising security. 
-And many more!
+Entropia Dashboard is a free, open-source PowerShell application that takes the repetitive work out of running multiple Flyff clients. It launches and logs in your whole party, keeps profiles and settings separate, reconnects dropped clients, and bundles the tools you actually use while playing: an F-Tool, sequence macros, quick commands, notes, a market journal and the Entropia map.
+
+The screenshots in this README use example profiles, paths and prices, and the dashboard's Custom theme - no real account or character data.
 
 - [About](#about)
+- [What's new in 3.0](#whats-new)
+- [Screenshots](#screenshots)
 - [Getting Started](#getting_started)
+- [Features](#features)
 - [Usage](#usage)
 - [Built Using](#built_using)
 
-## About <a name = "about"></a>
+## About <a name="about"></a>
 
-> Interface
+> Main window - example clients and states
 
-![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/custom-start.png) ![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface.png)
+<p align="center">
+  <img width="470" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/interface.png" alt="Dashboard with example clients">
+</p>
 
-> Settings
+The dashboard lists every detected client with its profile, window title, PID and live state. Select one or more rows, then launch, log in, open a tool or terminate them from the same window. Right-click a row for window actions, saved positions and relog options.
 
-![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/settings-general.png)
-![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/settings-login.png)
-![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/custom-profile.png)
+The header gives you quick access to the **Theme Manager**, the project website, and the usual minimize/close controls. The main buttons follow the workflow: **Launch**, **Login**, **Settings**, **Terminate**, **Ftool**, **Macro**, **Extra** and **Map**.
 
-> Ftool
+## What's new in 3.0 <a name="whats-new"></a>
 
-![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/ftool.png)
+- **Theme Switcher & Editor** - built-in light and dark themes plus a full custom colour editor. Open it with the palette button in the title bar.
+- **Market tab** - keep a local price journal, record sales, compare recent trends and optionally connect to a shared market vault.
+- **Map** - interactive node maps for fields, dungeons and event maps, with search and group filters. Right-click **Map** for the Wiki.
+- **Notes** - save notes, timers and reminders with due dates and notifications.
+- **World Boss panel** - spawn schedule, per-boss listen toggles, one-click reporting and optional boss images.
+- **Remembered clients** - every client that logs into a profile is remembered with its own reconnect, hide, F-Tool, Macro and Quick Command settings.
+- **Auto-start tools** - start F-Tool, Macro Helper or a Quick Command automatically for a client once it has logged in.
+- **Quick Commands** - new *Run commands on open* and *Close after run* options.
+- **Smarter login coordinates** - correct default coordinates for every supported resolution, with an optional manual override per profile.
+- **Editable hotkeys** - assign and edit hotkeys in Settings again, with master pause/resume bindings.
+- Stability and performance fixes for low-delay macros, notifications, cancelled logins and profile repair.
 
-> Disconnect System
+## Screenshots <a name="screenshots"></a>
 
-![](https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/reconnect.png)
- 
+### Settings
 
+<p align="center">
+  <img width="49%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/settings-general.png" alt="Settings - General">
+  <img width="49%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/settings-launch.png" alt="Settings - Launch Settings">
+</p>
+<p align="center">
+  <img width="49%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/settings-login.png" alt="Settings - Login Settings">
+  <img width="49%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/settings-hotkeys.png" alt="Settings - Hotkeys">
+</p>
 
-  One-Click Login & Launch
-  Forget typing passwords 8 times. Setup your team profiles once, and launch/login your entire party with a single click.
-   * Smart Patching: Detects when patching is done and launches immediately.
-   * Auto-Entry: Handles Server, Channel, Character selection!
+### Extra panel
 
-  Smart Reconnect System
-  Internet hiccup? AFK disconnect? We got you.
-   * The dashboard monitors your connection in real-time. If a client drops, it automatically handles the "Disconnect" dialog and logs you back in.
+<p align="center">
+  <img width="32%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/extra-market.png" alt="Market journal">
+  <img width="32%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/extra-worldboss.png" alt="World Boss schedule">
+  <img width="32%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/extra-notes.png" alt="Notes and reminders">
+</p>
+<p align="center">
+  <img width="32%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/extra-upgrade.png" alt="Upgrade calculator">
+  <img width="32%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/extra-chest.png" alt="Chest Opener queue">
+  <img width="32%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/extra-notifications.png" alt="Notification history">
+</p>
+<p align="center">
+  <img width="55%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/note-editor.png" alt="Note editor with a sample timer">
+</p>
 
-  F-Tool & Macro
-  Built-in tools that work in the background.
-   * Advanced F-Tool: Create unlimited key spammers. They attach to specific windows so you can alt-tab freely without stopping your rotation.
-   * Sequence Macros: Need complex combos? Build timed sequences with holds, waits, and loops.
-   * Overlay Mode: Draggable mini-windows that snap to your game client.
+### Map and Theme Manager
 
-  Chat Commander
-  Type commands like /PartyInvite or shout trade messages across multiple clients with global hotkeys. Supports variables for dynamic messaging!
+<p align="center">
+  <img width="100%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/map.png" alt="Entropia Map">
+</p>
+<p align="center">
+  <img width="70%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/theme-manager.png" alt="Theme Selector and Editor with the Custom theme">
+</p>
 
-  Built-in Knowledge Base
-   * Online/Offline Wiki: Access guides instantly.
+### Quick Commands and Wiki
 
-## Getting Started <a name = "getting_started"></a>
+<p align="center">
+  <img width="35%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/quickcommands.png" alt="Quick Commands with sample commands">
+</p>
+<p align="center">
+  <img width="100%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/wiki.png" alt="Entropia Wiki">
+</p>
 
+### F-Tool, Macro and Reconnect
 
-+ Process list
+<p align="center">
+  <img width="35%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/ftool.png" alt="F-Tool with example sequences">
+  <img width="55%" src="https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/refs/heads/main/Preview/reconnect.png" alt="Reconnect notification">
+</p>
 
-	+ Displays the current running clients separated by profiles.
+## Getting Started <a name="getting_started"></a>
 
-	+ Order can be changed with the Remove Key.
+1. Download `Entropia Dashboard.exe` from the [repository](https://github.com/Immortal-Divine/Entropia_Dashboard/raw/refs/heads/main/Entropia%20Dashboard.exe) and start it. The app relaunches itself as a 32-bit administrator process - accept the prompt.
+2. Open **Settings > General**, click **Browse** and select the `Launcher.exe` of your main game client. Keep the process name at `neuz` unless your server uses a different one.
+3. Set the maximum number of clients, the notification corner and (optionally) autostart with Windows.
+4. Create lightweight profile copies with **Create**. After patching the main client, use **Copy Neuz.exe** to update every profile.
+5. In **Login Settings**, select a profile, check the resolution and coordinates, and choose the server, channel and character slot for each client. `Manual Coordinates` lets you override the calculated values.
+6. Switch to **Launch Settings** to save client groups as one-click setups, and tick **Auto Start Selected Setup** if the setup should run with the dashboard.
+7. Select a client and use **Launch**, **Login**, **Ftool**, **Macro** or **Extra**. In **Settings > Hotkeys** you can review, edit or remove every assigned hotkey.
 
-	+ Indicator for new message ingame or if client got disconnected.
+> The first start opens an interactive guide. Every control also has a tooltip.
 
-	+ Multi selection possible.
+## Features <a name="features"></a>
 
-	+ Right click for context menu with additional features.
+### Process list
+- Groups running clients by profile and shows the current window state (loading, normal, minimized).
+- Multi-select for launch, login, terminate and tool actions.
+- Detects new in-game messages and disconnects, with a flashing row indicator.
+- Right-click for **Show**, **Minimize**, **Resize**, **Save/Load Position**, **Relog after Disconnect** and hotkey assignment.
+- Reorder rows with the remove key; the order is used by the login nickname list.
 
-	+ Lists the current state of the window (e.G. Loading, Minimized, Normal).
+### Launch and login
+- Launches the requested number of clients without overloading the launcher.
+- Right-click **Launch** for a single profile or a saved setup.
+- **Login** handles the launcher Play button, nickname list, server, channel, character slot and the optional Collector start.
+- Login uses the row number as the nickname position (up to 10 clients per profile).
+- Moving the mouse aborts the login sequence immediately.
+- Saved setups launch and log in only the missing clients of the group.
 
-	+ Selecting one or more entrys is mandatory for other features.
+### Profiles
+- Create junction-based profiles (~300 MB each) that share the base game files but keep separate in-game settings.
+- Add existing folders manually, rename or remove profiles without deleting their files.
+- Profiles remember their last selected client and their own login coordinates.
+- Remembered clients store per-client **Reconnect?**, **Hide?**, **Ftool?**, **Macro?** and **QuickCmd?** switches.
 
+### F-Tool
+- Multiple key sequences per game window, each with its own key, interval and hotkey.
+- Pins to the selected client so you can alt-tab without stopping the rotation.
+- Master hotkey toggle plus a per-instance hotkey switch.
+- Remembers names, intervals, keys and window position per client.
 
-+ Profiles
+### Macro Helper and Quick Commands
+- Build timed sequences with holds, waits and loops.
+- Quick Commands can run on open and close themselves when the sequence finishes.
+- Start either tool automatically for a client after login.
 
-	+ You can create a junction/copy of your main folder (~300mb per Profile).
+### Extra panel
+- **Market** - search items, record prices, review history and trends, or unlock a shared vault with an access code.
+- **Tools** - World Boss schedule with per-boss filters and report buttons, upgrade calculator and chest opener.
+- **Notes** - notes, timers and reminders with due dates and notifications.
+- **Notifications** - reopen past notifications and dismiss the current stack.
 
-	+ Profiles can also be manually added.
-
-	+ Every profile has it's own ingame settings.
-
-	+ Every profile will be patched with a single patch (except for neuz.exe, must be patched in main folder).
-
-	+ Select Profile to use as default profile.
-
-
-+ Launch
-
-	+ Can start the desired total amount of clients without loading errors.
-
-	+ Can start one instance of a specific Profile with right-click
-
-	+ Works in the background
-
-	+ Saved One-Click Setup can be applied to start and login your final Setup.
-
-	+ Clicking on the Launch button again aborts the launch operation.
-   
-
-+ Login
-
-	+ The login takes the # of the process list to log the same # as position in the nickname list of the client. (Nickname list with 10 entrys mandatory)
-	 + \# 4 is nickname # 4 etc.
-
-	+ Once the login process is completed, it can click on 'Start' for collecting, can be enabled in the Settings. 
-
-	+ Login only works for the first 10 clients of each profile.
-
-	 + You can select which server/channel/character to login in the Settings.
-
-	 + Mouse movement aborts the login operation.
-
-
-+ Ftool
-
-	+ Remembers the character and its settings.
-
-	+ Gets pinned to the window.
-
-	+ Up to 10 Keys can be set with a minimum delay of 10ms.
-	 + Multiple Ftools are possible.
-
-	+ Hotkey Manager for every individual Ftool Instance
-	 + Master Hotkey Toggle blocks other Ftool Hotkeys
-	 + Can also be toggled with a hotkey with the ⌨ icon.
-
-	+ Custom position for each client
-
-	+ Can bind ANY key combination to any Ftool or Hotkey
-
-+ Terminate
-
-	+ Close the selected clients instantly
-
+### Map, Wiki and themes
+- **Map** opens the interactive Entropia node maps; right-click it for the Wiki.
+- Built-in light/dark themes and a custom theme editor for every colour in the UI.
+- Window positions are remembered, and each profile keeps its own login coordinates and selected client.
 
 ## Usage <a name="usage"></a>
 
-+ Download and start Entropia Dashboard.exe
+- **First client:** select your launcher, save, then right-click **Launch** and start one client. Log in manually once to verify the nickname list.
+- **Whole party:** launch your clients, select them, save the selection as a setup and tick **Auto Start Selected Setup**.
+- **Reconnect:** keep **Reconnect?** ticked for the clients that should come back after a disconnect. The dashboard waits for the disconnect dialog, logs the client back in and reports the result in a notification.
+- **F-Tool:** select a client, click **Ftool**, choose a key and interval, then press **Start**. Add more sequences with **Add Ftool**.
+- **Market:** open **Extra > Market**, search for an item and add a price. Prices stay in the local journal; a vault URL and access code enable shared prices.
+- **Notes:** open **Extra > Notes** and add a note, timer or reminder. Due reminders appear as notifications.
+- **Theme:** click the palette button in the title bar, pick a theme or edit the **Custom** colours, then save.
+- **Hotkeys:** open **Settings > Hotkeys** to edit assignments, or set master pause/resume keys. The status next to them shows whether hotkeys are active.
 
-+ Open Settings
+## Built Using <a name="built_using"></a>
 
-	+ Select the Launcher.exe of your Flyff Server
-	+ Save
+- [PowerShell 5.1](https://github.com/PowerShell/PowerShell)
+- .NET Framework 4.6.2+ / Windows Forms
+- Windows 10/11, 32-bit PowerShell and administrator privileges
 
-+ Right-Click Launch and start 1 Client
+---
 
-+ To login you have to save your logins in your Client
+<p align="center">
+  <a href="https://ko-fi.com/U7U61S0EGT" target="_blank"><img height="36" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Buy Me a Coffee at ko-fi.com"></a>
+  <a href="https://www.paypal.me/immortaldivine" target="_blank"><img height="36" src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif" alt="Donate with PayPal"></a>
+</p>
 
-	+ To use this feature your Server must support nickname lists
-	+ If you want to login more than 5 different account on your Client, you must add exactly 10 logins to the list
-	+ Login will happen automatically and use the login settings of the Dashboard if provided
-	+ Default resolution is for 1024x768, if you want to use another size you must set the coordinates for First Nickname and Scroll Down Arrow
-
-+ Select your Client in the Dashboard and click Ftool
-
-	+ This Ftool is very powerful. Just imagine something, it probably can do it.
-
-+ The One-Click Setup
-
-	+ Start a set of your desired clients and log them in
-	+ You can order around the clients in the dashboard by selecting an entry and pressing the delete key
-	+ Save this list in the dashboard settings
-	+ Now the dashboard will always start and login missing clients of your saved list compared to current running clients
-
-+ Profiles
-
-	+ A profile can be either added manually or by using the create button in the settings
-	+ If created with the dashboard, your profile will share the base data with your main launcher folder, but still have its own dashboard AND INGAME settings
-	+ To patch all your profiles, you just need to patch with the main launcher. Press Copy Neuz.exe after the patch to complete it for all profiles
-	+ All features of the Dashboard are linked with profiles, you don't have to use them. But your expierence will be way better
-
-
-
-+ Check the tooltips! All UI elements have them on mouse hover!
-+ Open the guide for a more defauled explanation!
-
-## Built Using <a name = "built_using"></a>
-- [Powershell 5.1]([https://www.mongodb.com/](https://github.com/PowerShell/PowerShell))
-
-
-<a href='https://ko-fi.com/U7U61S0EGT' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
-<a href='https://www.paypal.me/immortaldivine' target='_blank'><img height='36' style='border:0px;height:36px;margin-left:10px;' src='https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif' border='0' alt='Donate with PayPal' /></a>
-
-
-# [Entropia](https://entropia.fun/)
-
-# [Divine Discord](https://discord.gg/zbcVRsC9uN)
-
-
+<p align="center">
+  <a href="https://entropia.fun/">Entropia</a> &middot;
+  <a href="https://discord.gg/zbcVRsC9uN">Divine Discord</a>
+</p>
