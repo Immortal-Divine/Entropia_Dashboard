@@ -543,6 +543,7 @@ $script:MarketRemoteDefault = 'https://raw.githubusercontent.com/Immortal-Divine
 $script:MarketManifest = $null
 $script:MarketManifestTried = [datetime]::MinValue
 $script:MarketAssetsChecked = $false
+$script:MarketAssetSyncTimer = $null
 
 function Get-MarketRemoteBase
 {
@@ -810,11 +811,118 @@ function Get-MarketIconDiff
     return $out
 }
 
+function Test-MarketStartupComplete
+{
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    try
+    {
+        if ($global:DashboardConfig -and $global:DashboardConfig.State -and $global:DashboardConfig.State.Contains('StartupSplashClosed'))
+        {
+            return [bool]$global:DashboardConfig.State['StartupSplashClosed']
+        }
+    }
+    catch { }
+    try
+    {
+        if ($global:DashboardConfig -and $global:DashboardConfig.UI -and $global:DashboardConfig.UI.MainForm -and $global:DashboardConfig.UI.MainForm.Visible)
+        {
+            return $true
+        }
+    }
+    catch { }
+    try { return [bool][System.Windows.Forms.Application]::MessageLoopRunning } catch { return $true }
+}
+
+function Invoke-MarketAssetSync
+{
+    [CmdletBinding()]
+    param()
+    if ($script:MarketAssetsChecked) { return }
+    if (-not (Test-MarketStartupComplete))
+    {
+        Start-MarketAssetSync
+        return
+    }
+
+    $script:MarketAssetsChecked = $true
+    try
+    {
+        if (Sync-MarketAssets)
+        {
+            try { Stop-MarketIconMapLoad } catch { }
+            $script:MarketCatalog = $null
+            $script:MarketNamesCache = $null
+            $script:MarketIconMap = $null
+            $script:MarketIconMapPartial = $null
+            try
+            {
+                if ($null -ne (Get-MarketUIControl -Name 'MarketSearchInput'))
+                {
+                    try { Start-MarketIconMapLoad } catch { }
+                    try { Set-MarketIcons } catch { }
+                    try { Update-MarketView } catch { }
+                }
+            }
+            catch { }
+        }
+    }
+    catch { Write-Verbose "MARKET: asset sync failed: $($_.Exception.Message)" }
+}
+
+function Start-MarketAssetSync
+{
+    [CmdletBinding()]
+    param()
+    if ($script:MarketAssetsChecked -or $null -ne $script:MarketAssetSyncTimer) { return }
+    if (Test-MarketStartupComplete)
+    {
+        Invoke-MarketAssetSync
+        return
+    }
+
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 500
+    $timer.Add_Tick({
+            try
+            {
+                if (-not (Test-MarketStartupComplete)) { return }
+                $t = $script:MarketAssetSyncTimer
+                $script:MarketAssetSyncTimer = $null
+                if ($null -ne $t)
+                {
+                    try { $t.Stop() } catch { }
+                    try { $t.Dispose() } catch { }
+                }
+                try
+                {
+                    if ($global:DashboardConfig -and $global:DashboardConfig.Resources -and $global:DashboardConfig.Resources.Timers)
+                    {
+                        [void]$global:DashboardConfig.Resources.Timers.Remove('MarketAssetSync')
+                    }
+                }
+                catch { }
+                Invoke-MarketAssetSync
+            }
+            catch { Write-Verbose "MARKET: deferred asset sync failed: $($_.Exception.Message)" }
+        })
+    $script:MarketAssetSyncTimer = $timer
+    try { $global:DashboardConfig.Resources.Timers['MarketAssetSync'] = $timer } catch { }
+    $timer.Start()
+}
+
 function Sync-MarketAssets
 {
     [CmdletBinding()]
     [OutputType([bool])]
     param([switch]$Force)
+
+    if (-not (Test-MarketStartupComplete))
+    {
+        Start-MarketAssetSync
+        return $false
+    }
 
     $manifest = Get-MarketManifest -Force:$Force
     if ($null -eq $manifest) { return $false }
@@ -5022,17 +5130,7 @@ function Initialize-MarketTab
 
         if (-not $script:MarketAssetsChecked)
         {
-            $script:MarketAssetsChecked = $true
-            try
-            {
-                if (Sync-MarketAssets)
-                {
-                    $script:MarketCatalog = $null
-                    $script:MarketNamesCache = $null
-                    $script:MarketIconMap = $null
-                    $script:MarketIconMapPartial = $null
-                }
-            }
+            try { Start-MarketAssetSync }
             catch { Write-Verbose "MARKET: asset sync failed: $($_.Exception.Message)" }
         }
 

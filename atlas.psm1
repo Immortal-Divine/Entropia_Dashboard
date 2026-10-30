@@ -212,6 +212,23 @@ function Get-AtlasFileHash
 	}
 }
 
+function Get-AtlasBytesHash
+{
+	param([byte[]]$Bytes)
+	$sha = $null
+	try
+	{
+		$sha = [System.Security.Cryptography.SHA256]::Create()
+		$hash = $sha.ComputeHash($Bytes)
+		return ([System.BitConverter]::ToString($hash).Replace('-', '').ToLowerInvariant())
+	}
+	catch { return '' }
+	finally
+	{
+		if ($sha) { $sha.Dispose() }
+	}
+}
+
 function Format-AtlasSize
 {
 	param([long]$Bytes)
@@ -343,6 +360,8 @@ function Show-AtlasNotice
 function Invoke-AtlasDownload
 {
 	param([string]$Title, [object[]]$Items)
+	Enable-AtlasTls
+	try { Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue } catch { }
 	$pal = Get-AtlasPalette
 	$form = New-Object System.Windows.Forms.Form
 	$form.Text = $Title
@@ -390,33 +409,139 @@ function Invoke-AtlasDownload
 	$totalBytes = [long]0
 	foreach ($it in $Items) { $totalBytes += [long]$it.Size }
 
+	$threads = 12
+	try
+	{
+		$rawThreads = Get-AtlasConfigValue 'DownloadThreads' ''
+		$n = 0
+		if ([int]::TryParse($rawThreads, [ref]$n) -and $n -gt 0) { $threads = [Math]::Min(32, $n) }
+	}
+	catch { }
+	try
+	{
+		if ([System.Net.ServicePointManager]::DefaultConnectionLimit -lt $threads)
+		{
+			[System.Net.ServicePointManager]::DefaultConnectionLimit = $threads
+		}
+	}
+	catch { }
+
+	$client = $null
+	try
+	{
+		$client = [System.Net.Http.HttpClient]::new()
+		$client.Timeout = [TimeSpan]::FromSeconds(120)
+		$client.DefaultRequestHeaders.UserAgent.ParseAdd('EntropiaDashboard')
+	}
+	catch
+	{
+		if ($client) { try { $client.Dispose() } catch { } }
+		$client = $null
+	}
+
 	$form.Show()
 	try
 	{
 		$form.Activate()
-		foreach ($it in $Items)
+		if ($null -eq $client)
 		{
-			if ($script:AtlasDownloadCancel) { break }
-			$name = Split-Path -Leaf ([string]$it.Path)
-			$lblStatus.Text = ('Downloading {0}   ({1} of {2})' -f $name, [Math]::Min($done + 1, $Items.Count), $Items.Count)
-			$bar.Value = [Math]::Min($bar.Maximum, $done)
-			[System.Windows.Forms.Application]::DoEvents()
-			try
+			foreach ($it in $Items)
 			{
-				Invoke-AtlasDownloadFile -Url ([string]$it.Url) -Path ([string]$it.Path) -Hash ([string]$it.Hash) | Out-Null
-				$done++
-				$bytesDone += [long]$it.Size
+				if ($script:AtlasDownloadCancel) { break }
+				$name = Split-Path -Leaf ([string]$it.Path)
+				$lblStatus.Text = ('Downloading {0}   ({1} of {2})' -f $name, [Math]::Min($done + 1, $Items.Count), $Items.Count)
+				$bar.Value = [Math]::Min($bar.Maximum, $done)
+				[System.Windows.Forms.Application]::DoEvents()
+				try
+				{
+					Invoke-AtlasDownloadFile -Url ([string]$it.Url) -Path ([string]$it.Path) -Hash ([string]$it.Hash) | Out-Null
+					$done++
+					$bytesDone += [long]$it.Size
+				}
+				catch
+				{
+					$failed.Add([string]$it.Path)
+				}
+				$lblBytes.Text = ('{0} of {1}' -f (Format-AtlasSize $bytesDone), (Format-AtlasSize $totalBytes))
+				[System.Windows.Forms.Application]::DoEvents()
 			}
-			catch
+		}
+		else
+		{
+			$pending = New-Object System.Collections.Generic.List[object]
+			foreach ($it in $Items) { $pending.Add($it) }
+			$active = New-Object System.Collections.ArrayList
+			$next = 0
+			$lastName = ''
+
+			while (($next -lt $pending.Count -or $active.Count -gt 0) -and -not $script:AtlasDownloadCancel)
 			{
-				$failed.Add([string]$it.Path)
+				while ($active.Count -lt $threads -and $next -lt $pending.Count)
+				{
+					$it = $pending[$next]
+					$next++
+					$job = @{ Item = $it; Name = (Split-Path -Leaf ([string]$it.Path)); Task = $null; Error = '' }
+					try { $job.Task = $client.GetByteArrayAsync([string]$it.Url) }
+					catch { $job.Error = $_.Exception.Message }
+					[void]$active.Add($job)
+				}
+
+				for ($i = $active.Count - 1; $i -ge 0; $i--)
+				{
+					$job = $active[$i]
+					$path = [string]$job.Item.Path
+					if ($job.Error)
+					{
+						$failed.Add($path)
+						$active.RemoveAt($i)
+						continue
+					}
+					$task = $job.Task
+					if ($null -eq $task -or -not $task.IsCompleted) { continue }
+
+					$active.RemoveAt($i)
+					$part = $path + '.part'
+					try
+					{
+						if ($task.IsFaulted) { throw $task.Exception.GetBaseException() }
+						if ($task.IsCanceled) { throw 'The download was cancelled.' }
+						$bytes = [byte[]]$task.Result
+						$want = [string]$job.Item.Hash
+						if ($want)
+						{
+							$got = Get-AtlasBytesHash -Bytes $bytes
+							if (-not $got -or $got -ne $want) { throw 'The downloaded file did not match its published checksum.' }
+						}
+						$dir = Split-Path -Parent $path
+						if ($dir -and -not (Test-Path -LiteralPath $dir)) { [void][System.IO.Directory]::CreateDirectory($dir) }
+						[System.IO.File]::WriteAllBytes($part, $bytes)
+						[System.IO.File]::Copy($part, $path, $true)
+						try { Remove-Item -LiteralPath $part -Force } catch { }
+						$done++
+						$bytesDone += [long]$job.Item.Size
+						$lastName = [string]$job.Name
+					}
+					catch
+					{
+						try { if (Test-Path -LiteralPath $part) { Remove-Item -LiteralPath $part -Force } } catch { }
+						$failed.Add($path)
+					}
+				}
+
+				$bar.Value = [Math]::Min($bar.Maximum, $done)
+				$lblBytes.Text = ('{0} of {1}' -f (Format-AtlasSize $bytesDone), (Format-AtlasSize $totalBytes))
+				if ($lastName) { $lblStatus.Text = ('Downloading {0}   ({1} of {2})' -f $lastName, [Math]::Min($done + 1, $Items.Count), $Items.Count) }
+				else { $lblStatus.Text = ('Downloading {0} files...' -f $Items.Count) }
+				[System.Windows.Forms.Application]::DoEvents()
+				Start-Sleep -Milliseconds 15
 			}
-			$lblBytes.Text = ('{0} of {1}' -f (Format-AtlasSize $bytesDone), (Format-AtlasSize $totalBytes))
-			[System.Windows.Forms.Application]::DoEvents()
+
+			if ($script:AtlasDownloadCancel) { try { $client.CancelPendingRequests() } catch { } }
 		}
 	}
 	finally
 	{
+		if ($client) { try { $client.Dispose() } catch { } }
 		$bar.Value = [Math]::Min($bar.Maximum, $done)
 		[System.Windows.Forms.Application]::DoEvents()
 		$form.Close()
