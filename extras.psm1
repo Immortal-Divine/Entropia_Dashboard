@@ -189,7 +189,7 @@ if (-not $global:DashboardConfig.State.WorldBossListener)
 }
 
 $OpenChestsWorker = {
-    param($HWnd, $QueueJobs, $SyncState, $FormRef, $LblStatusRef)
+    param($HWnd, $QueueJobs, $SyncState, $FormRef, $LblStatusRef, $StartBtn, $StopBtn)
 
     $totalJobs = $QueueJobs.Count
     $jobIndex = 0
@@ -206,11 +206,13 @@ $OpenChestsWorker = {
             if (-not $SyncState.IsRunning -or -not [Custom.Native]::IsWindow($HWnd)) { break }
 
             if ([Custom.Native]::IsIconic($HWnd)) {
+                $SyncState.IsRunning = $false
                 $FormRef.Invoke([System.Windows.Forms.MethodInvoker]{ 
+                    if ($StartBtn) { $StartBtn.Enabled = $true }
+                    if ($StopBtn) { $StopBtn.Enabled = $false }
                     if ($LblStatusRef) { $LblStatusRef.Text = "Status: Target window is MINIMIZED! Paused." }
                 })
-                Stop-ChestOpener
-                break
+                return
             }
 
             if ($itemKeyData) {
@@ -287,6 +289,8 @@ $OpenChestsWorker = {
 
     $FormRef.Invoke([System.Windows.Forms.MethodInvoker]{
         $SyncState.IsRunning = $false
+        if ($StartBtn) { $StartBtn.Enabled = $true }
+        if ($StopBtn) { $StopBtn.Enabled = $false }
         if ($LblStatusRef) { $LblStatusRef.Text = "Status: IDLE (Chest Opening Loop Completed)" }
     })
 }
@@ -645,11 +649,24 @@ function Start-ChestOpener {
     if ($UI.StartChestBtn) { $UI.StartChestBtn.Enabled = $false }
     if ($UI.StopChestBtn)  { $UI.StopChestBtn.Enabled  = $true }
 
+    # A completed worker is not disposed automatically; release the previous
+    # runspace before starting a new one so a paused/completed run cannot leak.
+    if ($script:PowerShellInstance) {
+        try { $script:PowerShellInstance.Stop() } catch { }
+        try { $script:PowerShellInstance.Dispose() } catch { }
+        $script:PowerShellInstance = $null
+    }
+    if ($script:WorkerRunspace) {
+        try { $script:WorkerRunspace.Close() } catch { }
+        try { $script:WorkerRunspace.Dispose() } catch { }
+        $script:WorkerRunspace = $null
+    }
+
     $script:WorkerRunspace = [runspacefactory]::CreateRunspace()
     $script:WorkerRunspace.Open()
     $ps = [powershell]::Create()
     $ps.Runspace = $script:WorkerRunspace
-    [void]$ps.AddScript($OpenChestsWorker).AddArgument($hWnd).AddArgument($queueJobs).AddArgument($script:SyncState).AddArgument($UI.ExtraForm).AddArgument($UI.ChestStatusLabel)
+    [void]$ps.AddScript($OpenChestsWorker).AddArgument($hWnd).AddArgument($queueJobs).AddArgument($script:SyncState).AddArgument($UI.ExtraForm).AddArgument($UI.ChestStatusLabel).AddArgument($UI.StartChestBtn).AddArgument($UI.StopChestBtn)
     
     $script:PowerShellInstance = $ps
     [void]$ps.BeginInvoke()
@@ -800,8 +817,6 @@ function ParseTimeSpanString
 function Invoke-TestButtonAction {
 	param($Status, $Percent, $Type, $BossName, $ImageUrl, $Key)
     
-	[System.Windows.Forms.MessageBox]::Show("Test: $Status Clicked")
-    
 	if ($Status -eq 'Died' -or $Status -eq 'False Alarm') {
 		CloseToast -Key $Key
 		ShowToast -Title "TEST: $BossName $Status" -Message "Local test update: $Status" -Type $Type -TimeoutSeconds 10 -IgnoreCancellation
@@ -843,7 +858,7 @@ function Send-BossUpdate {
 
     $bossImg = ""
     $lookupName = $BossName -replace '\[RANDOM\] ', ''
-    if ($global:DashboardConfig.Resources.BossData.ContainsKey($lookupName)) {
+    if ($global:DashboardConfig.Resources.BossData -and $global:DashboardConfig.Resources.BossData.ContainsKey($lookupName)) {
         $bossImg = $global:DashboardConfig.Resources.BossData[$lookupName].url
     }
 
@@ -1021,11 +1036,20 @@ function Send-Message {
 				$errorMsg = $serverText
 			}
 		}
+
+		if (Test-DashboardCommand 'ShowToast')
+		{
+			ShowToast -Title 'World Boss Report Failed' -Message $errorMsg -Type 'Error' -IgnoreCancellation
+		}
+		else
+		{
+			[System.Windows.Forms.MessageBox]::Show($errorMsg, 'World Boss Report Failed', 'OK', 'Error') | Out-Null
+		}
 	}
 }
 
 function ProcessSpawnEvent {
-    param($Spawn, $LastTime, $State)
+    param($Spawn, $State)
 
     $serverTime = [int64]$Spawn.timestamp
     $updateTime = if ($Spawn.lastUpdateTime) { [int64]$Spawn.lastUpdateTime } else { 0 }
@@ -1276,11 +1300,6 @@ function Start-WorldBossListener {
                                 $hasContent = ($upcoming.Count -gt 0) -or ($randomRotation.Count -gt 0) -or ($activeSpawns.Count -gt 0)
                                 if ($hasContent) {
                                     
-                                    $alive = @(); $dead = @()
-                                    foreach ($b in $activeSpawns) {
-                                        if ($b.hpStatus -eq 'Died') { $dead += $b } else { $alive += $b }
-                                    }
-
                                     if ($upcoming.Count -gt 0) {
                                         $output += " [ UPCOMING ]"
 											foreach ($b in $upcoming) {
@@ -1336,7 +1355,7 @@ function Start-WorldBossListener {
                         }
 
                         foreach ($spawn in $allActiveAndRelevantSpawns) {
-                            ProcessSpawnEvent -Spawn $spawn -LastTime ([int64]$state.LastTimestamp) -State $state
+                            ProcessSpawnEvent -Spawn $spawn -State $state
                         }
                         $state.LastTimestamp = $response.lastOverallUpdateTime
 
@@ -1515,7 +1534,13 @@ function Show-NoteDialog {
 	$txtTitle = New-Object System.Windows.Forms.TextBox; $txtTitle.Location = New-Object System.Drawing.Point(20, 35); $txtTitle.Size = New-Object System.Drawing.Size(360, 25); $txtTitle.BackColor = Get-Theme 'SecondaryBg'; $txtTitle.ForeColor = Get-Theme 'WhiteText'; $txtTitle.BorderStyle = 'FixedSingle'; if ($NoteData) { $txtTitle.Text = $NoteData.Title }; $pnlContent.Controls.Add($txtTitle)
     
 	&$AddLabel 'Type' 70
-	$cmbType = if ('Custom.DarkComboBox' -as [Type]) { New-Object Custom.DarkComboBox } else { New-Object System.Windows.Forms.ComboBox; $cmbType.BackColor = Get-Theme 'SecondaryBg'; $cmbType.ForeColor = Get-Theme 'WhiteText' }
+	if ('Custom.DarkComboBox' -as [Type]) { $cmbType = New-Object Custom.DarkComboBox }
+	else
+	{
+		$cmbType = New-Object System.Windows.Forms.ComboBox
+		$cmbType.BackColor = Get-Theme 'SecondaryBg'
+		$cmbType.ForeColor = Get-Theme 'WhiteText'
+	}
 	$cmbType.Location = New-Object System.Drawing.Point(20, 90); $cmbType.Size = New-Object System.Drawing.Size(150, 25); $cmbType.DropDownStyle = 'DropDownList'; $cmbType.Items.AddRange(@('Note', 'Timer', 'Reminder')); if ($NoteData) { $cmbType.SelectedItem = $NoteData.Type } else { $cmbType.SelectedIndex = 0 }; $pnlContent.Controls.Add($cmbType)
     
 	$pnlDynamic = New-Object System.Windows.Forms.Panel; $pnlDynamic.Location = New-Object System.Drawing.Point(180, 70); $pnlDynamic.Size = New-Object System.Drawing.Size(215, 60); $pnlContent.Controls.Add($pnlDynamic)
@@ -1727,7 +1752,7 @@ if (-not $global:DashboardConfig.State.NoteTimer)
 						{
 							$due = [DateTime]::Parse($note.DueDate)
                         
-							if ($now -ge $due)
+							if ($now -ge $due -and -not $note.IsPaused)
 							{
 								if ($note.AutoRenew)
 								{
@@ -2525,7 +2550,7 @@ function ResetUpgradeCalculator {
 		if ($null -ne $UI.UpgradeCartGrid) { $UI.UpgradeCartGrid.Rows.Clear() }
 		if ($null -ne $UI.UpgradeItemSelector -and $UI.UpgradeItemSelector.Items.Count -gt 0) {
 			$UI.UpgradeItemSelector.SelectedIndex = 0
-			try { Update-UpgradeItemSelection } catch { }
+			try { UpdateUpgradeItemSelection } catch { }
 		}
 		CalculateUpgradeTotalMaterials
 	}

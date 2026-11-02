@@ -1,9 +1,9 @@
-/* Entropia Node Maps â€” a standalone viewer for the harvesting maps.
+/* Entropia Node Maps — a standalone viewer for the harvesting maps.
  *
  * Everything here is drawn on one canvas: the world picture, the spawn
  * spots, the respawn points, the place names.  Coordinates are held in
  * the picture's own pixel space, because that is the only frame all three
- * worlds share without inventing an origin â€” a spot is stored as the
+ * worlds share without inventing an origin — a spot is stored as the
  * (ix, iy) the game's transform puts it at, and the view is a pan and a
  * zoom over that picture.  World metres are recovered for the readout
  * through the same transform the overlay uses.
@@ -91,7 +91,8 @@ function statueIcon(k) {
  * no picture of a person standing around, so an NPC is marked by colour
  * and shape the way an ore is: a diamond in the one green nothing else
  * on the map wears. */
-var NTM = D.npcNames || {}, NZN = D.npcZone || {};
+var NTM = D.npcNames || {}, NZN = D.npcZone || {},
+    NLB = D.npcLabel || {}, NSH = D.npcShops || {};
 /* The rim around a picture is the colour of the thing it marks rather than
  * one black for all of them: a boss is edged in red, a plant in a dark
  * charcoal purple, an ore in a workaday grey, an item in yellow, and a
@@ -102,7 +103,7 @@ var NTM = D.npcNames || {}, NZN = D.npcZone || {};
  * so a row's edge and the mark it stands for agree. */
 var RIMCOL = { mob: '#333333', boss: '#ff5a4d', item: '#ffdc4d',
                ore: '#8a9099', plant: '#5a4b70', treasure: '#d4953a',
-               statue: '#4d9de0', npc: '#3fd16a' };
+               statue: '#4d9de0', npc: '#3fd16a', trader: '#ffc857' };
 
 /* Boss is a class the game's own table gives a creature, so it is read as
  * one: the ordinary animals and the things a player would call a boss are
@@ -120,6 +121,174 @@ function treNames(k) { return TTM[k] || []; }
 function statueNames(k) { return STM[k] || []; }
 function statueLabel(k, ref) { var a = SZL[k]; return (a && a[ref]) || STM[k][ref] || ''; }
 function npcNames(k) { return NTM[k] || []; }
+/* The name the client shows, which is the character script's SetName and
+ * can differ from the world-file name the row is keyed by.  The switch and
+ * saved links keep the stable file name; the eye gets the displayed one. */
+function npcLabel(k, ref) {
+  var a = NLB[k];
+  return (a && a[ref]) || NTM[k][ref] || '';
+}
+function npcShop(k, ref) { var a = NSH[k]; return a ? (a[ref] || null) : null; }
+function npcShopKind(s) {
+  if (!s) return '';
+  var t = !!(s.trade && s.trade.items && s.trade.items.length);
+  var e = !!(s.exchange && s.exchange.length);
+  return t && e ? 'Trade + Exchange' : t ? 'Trade' : e ? 'Exchange' : 'Shop';
+}
+/* A second line of identity for two traders that share a display name.  The
+ * area first, then the thing they actually trade for, then the window kind:
+ * the two Aminus brothers are both Shaduwar traders, but one takes Aminus
+ * Coin and the other Cursed Aminus Coin, so the currency is what tells them
+ * apart.  A pair with nothing else to separate them falls back to the word
+ * its file name adds (Palo/Talo), never to a made-up title. */
+function npcShopTag(s) {
+  if (!s) return '';
+  var tr = s.trade || {};
+  if (tr.currency && tr.currency.name) return tr.currency.name;
+  var ex = (s.exchange || [])[0];
+  return ex && ex.label ? ex.label : npcShopKind(s);
+}
+function npcWords(s) {
+  /* PaloNPC and VendorMale read as two words, so the fallback tag is the
+   * name the file adds (Palo, Talo, Male) rather than a mashed-up slug. */
+  return String(s || '').replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase().match(/[a-z0-9]+/g) || [];
+}
+function npcDistinctToken(name, label, names) {
+  var skip = {'npc': 1, 'vendor': 1, 'shop': 1, 'trader': 1,
+              'the': 1, 'and': 1, 'of': 1},
+      mine = npcWords(name), others = [], i, j, only = [];
+  npcWords(label).forEach(function (w) { skip[w] = 1; });
+  for (i = 0; i < names.length; i++) {
+    if (names[i] !== name) others.push(npcWords(names[i]));
+  }
+  for (i = 0; i < mine.length; i++) {
+    if (skip[mine[i]]) continue;
+    var seen = false;
+    for (j = 0; j < others.length; j++) {
+      if (others[j].indexOf(mine[i]) >= 0) { seen = true; break; }
+    }
+    if (!seen) only.push(mine[i]);
+  }
+  if (!only.length) return '';
+  var w = only[only.length - 1];
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+function annotateDuplicateTraders(rows) {
+  var byLabel = {}, i;
+  for (i = 0; i < rows.length; i++) {
+    byLabel[rows[i].label] = (byLabel[rows[i].label] || 0) + 1;
+  }
+  Object.keys(byLabel).forEach(function (label) {
+    if (byLabel[label] < 2) return;
+    var group = rows.filter(function (r) { return r.label === label; }),
+        zones = {}, tags = {}, kinds = {};
+    group.forEach(function (r) {
+      zones[r.zone || ''] = 1;
+      tags[r.shopTag || ''] = 1;
+      kinds[r.shop || ''] = 1;
+    });
+    group.forEach(function (r, n) {
+      var tag = '';
+      /* The currency is the strongest word two traders of the same name
+       * can carry: the two Franks stand in different towns but take
+       * Aminus Coin and Cursed Aminus Coin, so a zone-only badge would
+       * say "Mixed" for the one whose pins span both towns.  Fall back to
+       * the area when the stock is the same, then to the window kind. */
+      if (Object.keys(tags).length > 1) tag = r.shopTag || '';
+      else if (Object.keys(zones).length > 1) tag = r.zone || '';
+      else if (Object.keys(kinds).length > 1) tag = r.shop || '';
+      if (!tag) {
+        tag = npcDistinctToken(r.rawName, label,
+                               group.map(function (g) { return g.rawName; }));
+      }
+      if (!tag) tag = String(n + 1);
+      /* The badge sits before the name, so the one word that tells the
+       * rows apart stays visible when the shared name ellipsises.  When
+       * the badge itself is the difference (Trade vs Exchange), it already
+       * says it and is left alone. */
+      if (tag && tag !== r.shop)
+        r.shop = (r.shop || 'Shop') + ' \u00b7 ' + tag;
+    });
+  });
+}
+var SHOPTXT = Object.create(null);
+/* Every name a trader answers to: its own layer, the window kinds, the
+ * currency and every item on either side.  The sidebar search reads it as
+ * the row's text, so "Halloween Token" finds the two NPCs that take it and
+ * an item name finds the NPC that offers it. */
+function npcShopText(k, ref) {
+  var key = k + '|' + ref;
+  if (SHOPTXT[key] !== undefined) return SHOPTXT[key];
+  var s = npcShop(k, ref), out = [
+    npcLabel(k, ref), npcNames(k)[ref],
+    'npc', 'npcs', 'trade', 'exchange', 'shop', 'vendor', 'trader'];
+  if (s) {
+    var tr = s.trade || {};
+    if (tr.currency && tr.currency.name) out.push(tr.currency.name);
+    (tr.tabs || []).forEach(function (t) { out.push(t); });
+    (tr.items || []).forEach(function (it) { if (it.name) out.push(it.name); });
+    (s.exchange || []).forEach(function (ex) {
+      if (ex.label) out.push(ex.label);
+      (ex.sets || []).forEach(function (st) {
+        (st.cost || []).forEach(function (it) { if (it.name) out.push(it.name); });
+        (st.get || []).forEach(function (it) { if (it.name) out.push(it.name); });
+      });
+    });
+  }
+  SHOPTXT[key] = out.join(' \u00b7 ');
+  return SHOPTXT[key];
+}
+function shopItemHTML(it, mode) {
+  var q = mode === 'trade' ? it.price : it.qty;
+  return '<span class="sitem" title="' + esc(it.name) + '">' +
+         (it.icon ? '<img src="' + esc(asset(it.icon)) + '" alt="">' :
+                    '<span class="noic"></span>') +
+         '<span class="sin">' + esc(it.name) + '</span>' +
+         (q && q !== 1 ? '<b class="sq">' + q + '</b>' : '') + '</span>';
+}
+function shopHTML(s) {
+  var out = '';
+  if (s.trade && s.trade.items && s.trade.items.length) {
+    var tr = s.trade, tabs = tr.tabs && tr.tabs.length ? tr.tabs : ['Shop'];
+    out += '<div class="shop"><div class="shoph"><b>Trade</b>' +
+           (tr.currency ? '<span class="cur">' +
+             (tr.currency.icon ? '<img src="' + esc(asset(tr.currency.icon)) + '" alt="">' : '') +
+             esc(tr.currency.name) + '</span>' : '') + '</div>';
+    tabs.forEach(function (tab, ti) {
+      var mine = (tr.items || []).filter(function (it) {
+        return (it.tab || 0) === ti;
+      });
+      if (!mine.length) return;
+      if (tabs.length > 1) out += '<div class="tab">' + esc(tab) + '</div>';
+      out += '<div class="sgrid">' + mine.map(function (it) {
+        return shopItemHTML(it, 'trade');
+      }).join('') + '</div>';
+    });
+    out += '</div>';
+  }
+  (s.exchange || []).forEach(function (ex) {
+    if (!ex.sets || !ex.sets.length) return;
+    /* A character can keep more than one exchange window - the Adventure
+     * Pass Lord keeps five - and the menu label is what tells them apart,
+     * so the label is the heading rather than the word Exchange five
+     * times over. */
+    out += '<div class="shop"><div class="shoph"><b>' +
+           esc(ex.label || 'Exchange') + '</b>' +
+           '<span class="cur">' + ex.sets.length + ' offer' +
+           (ex.sets.length === 1 ? '' : 's') + '</span></div>';
+    ex.sets.forEach(function (st) {
+      out += '<div class="offer"><div class="give">' +
+             ((st.cost || []).map(function (it) { return shopItemHTML(it, 'exchange'); }).join('') ||
+              '<span class="none">nothing</span>') +
+             '</div><div class="arrow">&#8594;</div><div class="get">' +
+             ((st.get || []).map(function (it) { return shopItemHTML(it, 'exchange'); }).join('') ||
+              '<span class="none">nothing</span>') + '</div></div>';
+    });
+    out += '</div>';
+  });
+  return out ? '<div class="shops">' + out + '</div>' : '';
+}
 function isBoss(k, ref) { return !!(BOS[k] && BOS[k][ref]); }
 
 /* A creature's picture is filed under its model rather than under the name
@@ -579,9 +748,16 @@ function pinsFor(pfx, label, mapKey, zone) {
      * with its first three letters as pfx - stitch it back together. */
     return pinsForSpecies((pfx || '') + (label || ''), k, zone);
   }
-  for (i = 0; i < arr.length; i++)
-    if (names[arr[i][2]] === label && (zone == null || zn[arr[i][2]] === zone))
+  for (i = 0; i < arr.length; i++) {
+    /* An NPC row can live in more than one town; the area travels with
+     * the pin (element 3), so an area click or an Other-worlds hit only
+     * frames the posts that actually stand there. */
+    var pz = pfx === NKEY ? (arr[i][3] || zn[arr[i][2]]) : zn[arr[i][2]];
+    if ((names[arr[i][2]] === label ||
+         (pfx === NKEY && npcLabel(k, arr[i][2]) === label)) &&
+        (zone == null || zone === 'Mixed' || pz === zone))
       out.push([arr[i][0], arr[i][1]]);
+  }
   return out;
 }
 /* One sidebar row's pins, whatever layer it belongs to: a prefixed filter
@@ -598,7 +774,7 @@ function xrowKeys(r, mapKey) {
   if (r.grp === 'Items') return [IKEY + r.label];
   if (r.grp === 'Monsters' || r.grp === 'Bosses') return [CKEY + r.label];
   if (r.grp === 'Treasure Maps') return [TKEY + r.label];
-  if (r.grp === 'NPCs') return [NKEY + r.label];
+  if (r.grp === 'NPCs' || r.grp === 'Traders') return [r.key || NKEY + r.label];
   if (r.grp === 'Statues') {
     var out = [], arr = STM[mapKey] || [], i;
     for (i = 0; i < arr.length; i++)
@@ -616,7 +792,8 @@ function xrowPoints(r, mapKey, zone) {
   if (r.grp === 'Monsters' || r.grp === 'Bosses') return pinsFor(CKEY, r.label, mapKey, zone);
   if (r.grp === 'Treasure Maps') return pinsFor(TKEY, r.label, mapKey, zone);
   if (r.grp === 'Statues') return pinsFor(SKEY, r.label, mapKey, zone);
-  if (r.grp === 'NPCs') return pinsFor(NKEY, r.label, mapKey, zone);
+  if (r.grp === 'NPCs' || r.grp === 'Traders')
+    return pinsFor(NKEY, r.key ? r.key.slice(3) : r.label, mapKey, zone);
   return pinsForSpecies(r.label, mapKey, zone);
 }
 function clampView() {
@@ -655,6 +832,11 @@ function toWorld(ix, iy) {
 var touched = false;            /* has the pointer been over the map yet */
 
 function resize() {
+  /* The picture may already be in memory or still on its way.  Either way
+   * its metrics are the frame a link's view must be clamped against before
+   * the canvas gets its first size; the one-pixel placeholder would pin a
+   * preset centre to the top-left corner. */
+  picMetrics();
   /* If the view was showing the whole map, a resize has to keep showing
    * the whole map; if it was a close crop the user chose, a resize must
    * not throw that away.  So the question is asked before the numbers
@@ -1183,14 +1365,17 @@ function drawStatues() {
 /* The NPCs are drawn as the diamond the sidebar marks them with, edged
  * in the one green nothing else on the map wears - a person standing
  * around is a single point being looked for, the same shape and weight
- * as a statue, only in its own colour. */
+ * as a statue, only in its own colour.  A trader keeps the diamond and
+ * changes to gold, because the trade window is the reason to find them. */
 function drawNpcs() {
   if (!showSp) return;
   var m = mkey, r = sc > 1 ? 4.6 : 3.2;
   ctx.lineWidth = 1.6;
   ctx.strokeStyle = 'rgba(63,209,106,.95)';
   drawLayer(D.npcs[m] || [], npcNames(m), NKEY, function (ref) {
-    return { c: 'rgba(63,209,106,.95)', g: 0, icon: null, rim: RIMCOL.npc };
+    var shop = npcShop(m, ref);
+    return { c: shop ? 'rgba(255,200,87,.96)' : 'rgba(63,209,106,.95)',
+             g: 0, icon: null, rim: shop ? RIMCOL.trader : RIMCOL.npc };
   }, r);
 }
 function drawRegions() {
@@ -1384,6 +1569,62 @@ var elTip     = document.createElement('div');
 elTip.className = 'tip'; elTip.hidden = true;
 document.getElementById('stage').appendChild(elTip);
 var elDetail = document.getElementById('detail');
+var elStage = document.getElementById('stage');
+var detailPos = null, detailDrag = null;
+/* The card is a window, not a panel bolted to the corner: once it is moved
+ * it keeps the place it was put, and every later card opens there until it
+ * is moved again.  Only the heading starts a drag; the close button, the
+ * buttons and the shop list keep their own gestures. */
+function detailClamp() {
+  if (!detailPos) return;
+  var pad = 8,
+      maxX = Math.max(0, elStage.clientWidth - elDetail.offsetWidth - pad),
+      maxY = Math.max(0, elStage.clientHeight - elDetail.offsetHeight - pad);
+  detailPos.x = Math.min(Math.max(pad, detailPos.x), maxX);
+  detailPos.y = Math.min(Math.max(pad, detailPos.y), maxY);
+  elDetail.style.left = detailPos.x + 'px';
+  elDetail.style.top = detailPos.y + 'px';
+  elDetail.style.right = 'auto';
+  elDetail.style.bottom = 'auto';
+}
+function detailPlace() {
+  if (!detailPos) return;
+  elDetail.style.right = 'auto';
+  elDetail.style.bottom = 'auto';
+  detailClamp();
+}
+function detailMove(e) {
+  if (!detailDrag) return;
+  var r = elStage.getBoundingClientRect();
+  detailPos.x = e.clientX - r.left - detailDrag.x;
+  detailPos.y = e.clientY - r.top - detailDrag.y;
+  detailClamp();
+}
+function detailEnd() {
+  detailDrag = null;
+  elDetail.classList.remove('dragging');
+  document.removeEventListener('pointermove', detailMove);
+  document.removeEventListener('pointerup', detailEnd);
+  document.removeEventListener('pointercancel', detailEnd);
+}
+elDetail.addEventListener('pointerdown', function (e) {
+  if ((e.button !== undefined && e.button !== 0) || elDetail.hidden) return;
+  var h = e.target.closest ? e.target.closest('h4') : null;
+  if (!h || !elDetail.contains(h)) return;
+  var r = elDetail.getBoundingClientRect(), sr = elStage.getBoundingClientRect();
+  detailPos = { x: r.left - sr.left, y: r.top - sr.top };
+  detailDrag = { x: e.clientX - r.left, y: e.clientY - r.top };
+  elDetail.classList.add('dragging');
+  detailPlace();
+  e.preventDefault();
+  e.stopPropagation();
+  document.addEventListener('pointermove', detailMove);
+  document.addEventListener('pointerup', detailEnd);
+  document.addEventListener('pointercancel', detailEnd);
+});
+window.addEventListener('resize', function () {
+  if (detailPos) detailClamp();
+});
 
 /* No per-world buttons: the step buttons beside the jump list walk
  * the group filter's list, and the jump list holds the same worlds. */
@@ -1548,7 +1789,7 @@ var GROUP_OF = {};
                'duelysianisland', 'wdveruxjpinfinitycastle', 'dudracmaus',
                'duveruxruins']],
  ['event', ['wdpokeevent01', 'wdcandyworld', 'duhalloween',
-            'wdeasterevent']]
+            'wdeasterevent', 'wdhalloweenfarm']]
 ].forEach(function (gd) {
   gd[1].forEach(function (k) { GROUP_OF[k] = gd[0]; });
 });
@@ -1719,12 +1960,15 @@ function foldHead(hd, key, own) {
       /* Clicking an area's line - anywhere but its arrow - fits the view
        * around everything standing in that area.  The arrow keeps folding;
        * sets and other worlds' headings keep folding everywhere. */
-      var pts = [], seen = Object.create(null), i;
+      var pts = [], seen = Object.create(null), i, zn = hd.dataset.zone || null;
+      /* Mixed is not a place: an NPC whose row lives in several towns
+       * keeps its per-pin areas, and the heading must frame all of them. */
+      if (zn === 'Mixed') zn = null;
       for (i = 0; i < own.length; i++) {
         var nm = own[i].dataset && own[i].dataset.name;
         if (!nm || seen[nm]) continue;
         seen[nm] = 1;
-        pts = pts.concat(pinsForRow(nm));
+        pts = pts.concat(pinsForRow(nm, mkey, zn));
       }
       if (pts.length) fitPoints(pts);
       return;
@@ -1827,14 +2071,33 @@ function makeGroup(title, rows, unit, zones, cats, place, total) {
    * anything in several of them. */
   function byZone(list) {
     if (!zones || !zones.length) return [{ title: null, rows: list }];
+    /* An NPC row with pins in several towns is shown once under each of
+     * those towns, with the count for that town's pins.  The row keeps the
+     * same switch, so ticking it still switches the person on everywhere;
+     * only the fit under the row is scoped to the area it is listed in. */
+    var expanded = [];
+    list.forEach(function (s) {
+      if (s.areas && s.areas.length) {
+        s.areas.forEach(function (a) {
+          var v = {};
+          for (var q in s) v[q] = s[q];
+          v.zone = a.zone;
+          v.n = a.n;
+          v.pinZone = a.zone;
+          expanded.push(v);
+        });
+      } else {
+        expanded.push(s);
+      }
+    });
     var out = [];
     zones.forEach(function (z) {
-      var sub = list.filter(function (s) { return s.zone === z; });
+      var sub = expanded.filter(function (s) { return s.zone === z; });
       if (sub.length) out.push({ title: z, rows: sub });
     });
-    var stray = list.filter(function (s) { return zones.indexOf(s.zone) < 0; });
+    var stray = expanded.filter(function (s) { return zones.indexOf(s.zone) < 0; });
     if (stray.length) out.push({ title: null, rows: stray });
-    return out.length ? out : [{ title: null, rows: list }];
+    return out.length ? out : [{ title: null, rows: expanded }];
   }
 
   /* An item can belong to a set before it belongs to an area.  Cardia's
@@ -1887,6 +2150,10 @@ function makeGroup(title, rows, unit, zones, cats, place, total) {
     if (stray) r._stray = true;   /* rows with no heading of their own are
       owned by no fold: closing the last area must not take them away */
     r.dataset.name = s.name;
+    /* The same person can be listed once per town.  The area on the row
+     * lets a search show the town it asked for without also showing the
+     * other instances of the same switch. */
+    r.dataset.zone = s.pinZone || s.zone || '';
     r.innerHTML = '<input type="checkbox"' + (on[s.name] ? ' checked' : '') + '>' +
                   (s.icon ? '<img class="ic ic-' + s.sw + '" src="' +
                             esc(asset(s.icon)) + '" alt="">'
@@ -1894,6 +2161,8 @@ function makeGroup(title, rows, unit, zones, cats, place, total) {
                             s.color + '"></span>') +
                   (s.tag ? '<span class="star" title="' + esc(s.tag) +
                            '">&#9733;</span>' : '') +
+                  (s.shop ? '<span class="rowshop" title="' + esc(s.shop) +
+                             '">' + esc(s.shop) + '</span>' : '') +
                   '<span class="nm" title="' + esc(s.label) + '">' +
                     esc(s.label) + '</span>' +
                   (s.lvl ? '<span class="lvl">' + lvlText(s.lvl) + '</span>' : '') +
@@ -1914,7 +2183,7 @@ function makeGroup(title, rows, unit, zones, cats, place, total) {
      * label's toggle for itself instead. */
     r.addEventListener('click', function (ev) {
       if (ev.target.tagName === 'INPUT') return;
-      var pts = pinsForRow(s.name);
+      var pts = pinsForRow(s.name, mkey, s.pinZone || null);
       if (!pts.length) return;
       ev.preventDefault();
       /* Clicking a switched-off row switches it back on first, so what was
@@ -1933,6 +2202,7 @@ function makeGroup(title, rows, unit, zones, cats, place, total) {
   function addHead(title, cls, sub, n) {
     var hd = document.createElement('div');
     hd.className = cls;
+    hd.dataset.zone = title;
     hd.innerHTML = '<span class="arrow">&#9662;</span>' +
                    '<input type="checkbox" checked>' +
                    '<span>' + esc(CATTITLE[title] || title) + '</span>' +
@@ -2119,19 +2389,62 @@ function buildStatueGroup() {
  * disagree reads Mixed, the items' rule - and a world with no named
  * ground keeps them a plain list, the way the cave's statues read. */
 function buildNpcGroup() {
-  var keys = npcNames(mkey), cnt = countsOf(D.npcs[mkey] || []), rows = [];
-  var zn = NZN[mkey] || [];
+  var keys = npcNames(mkey), cnt = countsOf(D.npcs[mkey] || []);
+  var zn = NZN[mkey] || [], plain = [], traders = [], zs = zonesOf(mkey);
+  /* A row is one NPC kind, but the pins under it can stand in several
+   * towns.  Count those towns from the pins themselves - the fourth
+   * element carries the area each pin was placed in - rather than from
+   * the one row-level zone, which can only name one of them. */
+  var byRef = Object.create(null);
+  (D.npcs[mkey] || []).forEach(function (p) {
+    var ref = p[2], z = p[3] || zn[ref] || null;
+    if (!z) return;
+    var a = byRef[ref] || (byRef[ref] = Object.create(null));
+    a[z] = (a[z] || 0) + 1;
+  });
+  function areaList(ref) {
+    var a = byRef[ref];
+    if (!a) return [];
+    return Object.keys(a).sort(function (x, y) {
+      var ix = zs.indexOf(x), iy = zs.indexOf(y);
+      if (ix < 0) ix = zs.length;
+      if (iy < 0) iy = zs.length;
+      return ix - iy || x.localeCompare(y);
+    }).map(function (z) { return { zone: z, n: a[z] }; });
+  }
   keys.forEach(function (n, ref) {
     if (!cnt[ref]) return;
-    rows.push({ name: NKEY + n, label: n, n: cnt[ref],
-                sw: 'npc', color: RIMCOL.npc,
-                zone: zn[ref] || null, cat: null });
+    var shop = npcShop(mkey, ref), areas = areaList(ref);
+    var row = { name: NKEY + n, label: npcLabel(mkey, ref), n: cnt[ref],
+                rawName: n, sw: shop ? 'trader' : 'npc',
+                color: shop ? RIMCOL.trader : RIMCOL.npc,
+                zone: areas.length > 1 ? 'Mixed' : (areas[0] ? areas[0].zone : (zn[ref] || null)),
+                areas: areas.length > 1 ? areas : null,
+                pinZone: areas.length ? areas[0].zone : null,
+                cat: null,
+                shop: shop ? npcShopKind(shop) : null,
+                shopTag: npcShopTag(shop),
+                text: shop ? npcShopText(mkey, ref) : null };
+    (shop ? traders : plain).push(row);
   });
-  rows.sort(function (a, b) {
-    return (a.zone || '').localeCompare(b.zone || '') ||
-           a.label.localeCompare(b.label);
-  });
-  return makeGroup('NPCs', rows, ['npc', 'npcs'], zonesOf(mkey), []);
+  annotateDuplicateTraders(traders);
+  function sortRows(rows) {
+    rows.sort(function (a, b) {
+      return (a.zone || '').localeCompare(b.zone || '') ||
+             a.label.localeCompare(b.label);
+    });
+    return rows;
+  }
+  /* A trader is its own category rather than a star beside an NPC: the
+   * trade and exchange inventories are the reason to seek one out, and the
+   * list is where an item name has to be readable as a row.  Duplicate
+   * labels get their area or stock appended to the badge, beside the name,
+   * so the badge stays readable even when the name has to ellipsise.  The
+   * ordinary NPCs keep the green diamond; a trader wears the gold one. */
+  sortRows(traders);
+  sortRows(plain);
+  makeGroup('Traders', traders, ['trader', 'traders'], zonesOf(mkey), []);
+  makeGroup('NPCs', plain, ['npc', 'npcs'], zonesOf(mkey), []);
 }
 /* Groups in reading order: what the site is for first, then what stands
  * on it.  The creatures used to be two rows no matter how many kinds, so
@@ -2335,7 +2648,7 @@ function qterms() {
  * every statue search.  A term naming no layer ("lanterns") still reads
  * the riddles, which is how such a map stays findable by its text. */
 var LAYER_TITLES = ['Ore', 'Plant', 'Bosses', 'Monsters', 'Items',
-                    'Treasure Maps', 'Statues', 'NPCs'];
+                    'Treasure Maps', 'Statues', 'Traders', 'NPCs'];
 function riddleOn(terms) {
   return !terms.some(function (t) {
     return LAYER_TITLES.some(function (g) {
@@ -2445,8 +2758,8 @@ function syncRows(unfold) {
     box._cb.checked = all;
     box._cb.indeterminate = !all && some;
     box._rows.forEach(function (s) {
-      var r = box.querySelector('.row[data-name="' + cssq(s.name) + '"] input');
-      if (r) r.checked = !!on[s.name];
+      var rs = box.querySelectorAll('.row[data-name="' + cssq(s.name) + '"] input');
+      [].forEach.call(rs, function (r) { r.checked = !!on[s.name]; });
     });
     /* an area heading is the same tri-state over a shorter list */
     (box._buckets || []).forEach(function (b) {
@@ -2463,12 +2776,56 @@ function cssq(s) {
   return String(s).replace(/["\\]/g, '\\$&');
 }
 function applyQuery(box, hit, unfold) {
-  var q = query.toLowerCase(), any = false;
-  box._rows.forEach(function (s) {
-    var h = !!hit[s.name];
-    if (h) any = true;
-    var r = box.querySelector('.row[data-name="' + cssq(s.name) + '"]');
-    if (r) r.classList.toggle('hide', !h);
+  var q = query.toLowerCase(), any = false, terms = qterms();
+  var areaQuery = terms.some(function (t) {
+    return (box._buckets || []).some(function (b) {
+      return b.title && b.title.toLowerCase().indexOf(t) >= 0;
+    });
+  });
+  var allowRiddle = riddleOn(terms);
+  function textHit(s) {
+    var label = (s.label || s.name).toLowerCase(),
+        alt = (s.alt || '').toLowerCase(),
+        text = (s.text || '').toLowerCase();
+    return terms.some(function (t) {
+      return label.indexOf(t) >= 0 || alt.indexOf(t) >= 0 ||
+             lvlHit(s, t) || (allowRiddle && text.indexOf(t) >= 0);
+    });
+  }
+  function rowSel(s) {
+    return '.row[data-name="' + cssq(s.name) + '"][data-zone="' +
+           cssq(s.pinZone || s.zone || '') + '"]';
+  }
+  function showRow(s, show) {
+    if (!show) return;
+    any = true;
+    [].forEach.call(box.querySelectorAll(rowSel(s)), function (r) {
+      r.classList.remove('hide');
+    });
+  }
+  /* Hide everything first, then let each area put back the rows that
+   * answer the query.  A name search puts the row back under every town
+   * it stands in; an area search puts back only that town's instance. */
+  [].forEach.call(box.querySelectorAll('.row'), function (r) {
+    r.classList.add('hide');
+  });
+  /* A world with no named ground has rows but no area buckets; those rows
+   * still answer the search directly, or every trader on an unzoned event
+   * map would vanish the moment anything was typed. */
+  if (!(box._buckets || []).length) {
+    (box._rows || []).forEach(function (s) {
+      if (hit[s.name]) showRow(s, true);
+    });
+  }
+  (box._buckets || []).forEach(function (b) {
+    var areaHit = !areaQuery || (b.title && terms.some(function (t) {
+      return b.title.toLowerCase().indexOf(t) >= 0;
+    }));
+    b.rows.forEach(function (s) {
+      if (!hit[s.name]) return;
+      if (areaQuery && !areaHit && !textHit(s)) return;
+      showRow(s, true);
+    });
   });
   /* An area with nothing left showing under it would be a heading over an
    * empty list, so it goes with its rows.  What it does with the fold is
@@ -2479,8 +2836,10 @@ function applyQuery(box, hit, unfold) {
    * and the search closing puts back the folds it took out of the way. */
   (box._buckets || []).forEach(function (b) {
     var live = b.rows.some(function (s) {
-      var r = box.querySelector('.row[data-name="' + cssq(s.name) + '"]');
-      return r && !r.classList.contains('hide');
+      var rs = box.querySelectorAll(rowSel(s));
+      return [].some.call(rs, function (r) {
+        return !r.classList.contains('hide');
+      });
     });
     b.el.classList.toggle('hide', !live);
     if (unfold && q && live && HOPEN[b.key] === false &&
@@ -2498,7 +2857,6 @@ function applyQuery(box, hit, unfold) {
   box.dataset.open = GOPEN[box._title] !== false ? 'true' : 'false';
   box.style.display = any ? '' : 'none';
 }
-
 /* The list only ever holds one world, so a search stopping at its edge
  * would answer "nothing" about a chest that is simply standing on another.
  * The other two are asked the same question the list asks - a name, an
@@ -2546,8 +2904,11 @@ function xindex() {
     var ncnt = countsOf(D.npcs[k] || []), nzn = NZN[k] || [];
     (NTM[k] || []).forEach(function (n, ref) {
       if (!ncnt[ref]) return;
-      rows.push({ label: n, zone: nzn[ref] || null, cat: null,
-                  grp: 'NPCs' });
+      var shop = npcShop(k, ref);
+      rows.push({ label: npcLabel(k, ref), key: NKEY + n,
+                  zone: nzn[ref] || null, cat: null,
+                  grp: shop ? 'Traders' : 'NPCs',
+                  text: shop ? npcShopText(k, ref) : n });
     });
     XIDX[k] = { title: m.title || k, rows: rows };
   });
@@ -2679,7 +3040,7 @@ function setMap(k, keepView) {
     return;
   }
   el.hidden = false;
-  el.textContent = 'Loading mapâ€¦';
+  el.textContent = 'Loading map…';
   var pic = new Image();
   if ('decoding' in pic) pic.decoding = 'async';
   img = pic;
@@ -2711,7 +3072,7 @@ function showDetail(sp) {
   var s = SPECIES[sp[2]], w = toWorld(sp[0], sp[1]);
   sel = { si: sp[2], ix: sp[0], iy: sp[1] };
   elDetail.hidden = false;
-  elDetail.classList.remove('wide');
+  elDetail.classList.remove('wide', 'shop');
   elDetail.innerHTML =
     '<div class="bar" style="background:' + s.color + '"></div>' +
     '<button class="x" title="Close">&times;</button>' +
@@ -2738,9 +3099,10 @@ function showDetail(sp) {
   elDetail.querySelector('[data-a=centre]').addEventListener('click', function () {
     vx = sp[0]; vy = sp[1]; draw(); writeHash();
   });
+  detailPlace();
   draw();
 }
-function closeDetail() { sel = null; elDetail.hidden = true; elDetail.classList.remove('wide'); draw(); }
+function closeDetail() { sel = null; elDetail.hidden = true; elDetail.classList.remove('wide', 'shop'); draw(); }
 
 /* Clicking a dig spot opens the map itself rather than a line of numbers:
  * the riddle is baked into the parchment, so the only way to read it is to
@@ -2762,6 +3124,7 @@ function showTreasureDetail(pt) {
   var w = toWorld(pt[0], pt[1]);
   sel = { si: -1, ix: pt[0], iy: pt[1] };
   elDetail.hidden = false;
+  elDetail.classList.remove('shop');
   elDetail.classList.add('wide');
   elDetail.innerHTML =
     '<div class="bar" style="background:' + RIMCOL.treasure + '"></div>' +
@@ -2782,6 +3145,7 @@ function showTreasureDetail(pt) {
   elDetail.querySelector('[data-a=centre]').addEventListener('click', function () {
     vx = pt[0]; vy = pt[1]; draw(); writeHash();
   });
+  detailPlace();
   draw();
 }
 
@@ -2795,25 +3159,39 @@ function nearestNpc(px, py) {
     var nm = names[arr[i][2]];
     if (nm === undefined || !shown(NKEY + nm)) continue;
     var dx = sx(arr[i][0]) - px, dy = sy(arr[i][1]) - py, d = dx * dx + dy * dy;
-    if (d <= bd) { bd = d; best = arr[i]; }
+    if (d <= bd) {
+      bd = d;
+      best = [arr[i][0], arr[i][1], arr[i][2], arr[i][3] || null];
+    }
   }
   return best;
 }
+/* Clicking a trader opens the windows it keeps.  The card is the NPC's
+ * card plus the shelves behind it: a trade tab is a grid of what is sold
+ * for the currency in its heading, an exchange offer is what is handed
+ * over on the left and what is handed back on the right, so the example a
+ * player remembers - "this token for those four bones" - reads as one
+ * line rather than four numbers to compare. */
 function showNpcDetail(pt) {
-  var ref = pt[2], zone = (NZN[mkey] || [])[ref];
+  var ref = pt[2], zone = pt[3] || (NZN[mkey] || [])[ref],
+      name = npcLabel(mkey, ref), shop = npcShop(mkey, ref);
   var w = toWorld(pt[0], pt[1]);
+  var col = shop ? RIMCOL.trader : RIMCOL.npc;
+  elTip.hidden = true; hover = -1;   /* the card is the tooltip now */
   sel = { si: -1, ix: pt[0], iy: pt[1] };
   elDetail.hidden = false;
   elDetail.classList.remove('wide');
+  elDetail.classList.toggle('shop', !!shop);
   elDetail.innerHTML =
-    '<div class="bar" style="background:' + RIMCOL.npc + '"></div>' +
+    '<div class="bar" style="background:' + col + '"></div>' +
     '<button class="x" title="Close">&times;</button>' +
     '<div class="in">' +
       '<h4><span style="display:inline-block;width:11px;height:11px;' +
-        'transform:rotate(45deg) scale(.86);background:' + RIMCOL.npc + ';' +
+        'transform:rotate(45deg) scale(.86);background:' + col + ';' +
         'margin-right:7px"></span>' +
-        esc(npcNames(mkey)[ref]) + '</h4>' +
-      '<div class="kind">npc' + (zone ? ' &middot; ' + esc(zone) : '') +
+        esc(name) + '</h4>' +
+      '<div class="kind">' + (shop ? esc(npcShopKind(shop).toLowerCase()) : 'npc') +
+        (zone ? ' &middot; ' + esc(zone) : '') +
         ' &middot; ' + esc(MAP[mkey].title) + '</div>' +
       '<dl>' +
         '<dt>World x</dt><dd>' + w[0].toFixed(1) + '</dd>' +
@@ -2822,11 +3200,13 @@ function showNpcDetail(pt) {
       '<div class="acts">' +
         '<button data-a="centre">Centre</button>' +
       '</div>' +
+      (shop ? shopHTML(shop) : '') +
     '</div>';
   elDetail.querySelector('.x').addEventListener('click', closeDetail);
   elDetail.querySelector('[data-a=centre]').addEventListener('click', function () {
     vx = pt[0]; vy = pt[1]; draw(); writeHash();
   });
+  detailPlace();
   draw();
 }
 /* Clicking a statue shows what it is and where it stands.  A monument has
@@ -2848,7 +3228,7 @@ function showStatueDetail(pt) {
   var w = toWorld(pt[0], pt[1]);
   sel = { si: -1, ix: pt[0], iy: pt[1] };
   elDetail.hidden = false;
-  elDetail.classList.remove('wide');
+  elDetail.classList.remove('wide', 'shop');
   elDetail.innerHTML =
     '<div class="bar" style="background:' + RIMCOL.statue + '"></div>' +
     '<button class="x" title="Close">&times;</button>' +
@@ -2870,6 +3250,7 @@ function showStatueDetail(pt) {
   elDetail.querySelector('[data-a=centre]').addEventListener('click', function () {
     vx = pt[0]; vy = pt[1]; draw(); writeHash();
   });
+  detailPlace();
   draw();
 }
 
@@ -2953,7 +3334,7 @@ cv.addEventListener('wheel', function (e) {
   if (!zoomQueued) { zoomQueued = true; requestAnimationFrame(flushZoom); }
 }, { passive: false });
 
-/* pinch â€” two pointers, scaled about their midpoint */
+/* pinch — two pointers, scaled about their midpoint */
 var pts = Object.create(null), pinchD = 0;
 cv.addEventListener('pointerdown', function (e) { pts[e.pointerId] = e; });
 cv.addEventListener('pointermove', function (e) {
@@ -2998,7 +3379,8 @@ function nearestSpawn(px, py) {
         var al = pfx === CKEY ? (CRE_ALT[mkey] || [])[arr[i][2]]
                : pfx === IKEY ? (ITM_ALT[mkey] || [])[arr[i][2]] : null;
         best = { x: arr[i][0], y: arr[i][1], name: nm, ref: arr[i][2],
-                 pfx: pfx, boss: !!boss[arr[i][2]], alt: al || null };
+                 pfx: pfx, boss: !!boss[arr[i][2]], alt: al || null,
+                 zone: pfx === NKEY ? (arr[i][3] || null) : null };
       }
     }
   }
@@ -3027,8 +3409,12 @@ function spawnTip(s) {
            '<i>' + w[0].toFixed(0) + ', ' + w[1].toFixed(0) + '</i>';
   }
   if (s.pfx === NKEY) {              /* a person: the diamond it is drawn
-                                      * as, in the green that is only theirs */
-    return '<b style="color:' + RIMCOL.npc + '">&#9670;</b> ' + esc(s.name) +
+                                      * as, green unless a shop makes it gold */
+    var shop = npcShop(mkey, s.ref);
+    return '<b style="color:' + (shop ? RIMCOL.trader : RIMCOL.npc) +
+           '">&#9670;</b> ' + esc(npcLabel(mkey, s.ref)) +
+           (shop ? '<span class="shopmark">' + esc(npcShopKind(shop)) + '</span>' : '') +
+           (s.zone ? '<span class="areamark">' + esc(s.zone) + '</span>' : '') +
            '<i>' + w[0].toFixed(0) + ', ' + w[1].toFixed(0) + '</i>';
   }
   var item = s.pfx === IKEY;
@@ -3050,6 +3436,12 @@ function placeTip() {
 }
 
 function updateHover() {
+  /* A trade card is large enough to sit under the cursor, and its item
+   * list is the thing being read; a name-and-coordinate tip floating over
+   * the shelves would cover them without adding anything. */
+  if (!elDetail.hidden && elDetail.classList.contains('shop')) {
+    hover = -1; elTip.hidden = true; cv.classList.remove('over'); return;
+  }
   var sp = nearest(mx, my);
   var si = sp ? sp[2] : -1;
   if (si !== hover) { hover = si; }
@@ -3120,12 +3512,12 @@ function status(force) {
     speciesOfThisMap().forEach(function (s) { if (shown(s.name)) c++; });
     cacheMap = '<b>' + esc(m.title) + '</b>';
     cacheSpots = n.toLocaleString() + ' spot' + (n === 1 ? '' : 's') +
-                 ' Â· ' + c + ' species';
+                 ' · ' + c + ' species';
     cacheSpawn =
-        visibleCount(D.mobs[mkey] || [], creNames(mkey), CKEY) + ' monsters Â· ' +
-        placeCount(D.items[mkey] || [], itmNames(mkey), IKEY) + ' items Â· ' +
-        visibleCount(D.treasures[mkey] || [], treNames(mkey), TKEY) + ' maps Â· ' +
-        visibleCount(D.statues[mkey] || [], statueNames(mkey), SKEY) + ' statues Â· ' +
+        visibleCount(D.mobs[mkey] || [], creNames(mkey), CKEY) + ' monsters · ' +
+        placeCount(D.items[mkey] || [], itmNames(mkey), IKEY) + ' items · ' +
+        visibleCount(D.treasures[mkey] || [], treNames(mkey), TKEY) + ' maps · ' +
+        visibleCount(D.statues[mkey] || [], statueNames(mkey), SKEY) + ' statues · ' +
         visibleCount(D.npcs[mkey] || [], npcNames(mkey), NKEY) + ' npcs';
     if (stMap.innerHTML !== cacheMap) stMap.innerHTML = cacheMap;
     if (stSpots.textContent !== cacheSpots) stSpots.textContent = cacheSpots;

@@ -976,9 +976,6 @@ function Start-KeyCaptureHotkeyPause
 	$alreadyPaused = @()
 	if ($global:PausedRegisteredHotkeys) { $alreadyPaused = @($global:PausedRegisteredHotkeys.Keys) }
 
-	$wasGloballyPaused = $false
-	try { $wasGloballyPaused = [bool][Custom.HotkeyManager]::AreHotkeysGloballyPaused } catch { }
-
 	try {
 		PauseAllHotkeys
 	}
@@ -1244,9 +1241,8 @@ function Show-KeyCaptureDialog {
 		$captureForm.StartPosition = 'CenterScreen'
 	}
 
-	$result = Show-FormAsDialog -Form $captureForm
-
 	try {
+		$result = Show-FormAsDialog -Form $captureForm
 		if ($result -eq 'OK' -and -not [string]::IsNullOrEmpty($script:capturedPrimaryKey)) {
 			return (GetKeyCombinationString $script:capturedModifierKeys $script:capturedPrimaryKey)
 		}

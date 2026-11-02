@@ -100,7 +100,7 @@ $script:GuideContent = @{
         @{ Title = "Maps & Wiki"; Text = "Linksklick auf 'Map' zeigt die Node Maps (alle Felder, Dungeons & Event-Maps).`n`nRechtsklick zeigt das integrierte Wiki mit Guides, Droplisten und mehr."; Target = "Wiki"; Form = "MainForm"; Context = "Main" },
         @{ Title = "Online / Offline"; Text = "Wechsle zwischen Online (Live Web) und Offline (Lokaler Cache).`n`nOffline ist schneller, erfordert aber vorherigen Download."; Target = "chkViewMode"; Form = "WikiForm"; Context = "Wiki" },
         @{ Title = "Bearbeitungsmodus"; Text = "Aktiviere 'Edit Mode', um Offline-Seiten zu $([char]0x00E4)ndern.`n`nDu kannst Fehler beheben oder eigene Guides schreiben."; Target = "chkEdit"; Form = "WikiForm"; Context = "Wiki" },
-        @{ Title = "Sync Funktionen"; Text = "Offline-Modus Sync-Optionen:`n`n- Sync Node: Aktualisiert die Seite.`n- Smart Sync: F$([char]0x00FC)gt fehlende Seiten hinzu, ohne $Auml;nderungen zu $u00FCberschreiben."; Target = "chkViewMode"; Form = "WikiForm"; Context = "Wiki" },
+        @{ Title = "Sync Funktionen"; Text = "Offline-Modus Sync-Optionen:`n`n- Sync Node: Aktualisiert die Seite.`n- Smart Sync: F$([char]0x00FC)gt fehlende Seiten hinzu, ohne $([char]0x00C4)nderungen zu $([char]0x00FC)berschreiben."; Target = "chkViewMode"; Form = "WikiForm"; Context = "Wiki" },
         @{ Title = "Fertig"; Text = "Das war's! Du bist bereit.`n`nDr$([char]0x00FC)cke 'Fertig', um den Guide zu schlie$([char]0x00DF)en."; Target = "InfoForm"; Form = "MainForm"; Context = "Main" }
     )
 
@@ -395,9 +395,9 @@ function Resolve-TargetControl {
     }
     
     if ($form) {
-        $matches = $form.Controls.Find($ControlName, $true)
-        if ($matches.Count -gt 0) {
-            return $matches[0]
+        $foundControls = $form.Controls.Find($ControlName, $true)
+        if ($foundControls.Count -gt 0) {
+            return $foundControls[0]
         }
     }
 

@@ -1499,7 +1499,6 @@ $htmlContent
             
             $targetPath = $LocalWikiPath
             $targetForm = $form
-            $targetState = $WikiState
             $targetTree = $treeView
             $targetPopulate = $PopulateTree
             $targetViewMode = $chkViewMode
@@ -1997,7 +1996,9 @@ $htmlContent
             $mainForm = $tv.FindForm()
             
             $askName = {
-                return "New"
+                $newName = ShowInputBox -Title 'Wiki Item' -Prompt 'Enter a name for the new item:' -DefaultText 'New'
+                if ([string]::IsNullOrWhiteSpace($newName)) { return $null }
+                return $newName.Trim()
             }
 
             $itemSibling = $cms.Items.Add("Add Sibling")

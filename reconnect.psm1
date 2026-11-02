@@ -68,13 +68,13 @@ if (-not ([System.Management.Automation.PSTypeName]'DashboardPower').Type) {
 
 function Find-RowByPid
 {
-	param([int]$Pid)
+	param([int]$ProcessId)
 	if (-not $global:DashboardConfig.UI.DataGridMain) { return $null }
 	foreach ($row in $global:DashboardConfig.UI.DataGridMain.Rows)
 	{
 		$tag = $row.Tag
 		if ($null -eq $tag -or -not ($tag.PSObject.Properties['Id'])) { continue }
-		if ($tag.Id -eq $Pid) { return $row }
+		if ($tag.Id -eq $ProcessId) { return $row }
 	}
 	return $null
 }
@@ -283,9 +283,6 @@ function Wait-UntilWorldLoaded
 	if ($Config['WorldLoadLogEntry']) { $searchStr = $Config['WorldLoadLogEntry'] }
 	$foundCount = 0; $timeout = New-TimeSpan -Minutes 2; $sw = [System.Diagnostics.Stopwatch]::StartNew()
 	
-	$pct = 0
-	if ($TotalSteps -gt 0) { $pct = [int](($CurrentStep / $TotalSteps) * 100) }
-	
 	ReportLoginProgress -Action 'Waiting for World Load...' -Step $CurrentStep -TotalSteps $TotalSteps -ClientIdx $ClientIdx -ClientCount $ClientCount -EntryNum $EntryNum -ProfileName $ProfileName
 	
 	while ($foundCount -lt $threshold)
@@ -358,7 +355,7 @@ function IsProfileAutoReconnectEnabled
 {
 	param(
 		[string]$ProfileName,
-		[int]$Pid
+		[int]$ProcessId
 	)
 
 	if ($ProfileName)
@@ -381,9 +378,9 @@ function IsProfileAutoReconnectEnabled
 		return $false
 	}
 
-	if ($Pid -and $Pid -ne 0)
+	if ($ProcessId -and $ProcessId -ne 0)
 	{
-		$row = Find-RowByPid -Pid $Pid
+		$row = Find-RowByPid -ProcessId $ProcessId
 		if ($row -and $row.Cells -and $row.Cells.Count -gt 1)
 		{
 			$pn = [string]$row.Cells[1].Value
@@ -458,7 +455,7 @@ function StartDisconnectWatcher
 						}
 
 						$details = ''
-						$row = Find-RowByPid -Pid $sPid
+						$row = Find-RowByPid -ProcessId $sPid
 						if ($row -and $row.Cells -and $row.Cells.Count -gt 1)
 						{
 							$proc = $row.Tag
@@ -479,7 +476,7 @@ function StartDisconnectWatcher
 							$global:DashboardConfig.State.ReconnectQueue.Enqueue($sPid)
 						}
 						try {
-							if (IsProfileAutoReconnectEnabled -Pid $sPid) {
+							if (IsProfileAutoReconnectEnabled -ProcessId $sPid) {
 								ShowReconnectInteractiveNotification -Title 'Reconnecting...' -Message "Initiating reconnection sequence...`n$details" -Type 'Info' -RelatedPid $sPid -TimeoutSeconds 0
 							}
 							$global:DashboardConfig.State.ScheduledReconnects.Remove($sPid)
@@ -653,7 +650,7 @@ function StartDisconnectWatcher
 							if ($isCooldown)
 							{
 								$row.DefaultCellStyle.BackColor = Get-Theme 'StatusFlashing'
-								if (IsProfileAutoReconnectEnabled -Pid $pidInt) {
+								if (IsProfileAutoReconnectEnabled -ProcessId $pidInt) {
 									ShowReconnectInteractiveNotification -Title 'Cooldown Active' -Message "Disconnected again. Auto-reconnect paused.`n$details" -Type 'Warning' -RelatedPid $pidInt -TimeoutSeconds 15 -Buttons $btns
 								}
 							}
@@ -663,7 +660,7 @@ function StartDisconnectWatcher
 
 								$global:DashboardConfig.State.ScheduledReconnects[$pidInt] = (Get-Date).AddSeconds(15)
 
-								if (IsProfileAutoReconnectEnabled -Pid $pidInt) {
+								if (IsProfileAutoReconnectEnabled -ProcessId $pidInt) {
 									ShowReconnectInteractiveNotification -Title 'Connection Lost' -Message "Auto-reconnect in 15s...`n$details" -Type 'Warning' -RelatedPid $pidInt -TimeoutSeconds 15 -Buttons $btns
 								}
 							}
@@ -677,7 +674,7 @@ function StartDisconnectWatcher
 							}
 							else
 							{
-								if (IsProfileAutoReconnectEnabled -Pid $pidInt) {
+								if (IsProfileAutoReconnectEnabled -ProcessId $pidInt) {
 									ShowReconnectInteractiveNotification -Title 'Connection Lost' -Message "Disconnected.`n$details" -Type 'Warning' -RelatedPid $pidInt -TimeoutSeconds 15 -Buttons $btns
 								}
 							}
@@ -721,7 +718,7 @@ function StartDisconnectWatcher
 						}
 
 						$details = ''
-						$row = Find-RowByPid -Pid $cPid
+						$row = Find-RowByPid -ProcessId $cPid
 						if ($row -and $row.Cells -and $row.Cells.Count -gt 1)
 						{
 							$proc = $row.Tag
@@ -735,7 +732,7 @@ function StartDisconnectWatcher
 							$autoRecFlag = if (IsProfileAutoReconnectEnabled -ProfileName $profileName) { 'Yes' } else { 'No' }
 							$details = "Profile: $pName | Title: $wTitle`nPID: $cPid | Proc: $($proc.Name)`nAuto-Reconnect: $autoRecFlag`nTime: $([DateTime]::Now.ToString('HH:mm:ss'))"
 						}
-						if (IsProfileAutoReconnectEnabled -Pid $cPid) {
+						if (IsProfileAutoReconnectEnabled -ProcessId $cPid) {
 							ShowReconnectInteractiveNotification -Title 'Reconnecting...' -Message "Initiating reconnection sequence...`n$details" -Type 'Info' -RelatedPid $cPid -TimeoutSeconds 0
 						}
 					}
@@ -756,7 +753,7 @@ function StartDisconnectWatcher
 						Write-Verbose "PID $cPid Reconnect delayed 2m"
                         
 						$details = ''
-						$row = Find-RowByPid -Pid $cPid
+						$row = Find-RowByPid -ProcessId $cPid
 						if ($row -and $row.Cells -and $row.Cells.Count -gt 1)
 						{
 							$proc = $row.Tag
@@ -775,7 +772,7 @@ function StartDisconnectWatcher
 							'Reconnect Now' = 'Reconnect'
 							'Dismiss All'   = 'DismissAll'
 						}
-						if (IsProfileAutoReconnectEnabled -Pid $cPid) {
+						if (IsProfileAutoReconnectEnabled -ProcessId $cPid) {
 							ShowReconnectInteractiveNotification -Title 'Reconnect Delayed' -Message "Auto-reconnect paused for 2 minutes.`n$details" -Type 'Info' -RelatedPid $cPid -TimeoutSeconds 120 -Buttons $btns
 						}
 					}
@@ -872,7 +869,7 @@ function InvokeReconnectionSequence
 {
 	param([int]$PidToReconnect)
 
-	$Row = Find-RowByPid -Pid $PidToReconnect
+	$Row = Find-RowByPid -ProcessId $PidToReconnect
 	if (-not $Row) { return }
 
 	if ($null -eq $Row.Cells -or $Row.Cells.Count -lt 4) { return }

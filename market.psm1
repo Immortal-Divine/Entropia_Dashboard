@@ -14,7 +14,6 @@ $script:MarketLastSuggestions = @()
 $script:MarketLastQuery = ''
 $script:MarketSuggestTimer = $null
 $script:MarketIconCache = @{}
-$script:MarketRecCache = @{}
 $script:MarketIconMap = $null
 $script:MarketIconMapPartial = $null
 $script:MarketIconMapLoading = $false
@@ -164,8 +163,15 @@ function Get-MarketCatalogShippedPath
         $src = [string]$global:DashboardConfig.Paths.Source
         if (-not [string]::IsNullOrWhiteSpace($src))
         {
-            $p = Join-Path $src 'market_catalog.json'
-            if (Test-Path -LiteralPath $p -PathType Leaf) { return $p }
+            $candidates = @(
+                (Join-Path $src 'atlas\market_catalog.json'),
+                (Join-Path $src 'market\market_catalog.json'),
+                (Join-Path $src 'market_catalog.json')
+            )
+            foreach ($p in $candidates)
+            {
+                if (Test-Path -LiteralPath $p -PathType Leaf) { return $p }
+            }
         }
     }
     catch { }
@@ -481,16 +487,40 @@ function Get-MarketIconBaseRoot
     $key = "$probe".ToLowerInvariant()
     if ($cache.ContainsKey($key)) { return [string]$cache[$key] }
 
+    # Every picture now lives in the atlas icon tree. The atlas root comes
+    # first; the legacy market folders stay as a fallback for a catalog that
+    # was installed before the two sets were merged.
     $candidates = [System.Collections.Generic.List[string]]::new()
-    try { [void]$candidates.Add((Get-MarketDataRoot)) } catch { }
+    if ($null -ne (Get-Command -Name 'Get-AtlasAssetRoot' -CommandType Function -ErrorAction SilentlyContinue))
+    {
+        try { $atlasIcons = [string](Get-AtlasAssetRoot); if ($atlasIcons) { [void]$candidates.Add($atlasIcons) } } catch { }
+    }
+    try
+    {
+        $appRoot = Get-MarketDataRoot
+        [void]$candidates.Add((Join-Path $appRoot 'atlas\icons'))
+        [void]$candidates.Add((Join-Path $appRoot 'icons'))
+        [void]$candidates.Add($appRoot)
+    }
+    catch { }
     $src = ''
     try { $src = [string]$global:DashboardConfig.Paths.Source } catch { $src = '' }
-    if (-not [string]::IsNullOrWhiteSpace($src)) { [void]$candidates.Add($src) }
+    if (-not [string]::IsNullOrWhiteSpace($src))
+    {
+        [void]$candidates.Add((Join-Path $src 'atlas\icons'))
+        [void]$candidates.Add((Join-Path $src 'docs\maps\icons'))
+        [void]$candidates.Add((Join-Path $src 'docs\maps'))
+        [void]$candidates.Add($src)
+    }
     $up = ''
     try { $up = "$env:USERPROFILE" } catch { $up = '' }
     if (-not [string]::IsNullOrWhiteSpace($up))
     {
+        [void]$candidates.Add((Join-Path $up 'Entropia_Dashboard\.main\atlas\icons'))
+        [void]$candidates.Add((Join-Path $up 'Entropia_Dashboard\.main\docs\maps\icons'))
         [void]$candidates.Add((Join-Path $up 'Entropia_Dashboard\.main'))
+        [void]$candidates.Add((Join-Path $up 'Entropia_Dashboard\atlas\icons'))
+        [void]$candidates.Add((Join-Path $up 'Entropia_Dashboard\icons'))
         [void]$candidates.Add((Join-Path $up 'Entropia_Dashboard'))
     }
 
@@ -539,7 +569,7 @@ function Resolve-MarketIconPath
 
 #region Remote catalog and icons
 
-$script:MarketRemoteDefault = 'https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/market'
+$script:MarketRemoteDefault = 'https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/atlas'
 $script:MarketManifest = $null
 $script:MarketManifestTried = [datetime]::MinValue
 $script:MarketAssetsChecked = $false
@@ -550,6 +580,10 @@ function Get-MarketRemoteBase
     [CmdletBinding()]
     [OutputType([string])]
     param()
+    if ($null -ne (Get-Command -Name 'Get-AtlasRemoteBase' -CommandType Function -ErrorAction SilentlyContinue))
+    {
+        try { $atlas = [string](Get-AtlasRemoteBase); if ($atlas) { return $atlas.TrimEnd('/') } } catch { }
+    }
     $r = Get-MarketConfigValue -Key 'Remote' -Default ''
     if (-not [string]::IsNullOrWhiteSpace($r)) { return $r.TrimEnd('/') }
     return $script:MarketRemoteDefault
@@ -582,6 +616,7 @@ function Get-MarketWebText
     $req.Timeout = $Timeout
     $req.ReadWriteTimeout = $Timeout
     $req.UserAgent = 'EntropiaDashboard'
+    try { $req.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate } catch { }
     try
     {
         $resp = $req.GetResponse()
@@ -606,7 +641,7 @@ function Get-MarketFileHash
         $sha = [System.Security.Cryptography.SHA256]::Create()
         $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
         $bytes = $sha.ComputeHash($fs)
-        return (-join ($bytes | ForEach-Object { $_.ToString('x2') }))
+        return ([System.BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant())
     }
     catch { return '' }
     finally
@@ -671,6 +706,23 @@ function Get-MarketManifest
     if (-not $Force -and $tried -gt [datetime]::MinValue -and $age -lt 10) { return $script:MarketManifest }
     $script:MarketManifestTried = Get-Date
     $script:MarketManifest = $null
+
+    # The atlas manifest is the one installed copy: it names the map data,
+    # the market catalog and every picture either side uses.
+    if ($null -ne (Get-Command -Name 'Get-AtlasManifest' -CommandType Function -ErrorAction SilentlyContinue))
+    {
+        try
+        {
+            $atlas = Get-AtlasManifest -Force:$Force
+            if ($null -ne $atlas -and ($atlas.catalog -or $atlas.icons))
+            {
+                $script:MarketManifest = $atlas
+                return $script:MarketManifest
+            }
+        }
+        catch { }
+    }
+
     $url = (Get-MarketRemoteBase) + '/manifest.json'
     try
     {
@@ -719,9 +771,10 @@ function Invoke-MarketDownload
     [CmdletBinding()]
     param([string]$Title = 'Entropia Market', [object[]]$Items = @())
     if ($Items.Count -eq 0) { return @{ Failed = (New-Object System.Collections.Generic.List[string]); Cancelled = $false; Done = 0 } }
-    if (Test-DashboardCommand 'Invoke-AtlasDownload')
+    if ($null -ne (Get-Command -Name 'Invoke-AtlasDownload' -CommandType Function -ErrorAction SilentlyContinue))
     {
-        try { return (Invoke-AtlasDownload -Title $Title -Items $Items) } catch { }
+        try { return (Invoke-AtlasDownload -Title $Title -Items $Items) }
+        catch { Write-Verbose "MARKET: the parallel downloader failed, falling back to one file at a time: $($_.Exception.Message)" }
     }
     $failed = New-Object System.Collections.Generic.List[string]
     $done = 0
@@ -735,80 +788,6 @@ function Invoke-MarketDownload
         catch { $failed.Add([string]$it.Path) }
     }
     return @{ Failed = $failed; Cancelled = $false; Done = $done }
-}
-
-function Get-MarketIconsState
-{
-    [CmdletBinding()]
-    param([string]$Root = '')
-    if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Get-MarketDataRoot }
-    $p = Join-Path (Join-Path $Root 'icons') '.market-icons.json'
-    if (-not (Test-Path -LiteralPath $p)) { return $null }
-    try { return (Get-Content -LiteralPath $p -Raw | ConvertFrom-Json) } catch { return $null }
-}
-
-function Save-MarketIconsState
-{
-    [CmdletBinding()]
-    param([string]$Root = '', [string]$Version = '')
-    try
-    {
-        if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Get-MarketDataRoot }
-        $dir = Join-Path $Root 'icons'
-        if (-not (Test-Path -LiteralPath $dir)) { [void][System.IO.Directory]::CreateDirectory($dir) }
-        $txt = ([ordered]@{ version = [string]$Version; checked = (Get-Date).ToString('s') } | ConvertTo-Json -Compress)
-        Set-Content -LiteralPath (Join-Path $dir '.market-icons.json') -Value $txt -Encoding UTF8
-    }
-    catch { }
-}
-
-function Get-MarketIconDiff
-{
-    [CmdletBinding()]
-    param($Manifest = $null)
-    $root = Get-MarketDataRoot
-    $iconsDir = Join-Path $root 'icons'
-    $rootRel = 'icons'
-    if ($Manifest -and $Manifest.icons -and $Manifest.icons.root) { $rootRel = [string]$Manifest.icons.root }
-
-    $out = @{
-        Missing = 0
-        Changed = 0
-        Total   = 0
-        Bytes   = [long]0
-        Files   = (New-Object System.Collections.Generic.List[object])
-    }
-    if ($null -eq $Manifest -or $null -eq $Manifest.icons) { return $out }
-
-    foreach ($f in @($Manifest.icons.files))
-    {
-        if ($null -eq $f -or -not $f.p) { continue }
-        $out.Total++
-        $rel = [string]$f.p
-        $want = [string]$f.h
-        $size = [long]0
-        if ($null -ne $f.s) { $size = [long]$f.s }
-
-        $probe = $rootRel + '/' + $rel
-        $have = ''
-        try { $have = Resolve-MarketIconPath -Path $probe } catch { $have = '' }
-        if ([string]::IsNullOrWhiteSpace($have) -or -not (Test-Path -LiteralPath $have -PathType Leaf))
-        {
-            $out.Missing++
-            $out.Bytes += $size
-            $out.Files.Add(@{ Rel = $rel; Path = (Join-Path $iconsDir ($rel -replace '/', '\')); Size = $size; Hash = $want })
-            continue
-        }
-        if (-not $want) { continue }
-        $got = Get-MarketFileHash -Path $have
-        if ($got -and $got -ne $want)
-        {
-            $out.Changed++
-            $out.Bytes += $size
-            $out.Files.Add(@{ Rel = $rel; Path = (Join-Path $iconsDir ($rel -replace '/', '\')); Size = $size; Hash = $want })
-        }
-    }
-    return $out
 }
 
 function Test-MarketStartupComplete
@@ -984,61 +963,11 @@ function Sync-MarketAssets
         }
     }
 
-    $iconFiles = @()
-    if ($manifest.icons -and $manifest.icons.files) { $iconFiles = @($manifest.icons.files) }
-    if ($iconFiles.Count -gt 0)
+    # Pictures are part of the atlas now: one manifest, one icon tree, and
+    # one download check shared by the map and the market.
+    if ($null -ne (Get-Command -Name 'Sync-AtlasIcons' -CommandType Function -ErrorAction SilentlyContinue))
     {
-        $remoteVer = ''
-        if ($manifest.icons.version) { $remoteVer = [string]$manifest.icons.version }
-        $state = Get-MarketIconsState
-        $haveVer = ''
-        if ($state -and $state.version) { $haveVer = [string]$state.version }
-
-        $scan = $true
-        if ($haveVer -and $remoteVer -and $haveVer -eq $remoteVer) { $scan = $false }
-        if ($scan)
-        {
-            $diff = Get-MarketIconDiff -Manifest $manifest
-            if ($diff.Files.Count -eq 0)
-            {
-                Save-MarketIconsState -Version $remoteVer
-            }
-            else
-            {
-                if ($diff.Missing -eq $diff.Files.Count) { $what = 'The market icons are not installed.' }
-                else
-                {
-                    $bits = @()
-                    if ($diff.Missing -gt 0) { $bits += ('{0} missing' -f $diff.Missing) }
-                    if ($diff.Changed -gt 0) { $bits += ('{0} changed' -f $diff.Changed) }
-                    $what = 'Market icons: ' + ($bits -join ', ') + '.'
-                }
-                $count = $diff.Files.Count
-                $word = if ($count -eq 1) { 'icon' } else { 'icons' }
-                $text = "$what`n`nDownload $count ${word}? ($(Format-MarketSize $diff.Bytes))`n`nThe market works without them - rows are then listed without pictures."
-                if (Read-MarketPrompt -Text $text -Caption 'Entropia Market - Icons')
-                {
-                    $rootRel = 'icons'
-                    if ($manifest.icons.root) { $rootRel = [string]$manifest.icons.root }
-                    $items = New-Object System.Collections.Generic.List[object]
-                    foreach ($f in $diff.Files)
-                    {
-                        $items.Add(@{ Url = ($base + '/' + $rootRel + '/' + $f.Rel); Path = $f.Path; Size = $f.Size; Hash = [string]$f.Hash })
-                    }
-                    $r = Invoke-MarketDownload -Title 'Entropia Market - downloading icons' -Items $items.ToArray()
-                    if ($r.Failed.Count -eq 0 -and -not $r.Cancelled)
-                    {
-                        Save-MarketIconsState -Version $remoteVer
-                        $changed = $true
-                    }
-                    elseif ($r.Failed.Count -gt 0)
-                    {
-                        $fw = if ($r.Failed.Count -eq 1) { 'icon' } else { 'icons' }
-                        Show-MarketNotice -Text ('{0} {1} could not be downloaded. They will be offered again the next time the market is opened.' -f $r.Failed.Count, $fw) -Caption 'Entropia Market - Download failed' -Icon 'Error'
-                    }
-                }
-            }
-        }
+        try { if (Sync-AtlasIcons) { $changed = $true } } catch { }
     }
 
     if ($changed)
@@ -1340,7 +1269,6 @@ function Save-MarketLocalData
         }
         $json = ConvertTo-Json -InputObject $out -Depth 6
         [System.IO.File]::WriteAllText($path, $json, [System.Text.UTF8Encoding]::new($false))
-        $script:MarketRecCache = @{}
         $script:MarketLocalVersion++
         return $true
     }
@@ -2764,29 +2692,6 @@ function Get-MarketItemIconMap
 
     $script:MarketIconMap = $map
     return ,$script:MarketIconMap
-}
-
-function Get-MarketIconMapStatus
-{
-    [CmdletBinding()]
-    param()
-    $entries = 0
-    if ($null -ne $script:MarketIconMap) { $entries = $script:MarketIconMap.Count }
-    return [pscustomobject]@{
-        Ready   = ($null -ne $script:MarketIconMap)
-        Loading = [bool]$script:MarketIconMapLoading
-        Entries = $entries
-        Error   = [string]$script:MarketIconMapError
-    }
-}
-
-function Test-MarketIconMapReady
-{
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param()
-    if ($null -ne $script:MarketIconMap) { return $true }
-    return (-not $script:MarketIconMapLoading)
 }
 
 function Start-MarketIconMapLoad
@@ -4641,7 +4546,6 @@ function Remove-MarketPriceAllFromUI
     }
 
     Clear-MarketPickedItem
-    $inv = [System.Globalization.CultureInfo]::InvariantCulture
     Set-MarketFeedback -Text ("Removed {0:N0} price(s)." -f [int]$removed) -Type 'Success'
     Update-MarketView
 }

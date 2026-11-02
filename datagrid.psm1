@@ -94,7 +94,7 @@ function NewRowLookupDictionary
 function UpdateExistingRow
 {
 	[CmdletBinding()]
-	param([System.Windows.Forms.DataGridViewRow]$Row, [int]$Index, [string]$ProcessTitle, [int]$ProcessId, [object]$Process)
+	param([System.Windows.Forms.DataGridViewRow]$Row, [int]$Index, [string]$ProcessTitle, [int]$ProcessId)
 	if ($Row.Cells[0].Value -ne $Index) { $Row.Cells[0].Value = $Index }
 	if ($Row.Cells[1].Value -ne $ProcessTitle) { $Row.Cells[1].Value = $ProcessTitle }
 	if ($Row.Cells[2].Value -ne $ProcessId) { $Row.Cells[2].Value = $ProcessId }
@@ -205,7 +205,7 @@ function Test-ClientWindowHidden
 function StartWindowStateCheck
 {
 	[CmdletBinding()]
-	param([object]$Process, [System.Windows.Forms.DataGridViewRow]$Row, [System.Windows.Forms.DataGridView]$Grid, [IntPtr]$CachedHandle = [IntPtr]::Zero)
+	param([object]$Process, [System.Windows.Forms.DataGridViewRow]$Row, [IntPtr]$CachedHandle = [IntPtr]::Zero)
 
 	if ($script:PendingChecks.Contains($Process.Id)) { return }
 	$targetHandle = $CachedHandle
@@ -508,73 +508,6 @@ function Restore-WindowPositions
 	}
 }
 
-function Reapply-GridStatusStyling
-{
-	[CmdletBinding()]
-	param()
-
-	$grid = $global:DashboardConfig.UI.DataGridMain
-	if (-not $grid -or $grid.IsDisposed) { return }
-	if (-not $global:DashboardConfig.State -or -not $global:DashboardConfig.State.UIInitialized) { return }
-
-	try
-	{
-			$now = [DateTime]::Now
-
-		$cDisconnected = Get-Theme 'StatusDisconnected'
-		$cDisconnectedText = Get-Theme 'StatusDisconnectedText'
-		$cFlashing = Get-Theme 'StatusFlashing'
-		$cFlashingSelect = Get-Theme 'StatusFlashingSelect'
-		$cWhiteText = Get-Theme 'WhiteText'
-		$cEmpty = Get-Theme 'Empty'
-
-		foreach ($row in $grid.Rows)
-		{
-			if (-not $row.Tag -or $null -eq $row.Tag.Id) { continue }
-
-			$pid = $row.Tag.Id
-			$isDisconnected = ($global:DashboardConfig.State.FlashingPids -and $global:DashboardConfig.State.FlashingPids.ContainsKey($pid))
-			$isWindowFlashing = $false
-
-			if (-not $isDisconnected -and $row.Tag.MainWindowHandle -ne [IntPtr]::Zero -and ('Custom.SafeWindowCore' -as [Type]))
-			{
-				$isWindowFlashing = [Custom.SafeWindowCore]::IsWindowFlashing($row.Tag.MainWindowHandle)
-				if ($isWindowFlashing)
-				{
-					if (-not $script:ProcessCache.ContainsKey($pid)) { $script:ProcessCache[$pid] = @{} }
-					$script:ProcessCache[$pid].LastFlashSeen = $now
-				}
-				elseif ($script:ProcessCache.ContainsKey($pid) -and $script:ProcessCache[$pid].LastFlashSeen -and ($now - $script:ProcessCache[$pid].LastFlashSeen).TotalSeconds -lt 2.5)
-				{
-					$isWindowFlashing = $true
-				}
-			}
-
-			if ($isDisconnected)
-			{
-				$row.DefaultCellStyle.BackColor = $cDisconnected
-				$row.DefaultCellStyle.ForeColor = $cDisconnectedText
-				$row.DefaultCellStyle.SelectionBackColor = $cDisconnected
-				$row.DefaultCellStyle.SelectionForeColor = $cWhiteText
-			}
-			elseif ($isWindowFlashing)
-			{
-				$row.DefaultCellStyle.BackColor = $cFlashing
-				$row.DefaultCellStyle.ForeColor = $cDisconnectedText
-				$row.DefaultCellStyle.SelectionBackColor = $cFlashingSelect
-				$row.DefaultCellStyle.SelectionForeColor = $cWhiteText
-			}
-			else
-			{
-				$row.DefaultCellStyle.BackColor = $cEmpty
-				$row.DefaultCellStyle.ForeColor = $cEmpty
-				$row.DefaultCellStyle.SelectionBackColor = $cEmpty
-				$row.DefaultCellStyle.SelectionForeColor = $cEmpty
-			}
-		}
-	}
-	catch { }
-}
 #endregion
 
 #region Core Functions
@@ -649,7 +582,7 @@ function UpdateDataGridCore
 
 			if ($existingRow) 
 			{ 
-				UpdateExistingRow -Row $existingRow -Index $perProfileIndex -ProcessTitle $processTitle -ProcessId $process.Id -Process $process
+				UpdateExistingRow -Row $existingRow -Index $perProfileIndex -ProcessTitle $processTitle -ProcessId $process.Id
 				$existingRow.Tag = $process
 			}
 			else 
@@ -720,7 +653,7 @@ function UpdateDataGridCore
 
 				$previousProfile = $process.Profile
 				$previousRow = $existingRow
-				StartWindowStateCheck -Process $process -Row $existingRow -Grid $Grid -CachedHandle $hWnd
+				StartWindowStateCheck -Process $process -Row $existingRow -CachedHandle $hWnd
 			}
 		}
 		UpdateRowIndices -Grid $Grid

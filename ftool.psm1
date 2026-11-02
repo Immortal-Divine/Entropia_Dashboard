@@ -344,6 +344,9 @@ function LoadFtoolSettings
 	param($formData)
     
 	$profilePrefix = FindOrCreateProfile $formData.WindowTitle -ProfileHint (Get-RowProfileHint -formData $formData)
+	$configSlot = 0
+	if ($formData.PSObject.Properties['ConfigSlot']) { $configSlot = [int]$formData.ConfigSlot }
+	if ($profilePrefix) { $profilePrefix = "$profilePrefix$(Get-FtoolConfigSuffix -ConfigSlot $configSlot)" }
 	$formData.ProfilePrefix = $profilePrefix
 
 	if ($profilePrefix)
@@ -530,18 +533,6 @@ function Split-WindowTitleParts
 	return $result
 }
 
-function Get-WindowTitleCore
-{
-	[CmdletBinding()]
-	[OutputType([string])]
-	param([string]$Title)
-
-	$base = [string]$Title
-	$idx = $base.IndexOf(' - ')
-	if ($idx -gt 0) { return $base.Substring(0, $idx) }
-	return $base
-}
-
 function Get-RowProfileHint
 {
 	[CmdletBinding()]
@@ -578,10 +569,15 @@ function FindOrCreateProfile
 
 		$current = Split-WindowTitleParts -Title $windowTitle
 		$currentBase = ([string]$current.Base).Trim()
-		$currentCore = (Get-WindowTitleCore -Title $currentBase).Trim()
+		if ([string]::IsNullOrWhiteSpace($currentBase)) { return $null }
+
+		$currentProfile = ([string]$current.Profile).Trim()
+		if ([string]::IsNullOrWhiteSpace($currentProfile)) { $currentProfile = ([string]$ProfileHint).Trim() }
+		if ([string]::IsNullOrWhiteSpace($currentProfile)) { $currentProfile = 'Default' }
+		$currentIdentity = "[$currentProfile]$currentBase"
 
 		$bestKey = $null
-		$bestScore = 0
+		$legacyKey = $null
 
 		if ($ftoolCfg)
 		{
@@ -592,38 +588,27 @@ function FindOrCreateProfile
 				if ([string]::IsNullOrWhiteSpace($stored)) { continue }
 
 				$parts = Split-WindowTitleParts -Title $stored
-				$trust = 'unknown'
-				if ($parts.Profile)
-				{
-					if (-not [string]::IsNullOrEmpty($ProfileHint))
-					{
-						$trust = if ($parts.Profile -ieq $ProfileHint) { 'confirmed' } else { 'contradict' }
-					}
-					elseif ($current.Profile)
-					{
-						$trust = if ($parts.Profile -ieq $current.Profile) { 'confirmed' } else { 'contradict' }
-					}
-				}
-				if ($trust -eq 'contradict') { continue }
-
 				$storedBase = ([string]$parts.Base).Trim()
-				$score = 0
-				if ($stored -ieq [string]$windowTitle) { $score = 100 }
-				elseif ($storedBase -ieq $currentBase) { $score = 80 }
-				elseif ((Get-WindowTitleCore -Title $storedBase).Trim() -ieq $currentCore) { $score = 60 }
+				if ($storedBase -ine $currentBase) { continue }
 
-				if ($score -gt 0)
+				$storedProfile = ([string]$parts.Profile).Trim()
+				if ([string]::IsNullOrWhiteSpace($storedProfile))
 				{
-					if ($trust -eq 'unknown') { $score -= 40 }
-					elseif (-not [string]::IsNullOrEmpty($ProfileHint)) { $score += 10 }
+					if (-not $legacyKey) { $legacyKey = $key }
 				}
-
-				if ($score -gt $bestScore)
+				elseif ($storedProfile -ieq $currentProfile)
 				{
-					$bestScore = $score
 					$bestKey = $key
+					break
 				}
 			}
+		}
+
+		if (-not $bestKey -and $legacyKey)
+		{
+			$bestKey = $legacyKey
+			$ftoolCfg[$bestKey] = $currentIdentity
+			Write-Verbose "F-Tool: pinned profile entry $bestKey to '$currentIdentity'."
 		}
 
 		if ($bestKey)
@@ -657,11 +642,56 @@ function FindOrCreateProfile
 				$global:DashboardConfig.Config['Ftool'] = [ordered]@{}
 				$ftoolCfg = $global:DashboardConfig.Config['Ftool']
 			}
-			$ftoolCfg[$profileKey] = $windowTitle
-			Write-Verbose "F-Tool: created new profile $profileKey for window title '$windowTitle'."
+			$ftoolCfg[$profileKey] = $currentIdentity
+			Write-Verbose "F-Tool: created new profile $profileKey for window title '$currentIdentity'."
 		}
 	}
 	return $profilePrefix
+}
+
+function Get-FtoolConfigSuffix
+{
+	[CmdletBinding()]
+	[OutputType([string])]
+	param([int]$ConfigSlot = 0)
+
+	if ($ConfigSlot -le 0) { return '' }
+	return "_$ConfigSlot"
+}
+
+function Get-FtoolSessionSlots
+{
+	[CmdletBinding()]
+	[OutputType([int[]])]
+	param([AllowNull()][string]$SessionValue)
+
+	if ([string]::IsNullOrWhiteSpace($SessionValue)) { return @() }
+
+	$raw = $SessionValue.Trim()
+	$slots = [System.Collections.ArrayList]::new()
+
+	if ($raw.StartsWith('FtoolSlots:', [System.StringComparison]::OrdinalIgnoreCase))
+	{
+		$list = $raw.Substring('FtoolSlots:'.Length)
+		foreach ($part in ($list -split '\|'))
+		{
+			$slot = -1
+			if ([int]::TryParse(([string]$part).Trim(), [ref]$slot) -and $slot -ge 0 -and $slot -le 50 -and -not $slots.Contains($slot))
+			{
+				[void]$slots.Add($slot)
+			}
+		}
+		return @($slots | Sort-Object)
+	}
+
+	$count = 0
+	if ([int]::TryParse($raw, [ref]$count) -and $count -gt 0)
+	{
+		if ($count -gt 50) { $count = 50 }
+		for ($i = 0; $i -lt $count; $i++) { [void]$slots.Add($i) }
+	}
+
+	return @($slots | Sort-Object)
 }
 
 function InitializeExtensionTracking
@@ -879,6 +909,9 @@ function UpdateSettings
 	param($formData, $extData = $null, [switch]$forceWrite)
     
 	$profilePrefix = FindOrCreateProfile $formData.WindowTitle -ProfileHint (Get-RowProfileHint -formData $formData)
+	$configSlot = 0
+	if ($formData.PSObject.Properties['ConfigSlot']) { $configSlot = [int]$formData.ConfigSlot }
+	if ($profilePrefix) { $profilePrefix = "$profilePrefix$(Get-FtoolConfigSuffix -ConfigSlot $configSlot)" }
     
 	if ($profilePrefix)
 	{
@@ -1682,7 +1715,7 @@ function RemoveExtension
 
 function FtoolSelectedRow
 {
-	param($row, [switch]$ForceNew, $Config = $null)
+	param($row, [switch]$ForceNew, $Config = $null, [int]$InstanceIndex = 0)
     
 	if (-not $row -or -not $row.Cells -or $row.Cells.Count -lt 3 -or -not $row.Cells[2].Value)
 	{
@@ -1690,16 +1723,22 @@ function FtoolSelectedRow
 		return
 	}
     
-	$pid = $row.Cells[2].Value.ToString()
-    $instanceId = $pid
+	$clientPid = $row.Cells[2].Value.ToString()
+	$instanceId = $clientPid
+	$configSlot = 0
     
     if ($ForceNew) {
-        $index = 1
-        while ($global:DashboardConfig.Resources.FtoolForms.Contains("${pid}_${index}")) {
-            $index++
+        if ($InstanceIndex -gt 0) {
+            $configSlot = [Math]::Min(50, $InstanceIndex)
         }
-        $instanceId = "${pid}_${index}"
-        Write-Verbose "Ftool Debug: Generated unique instance ID $instanceId for restoration."
+        else {
+            $configSlot = 1
+            while ($global:DashboardConfig.Resources.FtoolForms.Contains("${clientPid}_${configSlot}")) {
+                $configSlot++
+            }
+        }
+        $instanceId = "${clientPid}_${configSlot}"
+        Write-Verbose "Ftool Debug: Generated unique instance ID $instanceId (slot $configSlot) for restoration."
     }
 
 	if (-not $row.Tag -or -not $row.Tag.PSObject.Properties['MainWindowHandle'] -or -not $row.Tag.MainWindowHandle)
@@ -1710,7 +1749,7 @@ function FtoolSelectedRow
     
 	$windowHandle = $row.Tag.MainWindowHandle
     
-	if (-not $ForceNew -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
+	if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId))
 	{
         Write-Verbose "Ftool Debug: Instance $instanceId already exists, bringing to front."
 		$existingForm = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
@@ -1741,7 +1780,7 @@ function FtoolSelectedRow
 		$windowTitle = $row.Cells[1].Value.ToString()
 	}
     
-	$ftoolForm = CreateFtoolForm $instanceId $targetWindowRect $windowTitle $row $Config
+	$ftoolForm = CreateFtoolForm $instanceId $targetWindowRect $windowTitle $row $Config $configSlot
     
 	if ($ftoolForm -and $ftoolForm -is [System.Windows.Forms.Form]) {
 		Register-OpenForm $ftoolForm
@@ -1752,8 +1791,9 @@ function FtoolSelectedRow
 
 function CreateFtoolForm
 {
-	param($instanceId, $targetWindowRect, $windowTitle, $row, $Config = $null)
+	param($instanceId, $targetWindowRect, $windowTitle, $row, $Config = $null, [int]$ConfigSlot = 0)
     
+	$ConfigSlot = [Math]::Max(0, [Math]::Min(50, $ConfigSlot))
 	
 	$ftoolForm = New-Object Custom.FtoolFormWindow
     
@@ -1897,18 +1937,6 @@ function CreateFtoolForm
 
 		
 		
-		try {
-			if ($targetWindowRect -and $targetWindowRect -is [Custom.Native+RECT]) {
-				$rectForScreen = [System.Drawing.Rectangle]::FromLTRB($targetWindowRect.Left, $targetWindowRect.Top, $targetWindowRect.Right, $targetWindowRect.Bottom)
-				$screen = [System.Windows.Forms.Screen]::FromRectangle($rectForScreen)
-			} elseif ($row -and $row.Tag -and $row.Tag.MainWindowHandle) {
-				$screen = [System.Windows.Forms.Screen]::FromHandle([IntPtr]$row.Tag.MainWindowHandle)
-			} else {
-				$screen = [System.Windows.Forms.Screen]::PrimaryScreen
-			}
-		}
-		catch { $screen = [System.Windows.Forms.Screen]::PrimaryScreen }
-		
 		$virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
 		$maxX = $virtual.Right
 		$maxY = $virtual.Bottom
@@ -1947,6 +1975,7 @@ function CreateFtoolForm
 
 	$formData = [PSCustomObject]@{
 		InstanceId              = $instanceId
+		ConfigSlot              = $ConfigSlot
 		HeaderPanel             = $headerPanel
 		LabelWinTitle           = $labelWinTitle
 		SelectedWindow          = $row.Tag.MainWindowHandle
@@ -1991,6 +2020,23 @@ function CreateFtoolForm
     $global:DashboardConfig.Resources.FtoolForms[$instanceId] = $ftoolForm
     
 	LoadFtoolSettings $formData
+
+	if ($Config -is [string])
+	{
+		try { $Config = $Config | ConvertFrom-Json }
+		catch { Write-Verbose "FTOOL: Failed to parse saved session config. Ignoring. $_"; $Config = $null }
+	}
+	if ($null -ne $Config)
+	{
+		$savedMainKey = [string]$Config.key
+		if (-not [string]::IsNullOrWhiteSpace($savedMainKey)) { $formData.BtnKeySelect.Text = $savedMainKey }
+
+		$savedInterval = 0
+		if ([int]::TryParse([string]$Config.interval, [ref]$savedInterval) -and $savedInterval -gt 0) { $formData.Interval.Text = $savedInterval.ToString() }
+
+		$savedMainName = [string]$Config.name
+		if (-not [string]::IsNullOrWhiteSpace($savedMainName)) { $formData.Name.Text = $savedMainName }
+	}
     
 	$extensionsToRestore = 0
 	$savedExtConfig = $null
@@ -2020,7 +2066,6 @@ function CreateFtoolForm
 		}
 
 		$newExt = CreateExtensionPanel -form $ftoolForm `
-			-currentHeight $formData.OriginalHeight `
 			-extNum (GetNextExtensionNumber $instanceId) `
 			-instanceId $instanceId `
 			-windowHandle $formData.SelectedWindow
@@ -2187,18 +2232,6 @@ function UpdateSliderValuesFromFormPosition
 		$formTop = $form.Top
 		
 		
-		
-		try {
-			if ($windowRect -and $windowRect -is [Custom.Native+RECT]) {
-				$rectForScreen = [System.Drawing.Rectangle]::FromLTRB($windowRect.Left, $windowRect.Top, $windowRect.Right, $windowRect.Bottom)
-				$screen = [System.Windows.Forms.Screen]::FromRectangle($rectForScreen)
-			} elseif ($formData.SelectedWindow -and $formData.SelectedWindow -ne [IntPtr]::Zero) {
-				$screen = [System.Windows.Forms.Screen]::FromHandle([IntPtr]$formData.SelectedWindow)
-			} else {
-				$screen = [System.Windows.Forms.Screen]::PrimaryScreen
-			}
-		}
-		catch { $screen = [System.Windows.Forms.Screen]::PrimaryScreen }
 		
 		$virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
 		$maxX = $virtual.Right
@@ -2784,10 +2817,12 @@ function AddFtoolEventHandlers
             $profilePrefix = $data.ProfilePrefix
             if ($profilePrefix) {
                 $keysToClear = [System.Collections.ArrayList]@()
-                foreach ($k in $global:DashboardConfig.Config['Ftool'].Keys) {
-                    if ($k -match "_$profilePrefix$") {
-                        $keysToClear.Add($k)
-                    }
+                $escapedPrefix = [regex]::Escape($profilePrefix)
+                foreach ($k in @($global:DashboardConfig.Config['Ftool'].Keys)) {
+                    if ($k -like 'profile_*' -or $k -like 'Session_Ftool*') { continue }
+                    if ($k -notmatch "_$escapedPrefix$") { continue }
+                    if ($k -match "_${escapedPrefix}_\d+$") { continue }
+                    $keysToClear.Add($k)
                 }
                 foreach ($k in $keysToClear) {
                     $global:DashboardConfig.Config['Ftool'].Remove($k)
@@ -2826,10 +2861,17 @@ function AddFtoolEventHandlers
         
 			$extNum = GetNextExtensionNumber $data.InstanceId
         
-			$extData = CreateExtensionPanel $form $currentHeight $extNum $data.InstanceId $data.SelectedWindow
+			$extData = CreateExtensionPanel $form $extNum $data.InstanceId $data.SelectedWindow
 			$extKeyForScriptBlock = "ext_$($data.InstanceId)_$extNum"
         
-			$profilePrefix = FindOrCreateProfile $data.WindowTitle -ProfileHint (Get-RowProfileHint -formData $data)
+			$profilePrefix = $data.ProfilePrefix
+			if ([string]::IsNullOrWhiteSpace($profilePrefix))
+			{
+				$profilePrefix = FindOrCreateProfile $data.WindowTitle -ProfileHint (Get-RowProfileHint -formData $data)
+				$configSlot = 0
+				if ($data.PSObject.Properties['ConfigSlot']) { $configSlot = [int]$data.ConfigSlot }
+				if ($profilePrefix) { $profilePrefix = "$profilePrefix$(Get-FtoolConfigSuffix -ConfigSlot $configSlot)" }
+			}
         
 			LoadExtensionSettings $extData $profilePrefix
             
@@ -2900,7 +2942,7 @@ function AddFtoolEventHandlers
 
 function CreateExtensionPanel
 {
-	param($form, $currentHeight, $extNum, $instanceId, $windowHandle)
+	param($form, $extNum, $instanceId, $windowHandle)
     
     
     

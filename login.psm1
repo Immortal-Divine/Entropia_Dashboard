@@ -76,7 +76,6 @@ function ValidateAndRefreshProcessReference
 				if ($null -ne $cellTitle)
 				{
 					$titleStr = [string]$cellTitle
-					$entryNum = $Row.Cells[0].Value
 					
 					$allProcesses = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -and $_.MainWindowHandle -ne 0 }
 					foreach ($proc in $allProcesses)
@@ -669,17 +668,6 @@ function LoginSelectedRow
 				EnsureWindowState
 			}
 
-			function Set-WindowForeground
-			{
-				param([System.Diagnostics.Process]$Process, [IntPtr]$ExplicitHwnd)
-				CheckCancel
-				$targetHwnd = if ($ExplicitHwnd -ne [IntPtr]::Zero) { $ExplicitHwnd } else { $Process.MainWindowHandle }
-				if ($targetHwnd -eq [IntPtr]::Zero) { return $false }
-				$CancellationContext.ScriptInitiatedMove = $true
-				try { [Custom.Native]::BringToFront($targetHwnd); Start-Sleep -Milliseconds 100 } finally { Start-Sleep -Milliseconds 50; $CancellationContext.ScriptInitiatedMove = $false; CheckCancel }
-				return $true
-			}
-
 			function ParseCoordinates
 			{
 				param([string]$ConfigString)
@@ -718,8 +706,7 @@ function LoginSelectedRow
 				if ($Config['WorldLoadLogThreshold']) { $threshold = [int]$Config['WorldLoadLogThreshold'] }
 				if ($Config['WorldLoadLogEntry']) { $searchStr = $Config['WorldLoadLogEntry'] }
 				$foundCount = 0; $timeout = New-TimeSpan -Minutes 2; $sw = [System.Diagnostics.Stopwatch]::StartNew()
-				$null = $pct; $pct = 0; if ($TotalSteps -gt 0) { $pct = [int](($CurrentStep / $TotalSteps) * 100) }
-				$currentStep++; ReportLoginProgress -Action 'Waiting for World Load...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $currentClientIndex -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+				$CurrentStep++; ReportLoginProgress -Action 'Waiting for World Load...' -Step $CurrentStep -TotalSteps $TotalSteps -ClientIdx $ClientIdx -ClientCount $ClientCount -EntryNum $EntryNum -ProfileName $ProfileName -ServerID $ServerID -ChannelID $ChannelID -ClientTitle $ClientTitle
 				while ($foundCount -lt $threshold)
 				{
 					if ($sw.Elapsed -gt $timeout) { throw 'World load timeout' }

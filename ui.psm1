@@ -87,6 +87,7 @@ function Show-DarkMessageBox
 	)
 
     
+	$wasLoginActive = [bool]$global:DashboardConfig.State.LoginActive
 	$global:DashboardConfig.State.LoginActive = $true
 	try
 	{
@@ -122,7 +123,7 @@ function Show-DarkMessageBox
 	}
 	finally
 	{
-		$global:DashboardConfig.State.LoginActive = $false
+		$global:DashboardConfig.State.LoginActive = $wasLoginActive
 	}
 }
 
@@ -1203,15 +1204,9 @@ function Update-BossButtonImage
 	}
 
 	$bName = $btn.Text
-	$type = 'Normal'
 	if ($btn.Tag -is [System.Collections.IDictionary])
 	{
 		$bName = $btn.Tag['BossName']
-		$type = $btn.Tag['Type']
-	}
- elseif ($btn.Tag -is [string])
-	{
-		$type = $btn.Tag
 	}
 
 	if ($showImages)
@@ -1669,27 +1664,33 @@ function RepairLoginConfigSection
 		[System.Collections.IDictionary]$LoginConfig
 	)
 
+	$profileNames = @('Default')
+	try { $profileNames = Get-LoginConfigProfileNames -Config $global:DashboardConfig.Config } catch { }
+
 	$flatKeys = @()
 	foreach ($key in @($LoginConfig.Keys))
 	{
-		if ($LoginConfig[$key] -is [string] -and $key -match '^([^_]+)_(.+)$') { $flatKeys += $key }
+		if ($LoginConfig[$key] -is [string]) { $flatKeys += $key }
 	}
 
 	foreach ($flatKey in $flatKeys)
 	{
-		$flatKey -match '^([^_]+)_(.+)$' | Out-Null
-		$profileName = $Matches[1]
-		$settingName = $Matches[2]
+		$splitKey = Split-LoginConfigFlatKey -Key ([string]$flatKey) -ProfileNames $profileNames
+		$profileName = $splitKey.Profile
+		$settingName = $splitKey.Setting
 
-		if (-not $LoginConfig.Contains($profileName) -or $LoginConfig[$profileName] -isnot [System.Collections.IDictionary])
+		if (-not [string]::IsNullOrWhiteSpace($profileName) -and -not [string]::IsNullOrWhiteSpace($settingName))
 		{
-			$LoginConfig[$profileName] = [ordered]@{}
+			if (-not $LoginConfig.Contains($profileName) -or $LoginConfig[$profileName] -isnot [System.Collections.IDictionary])
+			{
+				$LoginConfig[$profileName] = [ordered]@{}
+			}
+			if (-not $LoginConfig[$profileName].Contains($settingName))
+			{
+				$LoginConfig[$profileName][$settingName] = $LoginConfig[$flatKey]
+			}
+			$LoginConfig.Remove($flatKey)
 		}
-		if (-not $LoginConfig[$profileName].Contains($settingName))
-		{
-			$LoginConfig[$profileName][$settingName] = $LoginConfig[$flatKey]
-		}
-		$LoginConfig.Remove($flatKey)
 	}
 }
 
@@ -2252,7 +2253,6 @@ function SyncUIToConfig
 		$global:DashboardConfig.Config['Options']['HideProfiles'] = if ($UI.HideProfiles.Checked) { '1' } else { '0' }
 		$global:DashboardConfig.Config['Options']['NotificationPosition'] = $UI.NotificationPositionSelector.SelectedItem
 
-		$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 		$appName = 'EntropiaDashboard'
 
 		$taskName = $appName
@@ -2896,7 +2896,7 @@ function InitializeUI
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; id = 'TitleLabel'; text = 'Entropia Dashboard'; tag = 'Title'; font = (Get-UIFont 'Segoe UI' 8 'Bold') }
 	$titleLabelForm = SetUIElement @p
 
-	$p = @{ type = 'Label'; width = 160; height = 10; top = 16; left = 10; id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v3.0.2'; tag = 'Subtitle'; font = (Get-UIFont 'Segoe UI' 6 'Italic') }
+	$p = @{ type = 'Label'; width = 160; height = 10; top = 16; left = 10; id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v3.0.3'; tag = 'Subtitle'; font = (Get-UIFont 'Segoe UI' 6 'Italic') }
 	$copyrightLabelForm = SetUIElement @p
 
 	$p = @{ type = 'Button'; width = 30; height = 24; top = 3; left = 327; id = 'ThemeToggle'; text = [char]0x25D0; fs = 'Flat'; tag = 'HeaderButton'; font = (Get-UIFont 'Segoe UI' 20 'Bold'); tooltip = "Theme Manager`nOpen theme selector and custom theme editor."; noCustomPaint = $true }
@@ -4855,7 +4855,7 @@ function RegisterUIEventHandlers
 					$iniExists = Test-Path -Path $global:DashboardConfig.Paths.Ini
 					if ($iniExists)
 					{
-						$iniSettings = GetIniFileContent -Ini $global:DashboardConfig.Paths.Ini
+						$iniSettings = GetIniFileContent -IniPath $global:DashboardConfig.Paths.Ini
 						if ($iniSettings.Count -gt 0)
 						{
 							$global:DashboardConfig.Config = $iniSettings
@@ -5210,7 +5210,7 @@ function RegisterUIEventHandlers
 								$isFtool = $false
 								if ($f -and -not $f.IsDisposed -and $f.Tag -and $f.Tag -isnot [string])
 								{
-									if ($null -eq $f.Tag.Type -or $f.Tag.Type -ne 'Macro')
+									if ($null -eq $f.Tag.Type -or $f.Tag.Type -eq 'Ftool')
 									{
 										if ($f.Tag.SelectedWindow -eq $row.Tag.MainWindowHandle)
 										{
@@ -5229,12 +5229,16 @@ function RegisterUIEventHandlers
 
 						if ($activeForms.Count -gt 0)
 						{
-							$global:DashboardConfig.Config['Ftool'][$sessionKey] = $activeForms.Count
-							for ($i = 0; $i -lt $activeForms.Count; $i++)
+							$sessionSlots = @()
+							foreach ($f in $activeForms)
 							{
-								$f = $activeForms[$i]
 								$data = $f.Tag
-								$configKey = "${sessionKey}_$i"
+								$slot = 0
+								if ($data.PSObject.Properties['ConfigSlot']) { $slot = [int]$data.ConfigSlot }
+								if ($slot -lt 0) { $slot = 0 }
+								if ($slot -gt 50) { $slot = 50 }
+								if ($sessionSlots -notcontains $slot) { $sessionSlots += $slot }
+								$configKey = "Session_FtoolCfg_${safeIdentity}_$slot"
 								if (-not $global:DashboardConfig.Config['Ftool'].Contains($configKey) -or $global:DashboardConfig.Config['Ftool'][$configKey] -isnot [System.Collections.IDictionary]) { $global:DashboardConfig.Config['Ftool'][$configKey] = [ordered]@{} }
 								$config = $global:DashboardConfig.Config['Ftool'][$configKey]
 								$config['key'] = if ($data.BtnKeySelect) { $data.BtnKeySelect.Text } else { '' }
@@ -5263,23 +5267,25 @@ function RegisterUIEventHandlers
 									}
 								}
 							}
+							$global:DashboardConfig.Config['Ftool'][$sessionKey] = 'FtoolSlots:' + ((@($sessionSlots) | Sort-Object) -join '|')
 							WriteConfig
                             
 							foreach ($f in $activeForms)
 							{
 								$f.Close()
 							}
-							Show-DarkMessageBox "Saved $($activeForms.Count) active Ftool instances for PID $pid." 'Session Saved' 'OK' 'Information' 'success'
+							Show-DarkMessageBox "Saved $($activeForms.Count) active Ftool instances for PID $($row.Cells[2].Value)." 'Session Saved' 'OK' 'Information' 'success'
 						}
 						else
 						{
 							if ($global:DashboardConfig.Config['Ftool'].Contains($sessionKey))
-       {
-								$savedValue = $global:DashboardConfig.Config['Ftool'][$sessionKey]
-								$count = [int]$savedValue
-								for ($i = 0; $i -lt $count; $i++)
+							{
+								$savedValue = [string]$global:DashboardConfig.Config['Ftool'][$sessionKey]
+								$savedSlots = @(Get-FtoolSessionSlots -SessionValue $savedValue)
+								$configPrefix = if ($savedValue.StartsWith('FtoolSlots:', [System.StringComparison]::OrdinalIgnoreCase)) { "Session_FtoolCfg_$safeIdentity" } else { $sessionKey }
+								foreach ($slot in $savedSlots)
 								{
-									$configKey = "${sessionKey}_$i"
+									$configKey = "${configPrefix}_$slot"
 									$config = $null
 									if ($global:DashboardConfig.Config['Ftool'].Contains($configKey))
 									{
@@ -5290,9 +5296,10 @@ function RegisterUIEventHandlers
 										}
 										else { $config = $configRaw }
 									}
-									FtoolSelectedRow $row -ForceNew -Config $config -InstanceIndex ($i + 1)
+									if ($slot -eq 0) { FtoolSelectedRow $row -Config $config }
+									else { FtoolSelectedRow $row -ForceNew -Config $config -InstanceIndex $slot }
 								}
-								Show-DarkMessageBox "Restored $count Ftool instances for $($row.Cells[1].Value)." 'Session Restored' 'OK' 'Information' 'success'
+								Show-DarkMessageBox "Restored $($savedSlots.Count) Ftool instances for $($row.Cells[1].Value)." 'Session Restored' 'OK' 'Information' 'success'
 							}
 							else
 							{
@@ -5358,25 +5365,47 @@ function RegisterUIEventHandlers
 
 						if ($activeForms.Count -gt 0)
 						{
-							$global:DashboardConfig.Config['Macro'][$sessionKey] = $activeForms.Count
+							$savedMacroIds = @()
+							foreach ($f in $activeForms)
+							{
+								if ($f.Tag -and $f.Tag.PSObject.Properties['InstanceId'] -and -not [string]::IsNullOrWhiteSpace([string]$f.Tag.InstanceId))
+								{
+									$savedMacroIds += [string]$f.Tag.InstanceId
+								}
+							}
+
+							$global:DashboardConfig.Config['Macro'][$sessionKey] = ($savedMacroIds -join '|')
 							WriteConfig
 
 							foreach ($f in $activeForms)
 							{
 								$f.Close()
 							}
-							Show-DarkMessageBox "Saved $($activeForms.Count) active Macro instances for $rowIdentity." 'Session Saved' 'OK' 'Information' 'success'
+							Show-DarkMessageBox "Saved $($savedMacroIds.Count) active Macro instances for $rowIdentity." 'Session Saved' 'OK' 'Information' 'success'
 						}
 						else
 						{
 							if ($global:DashboardConfig.Config['Macro'].Contains($sessionKey))
-       {
-								$count = [int]$global:DashboardConfig.Config['Macro'][$sessionKey]
-								for ($i = 1; $i -le $count; $i++)
+							{
+								$savedMacroIds = @(Get-MacroSessionInstanceIds -SessionValue ([string]$global:DashboardConfig.Config['Macro'][$sessionKey]) -MacroInstanceId "Macro_$safeIdentity")
+								foreach ($savedMacroId in $savedMacroIds)
 								{
-									MacroSelectedRow $row -ForceNew -InstanceIndex $i
+									$existingForm = $null
+									if ($global:DashboardConfig.Resources.FtoolForms.Contains($savedMacroId))
+									{
+										$existingForm = $global:DashboardConfig.Resources.FtoolForms[$savedMacroId]
+									}
+									if ($existingForm -and -not $existingForm.IsDisposed) { continue }
+									MacroSelectedRow $row -SavedInstanceId $savedMacroId
 								}
-								Show-DarkMessageBox "Restored $count Macro instances for $rowIdentity." 'Session Restored' 'OK' 'Information' 'success'
+								if ($savedMacroIds.Count -gt 0)
+								{
+									Show-DarkMessageBox "Restored $($savedMacroIds.Count) Macro instances for $rowIdentity." 'Session Restored' 'OK' 'Information' 'success'
+								}
+								else
+								{
+									Show-DarkMessageBox 'The saved Macro session is empty or no longer belongs to this client.' 'No Action' 'OK' 'Information'
+								}
 							}
 							else
 							{
@@ -5878,6 +5907,18 @@ function RegisterUIEventHandlers
 
 					if (-not [string]::IsNullOrWhiteSpace($profName))
 					{
+						$profName = ($profName.Trim() -replace '[\[\],]', '')
+						if ([string]::IsNullOrWhiteSpace($profName))
+						{
+							Show-DarkMessageBox 'Please enter a profile name without commas or brackets.' 'Invalid Profile Name' 'OK' 'Warning'
+							return
+						}
+						$duplicateProfile = $global:DashboardConfig.UI.ProfileGrid.Rows | Where-Object { [string]$_.Cells[0].Value -ieq $profName } | Select-Object -First 1
+						if ($duplicateProfile)
+						{
+							Show-DarkMessageBox "A profile named '$profName' already exists." 'Profile Exists' 'OK' 'Warning'
+							return
+						}
 						$global:DashboardConfig.UI.ProfileGrid.Rows.Add($profName, $path) | Out-Null
 						SyncProfilesToConfig
 						RefreshLoginProfileSelector
@@ -5895,8 +5936,21 @@ function RegisterUIEventHandlers
 
 					$newName = ShowInputBox -Title 'Rename Profile' -Prompt 'Enter new profile name:' -DefaultText $oldName
 
-					if (-not [string]::IsNullOrWhiteSpace($newName) -and $newName -ne $oldName)
+					if (-not [string]::IsNullOrWhiteSpace($newName))
 					{
+						$newName = ($newName.Trim() -replace '[\[\],]', '')
+						if ([string]::IsNullOrWhiteSpace($newName))
+						{
+							Show-DarkMessageBox 'Please enter a profile name without commas or brackets.' 'Invalid Profile Name' 'OK' 'Warning'
+							return
+						}
+						if ($newName -eq $oldName) { return }
+						$duplicateProfile = $global:DashboardConfig.UI.ProfileGrid.Rows | Where-Object { $_ -ne $row -and [string]$_.Cells[0].Value -ieq $newName } | Select-Object -First 1
+						if ($duplicateProfile)
+						{
+							Show-DarkMessageBox "A profile named '$newName' already exists." 'Profile Exists' 'OK' 'Warning'
+							return
+						}
 						$row.Cells[0].Value = $newName
 
 						if ($global:DashboardConfig.Config['LoginConfig'].Contains($oldName))
@@ -6018,6 +6072,10 @@ function RegisterUIEventHandlers
 					}
 
 					Remove-RememberedClientsProfile -ProfileName $profileName
+					if ($global:DashboardConfig.Config['Options'] -and $global:DashboardConfig.Config['Options']['SelectedProfile'] -eq $profileName)
+					{
+						$global:DashboardConfig.Config['Options']['SelectedProfile'] = ''
+					}
 					$global:DashboardConfig.UI.ProfileGrid.Rows.Remove($row)
 				}
 				SyncProfilesToConfig
@@ -6154,6 +6212,10 @@ function RegisterUIEventHandlers
 							if (Test-Path $profilePath) { Remove-Item -Path $profilePath -Recurse -Force -ErrorAction Stop }
 							if ($global:DashboardConfig.Config['LoginConfig'].Contains($profileName)) { $global:DashboardConfig.Config['LoginConfig'].Remove($profileName) }
 							Remove-RememberedClientsProfile -ProfileName $profileName
+							if ($global:DashboardConfig.Config['Options'] -and $global:DashboardConfig.Config['Options']['SelectedProfile'] -eq $profileName)
+							{
+								$global:DashboardConfig.Config['Options']['SelectedProfile'] = ''
+							}
 							$global:DashboardConfig.UI.ProfileGrid.Rows.Remove($row)
 						}
 						catch
@@ -6356,7 +6418,6 @@ function RegisterUIEventHandlers
 
 				foreach ($row in $sortedRows)
 				{
-					$gridPosition = $row.Index + 1
 					$fullTitle = $row.Cells[1].Value.ToString()
 					$profileName = 'Default'
 					$cleanTitle = $fullTitle
@@ -6399,6 +6460,17 @@ function RegisterUIEventHandlers
 				$setupName = ShowInputBox -Title 'New Setup' -Prompt 'Enter a name for this setup:' -DefaultText 'MySetup'
 				if ([string]::IsNullOrWhiteSpace($setupName)) { return }
 				$setupName = $setupName -replace '[^a-zA-Z0-9_\-]', ''
+				if ([string]::IsNullOrWhiteSpace($setupName))
+				{
+					Show-DarkMessageBox 'Please enter a setup name with letters, numbers, underscores or hyphens.' 'Invalid Setup Name' 'OK' 'Warning'
+					return
+				}
+				$setupKey = "Setup_$setupName"
+				if ($global:DashboardConfig.Config.Contains($setupKey))
+				{
+					Show-DarkMessageBox "A setup named '$setupName' already exists." 'Setup Exists' 'OK' 'Warning'
+					return
+				}
 				
 				
 				
@@ -6415,7 +6487,7 @@ function RegisterUIEventHandlers
 					$configSection["Client$i"] = $valueString
 				}
 
-				$global:DashboardConfig.Config["Setup_$setupName"] = $configSection
+				$global:DashboardConfig.Config[$setupKey] = $configSection
 				if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
 				SyncConfigToUI
 
@@ -6430,16 +6502,31 @@ function RegisterUIEventHandlers
 					$row = $global:DashboardConfig.UI.SetupGrid.SelectedRows[0]
 					$oldName = $row.Cells[0].Value
 					$newName = ShowInputBox -Title 'Rename Setup' -Prompt 'Enter new setup name:' -DefaultText $oldName
-					if (-not [string]::IsNullOrWhiteSpace($newName) -and $newName -ne $oldName)
+					if (-not [string]::IsNullOrWhiteSpace($newName))
 					{
 						$newName = $newName -replace '[^a-zA-Z0-9_\-]', ''
+						if ([string]::IsNullOrWhiteSpace($newName))
+						{
+							Show-DarkMessageBox 'Please enter a setup name with letters, numbers, underscores or hyphens.' 'Invalid Setup Name' 'OK' 'Warning'
+							return
+						}
+						if ($newName -eq $oldName) { return }
 						$oldKey = "Setup_$oldName"
 						$newKey = "Setup_$newName"
+						if ($global:DashboardConfig.Config.Contains($newKey))
+						{
+							Show-DarkMessageBox "A setup named '$newName' already exists." 'Setup Exists' 'OK' 'Warning'
+							return
+						}
 						if ($global:DashboardConfig.Config.Contains($oldKey))
 						{
 							$data = $global:DashboardConfig.Config[$oldKey]
 							$global:DashboardConfig.Config.Remove($oldKey)
 							$global:DashboardConfig.Config[$newKey] = $data
+							if ($global:DashboardConfig.Config['Options'] -and $global:DashboardConfig.Config['Options']['SelectedSetup'] -eq $oldName)
+							{
+								$global:DashboardConfig.Config['Options']['SelectedSetup'] = $newName
+							}
 							if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
 							SyncConfigToUI
 						}
@@ -6498,6 +6585,10 @@ function RegisterUIEventHandlers
 							if ($global:DashboardConfig.Config.Contains($key))
 							{
 								$global:DashboardConfig.Config.Remove($key)
+								if ($global:DashboardConfig.Config['Options'] -and $global:DashboardConfig.Config['Options']['SelectedSetup'] -eq $name)
+								{
+									$global:DashboardConfig.Config['Options']['SelectedSetup'] = ''
+								}
 								if (Test-DashboardCommand 'WriteConfig') { WriteConfig }
 								SyncConfigToUI
 							}
@@ -7347,7 +7438,7 @@ function Show-CustomColorPicker {
 		if ($OnColorChange) { & $OnColorChange $c }
 	}
 
-	$wheelDown = $false
+	$dragState = @{ Wheel = $false; Brightness = $false }
 	$handleWheel = {
 		param($s, $e)
 		$dx = $e.X - $center; $dy = $e.Y - $center
@@ -7361,11 +7452,10 @@ function Show-CustomColorPicker {
 		$c = Hsl-ToRgb $state.H $state.S $state.L
 		& $syncColor $c $false
 	}
-	$wheelPic.Add_MouseDown({ $wheelDown = $true; & $handleWheel $args[0] $args[1] })
-	$wheelPic.Add_MouseMove({ if ($wheelDown) { & $handleWheel $args[0] $args[1] } })
-	$wheelPic.Add_MouseUp({   $wheelDown = $false })
+	$wheelPic.Add_MouseDown({ $dragState.Wheel = $true; & $handleWheel $args[0] $args[1] })
+	$wheelPic.Add_MouseMove({ if ($dragState.Wheel) { & $handleWheel $args[0] $args[1] } })
+	$wheelPic.Add_MouseUp({   $dragState.Wheel = $false })
 
-	$brightnessDown = $false
 	$handleBrightness = {
 		param($s, $e)
 		$y = [Math]::Max(0, [Math]::Min($s.Height - 1, $e.Y))
@@ -7373,9 +7463,9 @@ function Show-CustomColorPicker {
 		$c = Hsl-ToRgb $state.H $state.S $state.L
 		& $syncColor $c $true
 	}
-	$brightnessPanel.Add_MouseDown({ $brightnessDown = $true; & $handleBrightness $args[0] $args[1] })
-	$brightnessPanel.Add_MouseMove({ if ($brightnessDown) { & $handleBrightness $args[0] $args[1] } })
-	$brightnessPanel.Add_MouseUp({   $brightnessDown = $false })
+	$brightnessPanel.Add_MouseDown({ $dragState.Brightness = $true; & $handleBrightness $args[0] $args[1] })
+	$brightnessPanel.Add_MouseMove({ if ($dragState.Brightness) { & $handleBrightness $args[0] $args[1] } })
+	$brightnessPanel.Add_MouseUp({   $dragState.Brightness = $false })
 
 	$hexBox.Add_TextChanged({
 		if ($state.Suppress) { return }
@@ -7433,7 +7523,6 @@ function Show-LiveColorPicker {
 		[scriptblock]$OnApply
 	)
 	$originalCol = $Button.BackColor
-	$appliedColor = $originalCol
 
 	$applyColor = {
 		param($newCol)
@@ -7445,7 +7534,6 @@ function Show-LiveColorPicker {
 			if ($global:DashboardConfig.State.CurrentTheme -eq 'Custom') {
 				Save-CustomThemeColors $ColorMap -NoConfigWrite
 				Set-Theme 'Custom' -NoSave
-				#Reapply-GridStatusStyling
 			}
 		}
 	}
@@ -7603,7 +7691,6 @@ function Show-ThemeSelectionForm {
 		if (-not $selectedName) { return }
 
 		Set-Theme $selectedName
-		#Reapply-GridStatusStyling
 		$ft.EditorState.IsSavedAndApplied = $true
 
 		$tc = $ft.ThemeCards
@@ -8026,7 +8113,6 @@ function Show-ThemeSelectionForm {
 		$ft = $frm.Tag
 		Save-CustomThemeColors $ft.CustomColorMap
 		Set-Theme 'Custom'
-		#Reapply-GridStatusStyling
 		$ft.EditorState.IsSavedAndApplied = $true
 
 		if ($ft.ThemeCards.ContainsKey('Custom')) {
@@ -8051,7 +8137,6 @@ function Show-ThemeSelectionForm {
 		if (-not $ft.EditorState.IsSavedAndApplied) {
 			Register-CustomThemeFromConfig -Force
 			Set-Theme $ft.InitialTheme
-			#Reapply-GridStatusStyling
 		}
 	})
 
@@ -8860,6 +8945,19 @@ function Invoke-ProfileAutoToolsPass
 		}
 	}
 
+	if ($state.ActiveLoginPids -and $state.ActiveLoginPids.Count -gt 0)
+	{
+		foreach ($loginPid in @($state.ActiveLoginPids))
+		{
+			$loginPidText = [string]$loginPid
+			if ($startedPids.Contains($loginPidText))
+			{
+				[void]$startedPids.Remove($loginPidText)
+				if ($attempts.Contains($loginPidText)) { $attempts.Remove($loginPidText) }
+			}
+		}
+	}
+
 	foreach ($stalePid in @($startedPids))
 	{
 		if (-not $loggedInPids.Contains($stalePid))
@@ -8935,22 +9033,20 @@ function Invoke-ProfileAutoToolsPass
 					$macroId = 'Macro_' + ((Get-RowIdentity -Row $row) -replace '[^a-zA-Z0-9_\-]', '_')
 					$requested += 'Macro'
 
-					$sessionCount = 0
+					$savedMacroIds = @()
 					$macroCfg = $global:DashboardConfig.Config['Macro']
 					if ($macroCfg -and $macroCfg -isnot [string] -and $macroCfg.Contains("Session_Macro_$macroId"))
 					{
-						try { $sessionCount = [int]$macroCfg["Session_Macro_$macroId"] } catch { $sessionCount = 0 }
-						if ($sessionCount -gt 50) { $sessionCount = 0 }
+						$savedMacroIds = @(Get-MacroSessionInstanceIds -SessionValue ([string]$macroCfg["Session_Macro_$macroId"]) -MacroInstanceId $macroId)
 					}
 
-					if ($sessionCount -gt 0)
+					if ($savedMacroIds.Count -gt 0)
 					{
-						$notes.Add("macro: restoring $sessionCount saved instance(s) for $($info.ProfileName)/$($info.Pid)")
-						for ($macroIdx = 1; $macroIdx -le $sessionCount; $macroIdx++)
+						$notes.Add("macro: restoring $($savedMacroIds.Count) saved instance(s) for $($info.ProfileName)/$($info.Pid)")
+						foreach ($macroInstanceId in $savedMacroIds)
 						{
-							$macroInstanceId = "${macroId}_${macroIdx}"
 							$expectedIds += $macroInstanceId
-							if (-not ($toolForms -and $toolForms.Contains($macroInstanceId))) { MacroSelectedRow $row -ForceNew -InstanceIndex $macroIdx }
+							if (-not ($toolForms -and $toolForms.Contains($macroInstanceId))) { MacroSelectedRow $row -SavedInstanceId $macroInstanceId }
 						}
 					}
 					else
@@ -9112,6 +9208,16 @@ function Invoke-ProfileAutoToolsCleanup
 				try { $form.Dispose() } catch {}
 			}
 			$closed.Add("$kind '$key' -> $reason")
+
+			if ($state.AutoToolsStartedPids -and $state.AutoToolsStartedPids.Contains($ownerPid))
+			{
+				[void]$state.AutoToolsStartedPids.Remove($ownerPid)
+			}
+			if ($state.AutoToolsAttempts -and $state.AutoToolsAttempts.Contains($ownerPid))
+			{
+				$state.AutoToolsAttempts.Remove($ownerPid)
+			}
+			$state.AutoToolsLastDiag = ''
 		}
 		catch { $closed.Add("$kind '$key' -> close failed: $($_.Exception.Message)") }
 	}
@@ -9159,21 +9265,6 @@ function StartProfileAutoToolsWatcher
 	$timers['ProfileAutoTools'] = $timer
 	$timer.Start()
 	Write-Verbose 'Profile Auto-Tools watcher started (opens F-Tool / Macro / QuickCommand after login).'
-}
-
-function StopProfileAutoToolsWatcher
-{
-	[CmdletBinding()]
-	param()
-
-	$timers = $global:DashboardConfig.Resources.Timers
-	if ($timers -and $timers.Contains('ProfileAutoTools'))
-	{
-		$timer = $timers['ProfileAutoTools']
-		try { $timer.Stop(); $timer.Dispose() } catch {}
-		try { $timers.Remove('ProfileAutoTools') } catch {}
-	}
-	$global:ProfileAutoToolsBusy = $false
 }
 
 #endregion

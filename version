@@ -1,32 +1,16 @@
 Author: Immortal / Divine
-Version: 3.0.2
+Version: 3.0.3
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 [Changelogs]
    - Added:
 
-	- UI overhaul with Theme Switcher.
-	- Added Market tab in Extras.
-	- Added Map for Entropia.
-	- Logged in clients in profiles are remembered for individual settings.
-	- Added auto start to load saved ftool/macro/quickcommands for profiles on login.
-	- QuickCommand window has a 'Run commands on open' checkbox
-	- QuickCommand window has a 'Close after run' checkbox (closes the window once the run on open sequence finished).
-	- Login coordinates now have the correct value set for all resolutions by default.
-
 
 
    - Fixed:
 
-	- Fixed unresponsive buttons, if a macro was looping at low ms.
-	- Clients without a profile can now login/reconnect through the Default profile.
-	- Profile repair through copying the neuz doesnt break anymore.
-	- Omtimized code of saving and fonts for better performance.
-	- Hotkeys are editable in the settings again.
-	- Past notifications can be reopened again.
-	- Canceled reconnects/logins/launchs do not break the notifications anymore.
-	- Some notifications not pausing on mouse hover.
-	- Removed some duplicated functions.
+	- Multiple bug fixes in all areas
+	- Ftool/Macro loading/saving fixed
 
 
    Dont forget to request your Access Code in Discord for the Worldboss Feature!

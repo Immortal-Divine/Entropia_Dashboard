@@ -2757,15 +2757,6 @@ function Register-ThemedGridToolTip([System.Windows.Forms.DataGridView]$Grid) {
     $Grid | Add-Member -MemberType NoteProperty -Name 'ThemedGridTipText' -Value $null -Force
     $Grid.ShowCellToolTips = $false
 
-    $hideTip = {
-        param($src)
-        $tipProp = $src.PSObject.Properties['ThemedGridTip']
-        if ($tipProp -and $tipProp.Value) {
-            try { $tipProp.Value.Hide([System.Windows.Forms.Control]$src) } catch { }
-        }
-        $src | Add-Member -MemberType NoteProperty -Name 'ThemedGridTipText' -Value $null -Force
-    }
-
     $Grid.Add_MouseMove({
         param($src, $e)
         try {

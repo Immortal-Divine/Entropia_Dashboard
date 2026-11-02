@@ -6,17 +6,7 @@ $global:LaunchCancellation = [hashtable]::Synchronized(@{
 		IsCancelled = $false
 	})
 
-$script:LauncherTimeout = 30
-$script:LaunchDelay = 3
-$script:MaxRetryAttempts = 3
-$script:LastLaunchToastUpdateTime = $null
 $script:LastLaunchToastTick = 0
-
-$script:ProcessConfig = @{
-	MaxRetries = 3
-	RetryDelay = 500
-	Timeout    = 60000
-}
 
 #endregion
 
@@ -646,7 +636,6 @@ function StartClientLaunch
 				ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Initializing Client..." -Step $currentStep -TotalSteps $totalSteps 
 				SleepWithCancel -Milliseconds 1000
 
-				$timeout = New-TimeSpan -Minutes 2
 				$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 				$launcherClosed = $false
 				$null = $launcherClosedNormally; $launcherClosedNormally = $false
@@ -916,12 +905,6 @@ function StartClientLaunch
 
 	try
 	{
-		$completionScriptBlock = {
-			Write-Verbose 'LAUNCH: Launch operation completed'
-			StopClientLaunch
-		}
-
-		$script:LaunchCompletionAction = $completionScriptBlock
 		$eventName = 'LaunchOperation_' + [Guid]::NewGuid().ToString('N')
 
 		$simpleEventAction = {

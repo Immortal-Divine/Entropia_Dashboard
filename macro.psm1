@@ -5,8 +5,6 @@ $script:_MacroKeyScriptStr = $null
 #region Helper Functions
 
 function InitMacroRunspace {
-    param($InstanceId)
-    
     $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
     
     $assemblies = [System.AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { 
@@ -33,7 +31,7 @@ function Get-MacroKeyScriptBlock {
     return {
         param($Handle, $Vk, $HoldTime, $IsMouse, $Mods, $IsAlt, $IsCtrl)
 
-        $WM_KEYDOWN = 0x0100; $WM_KEYUP = 0x0101
+        $WM_KEYDOWN = 0x0100
         $WM_LBUTTONDOWN = 0x0201; $WM_LBUTTONUP = 0x0202
         $WM_RBUTTONDOWN = 0x0204; $WM_RBUTTONUP = 0x0205
         $WM_MBUTTONDOWN = 0x0207; $WM_MBUTTONUP = 0x0208
@@ -162,7 +160,7 @@ function Invoke-MacroKeyAction {
         Write-Verbose "Macro Runspace closed/broken. Attempting to restart..."
         try {
             if ($formData.RunspacePool) { try { $formData.RunspacePool.Dispose() } catch {} }
-            $formData.RunspacePool = InitMacroRunspace -InstanceId $formData.InstanceId
+            $formData.RunspacePool = InitMacroRunspace
         } 
         catch {
             Write-Verbose "Failed to restart Runspace: $_"
@@ -553,7 +551,7 @@ function StartMacroSequence {
 
     if (-not $formData.RunspacePool -or $formData.RunspacePool.RunspacePoolStateInfo.State -ne 'Opened') {
         if ($formData.RunspacePool) { try { $formData.RunspacePool.Dispose() } catch {} }
-        $formData.RunspacePool = InitMacroRunspace -InstanceId $formData.InstanceId
+        $formData.RunspacePool = InitMacroRunspace
     }
     
     $formData.BtnStart.Enabled = $false
@@ -856,16 +854,30 @@ function Get-MacroProfileHint
 	return ''
 }
 
-function Test-MacroKeyConfigured
+function Get-MacroConfigSuffix
 {
 	[CmdletBinding()]
-	[OutputType([bool])]
-	param($Value)
+	[OutputType([string])]
+	param(
+		[string]$InstanceId,
+		[string]$BaseInstanceId = ''
+	)
 
-	$text = [string]$Value
-	if ([string]::IsNullOrWhiteSpace($text)) { return $false }
-	if ($text -eq 'Select') { return $false }
-	return $true
+	if ([string]::IsNullOrWhiteSpace($InstanceId)) { return '' }
+	if ([string]::IsNullOrWhiteSpace($BaseInstanceId))
+	{
+		if ($InstanceId -match '^(?<base>.*)_(?<idx>\d+)$') { return '_Sub' + $Matches['idx'] }
+		$BaseInstanceId = $InstanceId
+	}
+
+	if ($InstanceId -ieq $BaseInstanceId) { return '' }
+
+	if ($InstanceId -match ('^' + [regex]::Escape($BaseInstanceId) + '_(?<idx>\d+)$'))
+	{
+		return '_Sub' + $Matches['idx']
+	}
+
+	return ''
 }
 
 function Resolve-MacroConfigBase
@@ -884,64 +896,56 @@ function Resolve-MacroConfigBase
 	if (-not $profilePrefix) { return $null }
 
 	$configSuffix = ''
-	if ($formData.InstanceId)
+	if ($formData.PSObject.Properties['ConfigSuffix'])
 	{
-		$parts = $formData.InstanceId -split '_'
-		if ($parts.Count -gt 2) { $configSuffix = '_Sub' + $parts[-1] }
+		$configSuffix = [string]$formData.ConfigSuffix
+	}
+	if ([string]::IsNullOrEmpty($configSuffix) -and $formData.InstanceId)
+	{
+		$configSuffix = Get-MacroConfigSuffix -InstanceId ([string]$formData.InstanceId)
 	}
 
-	$exact = "$profilePrefix$configSuffix"
+	return "$profilePrefix$configSuffix"
+}
 
-	if (-not $global:DashboardConfig.Config.Contains('Macro')) { return $exact }
-	$cfg = $global:DashboardConfig.Config['Macro']
-	if (-not $cfg -or $cfg.Count -eq 0) { return $exact }
+function Get-MacroSessionInstanceIds
+{
+	[CmdletBinding()]
+	[OutputType([string[]])]
+	param(
+		[AllowNull()][string]$SessionValue,
+		[Parameter(Mandatory = $true)][string]$MacroInstanceId
+	)
 
-	$scored = @()
-	$seen = @{}
-	foreach ($k in @($cfg.Keys))
+	if ([string]::IsNullOrWhiteSpace($MacroInstanceId)) { return @() }
+
+	$raw = [string]$SessionValue
+	if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
+
+	$ids = [System.Collections.ArrayList]::new()
+
+	if ($raw.IndexOf('Macro_', [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
 	{
-		if ($k -match '^(?:Key|Hotkey|SeqCount|collapsed)_(?<base>\d+(?:_.+)?)$')
+		foreach ($part in ($raw -split '\|'))
 		{
-			$base = $Matches['base']
-			if ($seen.ContainsKey($base)) { continue }
-			$seen[$base] = $true
-
-			if ($base -ne $profilePrefix -and -not $base.StartsWith("${profilePrefix}_")) { continue }
-
-			$count = 0
-			foreach ($k2 in @($cfg.Keys)) { if ($k2.EndsWith("_$base")) { $count++ } }
-
-			$configured = $false
-			if ($cfg.Contains("Key_$base")) { $configured = Test-MacroKeyConfigured $cfg["Key_$base"] }
-			if (-not $configured -and $cfg.Contains("Seq1_Key_$base")) { $configured = Test-MacroKeyConfigured $cfg["Seq1_Key_$base"] }
-
-			$scored += [PSCustomObject]@{
-				Base       = $base
-				Count      = $count
-				IsMain     = -not ($base -match '_Sub\d+$')
-				Configured = $configured
-			}
+			$id = ([string]$part).Trim()
+			if ([string]::IsNullOrWhiteSpace($id)) { continue }
+			if ($id -ine $MacroInstanceId -and $id -notmatch ('^' + [regex]::Escape($MacroInstanceId) + '_\d+$')) { continue }
+			if (-not $ids.Contains($id)) { [void]$ids.Add($id) }
+			if ($ids.Count -ge 50) { break }
 		}
+		return @($ids)
 	}
 
-	if ($scored.Count -eq 0) { return $exact }
+	$count = 0
+	if ([int]::TryParse($raw.Trim(), [ref]$count) -and $count -gt 0)
+	{
+		if ($count -gt 50) { $count = 50 }
+		[void]$ids.Add($MacroInstanceId)
+		for ($i = 1; $i -lt $count; $i++) { [void]$ids.Add("${MacroInstanceId}_$i") }
+	}
 
-	$exactEntry = $scored | Where-Object { $_.Base -eq $exact } | Select-Object -First 1
-	if ($exactEntry -and $exactEntry.Configured) { return $exact }
-
-	$configuredOnes = @($scored | Where-Object { $_.Configured })
-	if ($configuredOnes.Count -eq 0) { return $exact }
-
-	$best = $configuredOnes |
-		Sort-Object -Property @{ Expression = { if ($_.IsMain) { 0 } else { 1 } } },
-			@{ Expression = { -$_.Count } },
-			@{ Expression = { $_.Base.Length } } |
-		Select-Object -First 1
-
-	if ($best.Base -eq $exact) { return $exact }
-
-	Write-Verbose "MACRO: base '$exact' has no saved settings - reusing template base '$($best.Base)' (profile $profilePrefix)."
-	return $best.Base
+	return @($ids)
 }
 
 function LoadMacroSettings {
@@ -1292,7 +1296,7 @@ function Import-MgpMacro {
 #region Core Functions
 
 function MacroSelectedRow {
-    param($row, [switch]$ForceNew, [Parameter(Mandatory = $false)]$Config, [int]$InstanceIndex = 0)
+    param($row, [switch]$ForceNew, [Parameter(Mandatory = $false)]$Config, [int]$InstanceIndex = 0, [string]$SavedInstanceId)
     
     if (-not $row) {
         Write-Verbose "MACRO: Invalid row data passed to MacroSelectedRow."
@@ -1301,20 +1305,37 @@ function MacroSelectedRow {
     
     $rowIdentity = Get-RowIdentity -Row $row
     $safeIdentity = $rowIdentity -replace '[^a-zA-Z0-9_\-]', '_'
-    $instanceId = "Macro_$safeIdentity"
-    
-    if ($ForceNew) {
+    $baseInstanceId = "Macro_$safeIdentity"
+    $instanceId = $baseInstanceId
+    $configSuffix = ''
+
+    if (-not [string]::IsNullOrWhiteSpace($SavedInstanceId)) {
+        $savedId = $SavedInstanceId.Trim()
+        if ($savedId -ine $baseInstanceId -and $savedId -notmatch ('^' + [regex]::Escape($baseInstanceId) + '_(?<idx>\d+)$')) {
+            Write-Verbose "MACRO: Ignoring saved instance '$savedId' because it belongs to another client."
+            return
+        }
+        $instanceId = $savedId
+        $configSuffix = Get-MacroConfigSuffix -InstanceId $instanceId -BaseInstanceId $baseInstanceId
+        $ForceNew = $false
+        Write-Verbose "MACRO: Restoring saved instance ID $instanceId (config suffix '$configSuffix')."
+    }
+    elseif ($ForceNew) {
         if ($InstanceIndex -gt 0) {
-            $instanceId = "${instanceId}_${InstanceIndex}"
+            $instanceId = "${baseInstanceId}_${InstanceIndex}"
         }
         else {
             $index = 1
-            while ($global:DashboardConfig.Resources.FtoolForms.Contains("${instanceId}_${index}")) {
+            while ($global:DashboardConfig.Resources.FtoolForms.Contains("${baseInstanceId}_${index}")) {
                 $index++
             }
-            $instanceId = "${instanceId}_${index}"
+            $instanceId = "${baseInstanceId}_${index}"
         }
-        Write-Verbose "Macro Debug: Generated stable unique instance ID $instanceId for restoration."
+        $configSuffix = Get-MacroConfigSuffix -InstanceId $instanceId -BaseInstanceId $baseInstanceId
+        Write-Verbose "Macro Debug: Generated stable unique instance ID $instanceId (config suffix '$configSuffix') for restoration."
+    }
+    else {
+        $configSuffix = Get-MacroConfigSuffix -InstanceId $baseInstanceId -BaseInstanceId $baseInstanceId
     }
 
     if (-not $row.Tag -or -not $row.Tag.PSObject.Properties['MainWindowHandle'] -or -not $row.Tag.MainWindowHandle) {
@@ -1324,7 +1345,7 @@ function MacroSelectedRow {
     
     $windowHandle = $row.Tag.MainWindowHandle
     
-    if (-not $ForceNew -and $global:DashboardConfig.Resources.FtoolForms.Contains($instanceId)) {
+    if ($global:DashboardConfig.Resources.FtoolForms.Contains($instanceId)) {
         $existingForm = $global:DashboardConfig.Resources.FtoolForms[$instanceId]
         if ($existingForm -and -not $existingForm.IsDisposed) {
             try {
@@ -1354,7 +1375,7 @@ function MacroSelectedRow {
         $windowTitle = $row.Cells[1].Value.ToString()
     }
     
-    $macroForm = CreateMacroForm $instanceId $targetWindowRect $windowTitle $row -Config $Config
+    $macroForm = CreateMacroForm $instanceId $targetWindowRect $windowTitle $row -Config $Config -ConfigSuffix $configSuffix
     
     if ($macroForm) {
         $global:DashboardConfig.Resources.FtoolForms[$instanceId] = $macroForm
@@ -1383,11 +1404,21 @@ function StopMacroForm {
 }
 
 function CreateMacroForm {
-    param($instanceId, $targetWindowRect, $windowTitle, $row, [Parameter(Mandatory = $false)]$Config)
+    param($instanceId, $targetWindowRect, $windowTitle, $row, [Parameter(Mandatory = $false)]$Config, [string]$ConfigSuffix)
     
     if (-not $row -or -not $row.Cells -or $row.Cells.Count -lt 2) {
         Write-Verbose "MACRO: Cannot create form due to invalid row data."
         return $null
+    }
+
+    if ([string]::IsNullOrEmpty($ConfigSuffix)) {
+        $baseInstanceId = ''
+        if ($row) {
+            $rowIdentity = Get-RowIdentity -Row $row
+            $safeIdentity = $rowIdentity -replace '[^a-zA-Z0-9_\-]', '_'
+            $baseInstanceId = "Macro_$safeIdentity"
+        }
+        $ConfigSuffix = Get-MacroConfigSuffix -InstanceId $instanceId -BaseInstanceId $baseInstanceId
     }
     
     if ($null -ne $Config -and $Config -is [string]) {
@@ -1541,19 +1572,6 @@ function CreateMacroForm {
         $panelSettings.Controls.Add($txtHoldKeyInterval)
     
 
-        try {
-            if ($targetWindowRect -and $targetWindowRect -is [Custom.Native+RECT]) {
-                $rectForScreen = [System.Drawing.Rectangle]::FromLTRB($targetWindowRect.Left, $targetWindowRect.Top, $targetWindowRect.Right, $targetWindowRect.Bottom)
-                $screen = [System.Windows.Forms.Screen]::FromRectangle($rectForScreen)
-            }
-            elseif ($row -and $row.Tag -and $row.Tag.MainWindowHandle) {
-                $screen = [System.Windows.Forms.Screen]::FromHandle([IntPtr]$row.Tag.MainWindowHandle)
-            }
-            else {
-                $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-            }
-        }
-        catch { $screen = [System.Windows.Forms.Screen]::PrimaryScreen }
         $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
         $maxX = $virtual.Right
         $maxY = $virtual.Bottom
@@ -1591,6 +1609,7 @@ function CreateMacroForm {
     $formData = [PSCustomObject]@{
         Type                    = 'Macro'
         InstanceId              = $instanceId
+        ConfigSuffix            = $ConfigSuffix
         HeaderPanel             = $headerPanel
         LabelWinTitle           = $labelWinTitle
 		OriginalTitle 			= $labelText
@@ -1631,7 +1650,7 @@ function CreateMacroForm {
         ActiveSteps             = @()
         CurrentStepIndex        = 0
         ActiveJobs              = [System.Collections.ArrayList]::new()
-        RunspacePool            = (InitMacroRunspace -InstanceId $instanceId)
+        RunspacePool            = (InitMacroRunspace)
         IsLoading               = $false
     }
     
@@ -1810,19 +1829,6 @@ function UpdateMacroSliderValuesFromFormPosition {
 		
         $formLeft = $form.Left
         $formTop = $form.Top
-        try {
-            if ($windowRect -and $windowRect -is [Custom.Native+RECT]) {
-                $rectForScreen = [System.Drawing.Rectangle]::FromLTRB($windowRect.Left, $windowRect.Top, $windowRect.Right, $windowRect.Bottom)
-                $screen = [System.Windows.Forms.Screen]::FromRectangle($rectForScreen)
-            }
-            elseif ($formData.SelectedWindow -and $formData.SelectedWindow -ne [IntPtr]::Zero) {
-                $screen = [System.Windows.Forms.Screen]::FromHandle([IntPtr]$formData.SelectedWindow)
-            }
-            else {
-                $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-            }
-        }
-        catch { $screen = [System.Windows.Forms.Screen]::PrimaryScreen }
         $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
         $maxX = $virtual.Right
         $maxY = $virtual.Bottom

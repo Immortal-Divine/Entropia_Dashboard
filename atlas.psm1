@@ -75,6 +75,26 @@ function Get-AtlasCandidateRoots
 	return $list
 }
 
+function Get-AtlasHomeDataStamp
+{
+	param([string]$Home)
+	$best = [long]0
+	foreach ($rel in @('src\data.js', 'data.js'))
+	{
+		$p = Join-Path $Home $rel
+		try
+		{
+			if (Test-Path -LiteralPath $p -PathType Leaf)
+			{
+				$t = [System.IO.File]::GetLastWriteTimeUtc($p).Ticks
+				if ($t -gt $best) { $best = $t }
+			}
+		}
+		catch { }
+	}
+	return $best
+}
+
 function Get-AtlasHomes
 {
 	$list = New-Object System.Collections.Generic.List[string]
@@ -90,6 +110,17 @@ function Get-AtlasHomes
 		if ($paths.Modules) { & $add (Join-Path $paths.Modules 'atlas') }
 		if ($paths.Source) { & $add (Join-Path $paths.Source 'atlas') }
 	}
+	if ($list.Count -gt 1)
+	{
+		$ranked = @()
+		for ($i = 0; $i -lt $list.Count; $i++)
+		{
+			$ranked += [pscustomobject]@{ Path = $list[$i]; Stamp = (Get-AtlasHomeDataStamp -Home $list[$i]); Order = $i }
+		}
+		$ordered = @($ranked | Sort-Object -Property @{ Expression = { $_.Stamp }; Descending = $true }, @{ Expression = { $_.Order }; Descending = $false })
+		$list.Clear()
+		foreach ($r in $ordered) { $list.Add($r.Path) }
+	}
 	return $list
 }
 
@@ -100,18 +131,18 @@ function Get-AtlasAssetRoot
 	{
 		if (Test-Path -LiteralPath (Join-Path $cfg 'maps')) { return $cfg }
 	}
-	foreach ($home in (Get-AtlasHomes))
+	foreach ($atlasHome in (Get-AtlasHomes))
 	{
-		$own = Join-Path $home 'icons'
+		$own = Join-Path $atlasHome 'icons'
 		if (Test-Path -LiteralPath (Join-Path $own 'maps')) { return $own }
 	}
 	foreach ($r in (Get-AtlasCandidateRoots))
 	{
 		if (Test-Path -LiteralPath (Join-Path $r 'maps')) { return $r }
 	}
-	foreach ($home in (Get-AtlasHomes))
+	foreach ($atlasHome in (Get-AtlasHomes))
 	{
-		return (Join-Path $home 'icons')
+		return (Join-Path $atlasHome 'icons')
 	}
 	return $null
 }
@@ -121,11 +152,11 @@ function Get-AtlasDataPath
 	$cfg = Get-AtlasConfigValue 'DataPath'
 	if ($cfg -and (Test-Path -LiteralPath $cfg)) { return $cfg }
 
-	foreach ($home in (Get-AtlasHomes))
+	foreach ($atlasHome in (Get-AtlasHomes))
 	{
-		$p = Join-Path $home 'src\data.js'
+		$p = Join-Path $atlasHome 'src\data.js'
 		if (Test-Path -LiteralPath $p) { return $p }
-		$p = Join-Path $home 'data.js'
+		$p = Join-Path $atlasHome 'data.js'
 		if (Test-Path -LiteralPath $p) { return $p }
 	}
 
@@ -200,9 +231,7 @@ function Get-AtlasFileHash
 		$sha = [System.Security.Cryptography.SHA256]::Create()
 		$fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
 		$bytes = $sha.ComputeHash($fs)
-		$sb = New-Object System.Text.StringBuilder
-		foreach ($b in $bytes) { [void]$sb.Append($b.ToString('x2')) }
-		return $sb.ToString()
+		return ([System.BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant())
 	}
 	catch { return '' }
 	finally
@@ -257,6 +286,7 @@ function Get-AtlasWebText
 	$req.Timeout = $Timeout
 	$req.ReadWriteTimeout = $Timeout
 	$req.UserAgent = 'EntropiaDashboard'
+	try { $req.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate } catch { }
 	try
 	{
 		$resp = $req.GetResponse()
@@ -473,9 +503,12 @@ function Invoke-AtlasDownload
 			$active = New-Object System.Collections.ArrayList
 			$next = 0
 			$lastName = ''
+			$lastUi = [DateTime]::UtcNow
+			$dirsMade = @{}
 
 			while (($next -lt $pending.Count -or $active.Count -gt 0) -and -not $script:AtlasDownloadCancel)
 			{
+				$sawCompleted = $false
 				while ($active.Count -lt $threads -and $next -lt $pending.Count)
 				{
 					$it = $pending[$next]
@@ -494,13 +527,14 @@ function Invoke-AtlasDownload
 					{
 						$failed.Add($path)
 						$active.RemoveAt($i)
+						$sawCompleted = $true
 						continue
 					}
 					$task = $job.Task
 					if ($null -eq $task -or -not $task.IsCompleted) { continue }
 
 					$active.RemoveAt($i)
-					$part = $path + '.part'
+					$sawCompleted = $true
 					try
 					{
 						if ($task.IsFaulted) { throw $task.Exception.GetBaseException() }
@@ -512,28 +546,34 @@ function Invoke-AtlasDownload
 							$got = Get-AtlasBytesHash -Bytes $bytes
 							if (-not $got -or $got -ne $want) { throw 'The downloaded file did not match its published checksum.' }
 						}
-						$dir = Split-Path -Parent $path
-						if ($dir -and -not (Test-Path -LiteralPath $dir)) { [void][System.IO.Directory]::CreateDirectory($dir) }
-						[System.IO.File]::WriteAllBytes($part, $bytes)
-						[System.IO.File]::Copy($part, $path, $true)
-						try { Remove-Item -LiteralPath $part -Force } catch { }
+						$dir = [System.IO.Path]::GetDirectoryName($path)
+						if ($dir -and -not $dirsMade.ContainsKey($dir))
+						{
+							[void][System.IO.Directory]::CreateDirectory($dir)
+							$dirsMade[$dir] = $true
+						}
+						[System.IO.File]::WriteAllBytes($path, $bytes)
 						$done++
 						$bytesDone += [long]$job.Item.Size
 						$lastName = [string]$job.Name
 					}
 					catch
 					{
-						try { if (Test-Path -LiteralPath $part) { Remove-Item -LiteralPath $part -Force } } catch { }
 						$failed.Add($path)
 					}
 				}
 
-				$bar.Value = [Math]::Min($bar.Maximum, $done)
-				$lblBytes.Text = ('{0} of {1}' -f (Format-AtlasSize $bytesDone), (Format-AtlasSize $totalBytes))
-				if ($lastName) { $lblStatus.Text = ('Downloading {0}   ({1} of {2})' -f $lastName, [Math]::Min($done + 1, $Items.Count), $Items.Count) }
-				else { $lblStatus.Text = ('Downloading {0} files...' -f $Items.Count) }
-				[System.Windows.Forms.Application]::DoEvents()
-				Start-Sleep -Milliseconds 15
+				$now = [DateTime]::UtcNow
+				if (($now - $lastUi).TotalMilliseconds -ge 80)
+				{
+					$bar.Value = [Math]::Min($bar.Maximum, $done)
+					$lblBytes.Text = ('{0} of {1}' -f (Format-AtlasSize $bytesDone), (Format-AtlasSize $totalBytes))
+					if ($lastName) { $lblStatus.Text = ('Downloading {0}   ({1} of {2})' -f $lastName, [Math]::Min($done + 1, $Items.Count), $Items.Count) }
+					else { $lblStatus.Text = ('Downloading {0} files...' -f $Items.Count) }
+					[System.Windows.Forms.Application]::DoEvents()
+					$lastUi = $now
+				}
+				if (-not $sawCompleted) { Start-Sleep -Milliseconds 3 }
 			}
 
 			if ($script:AtlasDownloadCancel) { try { $client.CancelPendingRequests() } catch { } }
@@ -575,6 +615,7 @@ function Get-AtlasIconDiff
 {
 	param($Manifest, [string]$Root)
 	$iconsRoot = Join-Path $Root 'icons'
+	$prefix = $iconsRoot + [System.IO.Path]::DirectorySeparatorChar
 	$out = @{
 		Missing = 0
 		Changed = 0
@@ -582,16 +623,20 @@ function Get-AtlasIconDiff
 		Bytes = [long]0
 		Files = (New-Object System.Collections.Generic.List[object])
 	}
+	$sha = $null
+	try { $sha = [System.Security.Cryptography.SHA256]::Create() } catch { $sha = $null }
 	foreach ($f in @($Manifest.icons.files))
 	{
 		if (-not $f -or -not $f.p) { continue }
 		$out.Total++
 		$rel = [string]$f.p
-		$full = Join-Path $iconsRoot ($rel -replace '/', '\')
+		$full = $prefix + $rel.Replace('/', [System.IO.Path]::DirectorySeparatorChar.ToString())
 		$size = [long]0
-		if ($f.s) { $size = [long]$f.s }
+		if ($null -ne $f.s) { $size = [long]$f.s }
 		$want = [string]$f.h
-		if (-not (Test-Path -LiteralPath $full))
+		$exists = $false
+		try { $exists = [System.IO.File]::Exists($full) } catch { $exists = $false }
+		if (-not $exists)
 		{
 			$out.Missing++
 			$out.Bytes += $size
@@ -599,14 +644,44 @@ function Get-AtlasIconDiff
 			continue
 		}
 		if (-not $want) { continue }
-		$got = Get-AtlasFileHash $full
-		if ($got -ne $want)
+
+		$got = ''
+		$sizeMismatch = $false
+		if ($null -ne $sha)
+		{
+			$fs = $null
+			try
+			{
+				$fs = [System.IO.File]::Open($full, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+				if ($size -gt 0 -and $fs.Length -ne $size) { $sizeMismatch = $true }
+				else
+				{
+					$bytes = $sha.ComputeHash($fs)
+					$got = [System.BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant()
+				}
+			}
+			catch { $got = '' }
+			finally { if ($fs) { $fs.Dispose() } }
+		}
+		else
+		{
+			if ($size -gt 0)
+			{
+				$actual = [long]-1
+				try { $actual = ([System.IO.FileInfo]::new($full)).Length } catch { $actual = -1 }
+				if ($actual -ge 0 -and $actual -ne $size) { $sizeMismatch = $true }
+			}
+			if (-not $sizeMismatch) { $got = Get-AtlasFileHash $full }
+		}
+
+		if ($sizeMismatch -or $got -ne $want)
 		{
 			$out.Changed++
 			$out.Bytes += $size
 			$out.Files.Add(@{ Rel = $rel; Path = $full; Size = $size; Hash = $want })
 		}
 	}
+	if ($null -ne $sha) { try { $sha.Dispose() } catch { } }
 	return $out
 }
 
@@ -645,7 +720,26 @@ function Sync-AtlasAssets
 	elseif ($dataWant)
 	{
 		$got = Get-AtlasFileHash $dataPath
-		if ($got -and $got -ne $dataWant)
+		$offer = [bool]($got -and $got -ne $dataWant)
+		if ($offer)
+		{
+			# A manifest older than the data on disk describes an older build.
+			# Do not offer to replace newer local data with it: the data that
+			# ships beside this module can be newer than the published manifest.
+			$genUtc = [datetime]::MinValue
+			$genRaw = $manifest.generated
+			try
+			{
+				if ($genRaw -is [datetime]) { $genUtc = ([datetime]$genRaw).ToUniversalTime() }
+				elseif ($genRaw) { [void][datetime]::TryParse([string]$genRaw, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$genUtc) }
+			}
+			catch { }
+			if ($genUtc -gt [datetime]::MinValue)
+			{
+				try { if ((Get-Item -LiteralPath $dataPath).LastWriteTimeUtc -gt $genUtc) { $offer = $false } } catch { }
+			}
+		}
+		if ($offer)
 		{
 			$when = ''
 			if ($dataDate) { $when = ' (updated ' + $dataDate + ')' }
@@ -662,64 +756,77 @@ function Sync-AtlasAssets
 		}
 	}
 
-	$iconFiles = @()
-	if ($manifest.icons -and $manifest.icons.files) { $iconFiles = @($manifest.icons.files) }
-	if ($iconFiles.Count -gt 0)
+	if (Sync-AtlasIcons) { $changed = $true }
+
+	return $changed
+}
+
+function Sync-AtlasIcons
+{
+	[CmdletBinding()]
+	[OutputType([bool])]
+	param()
+
+	$root = Get-AtlasInstallRoot
+	if (-not $root) { return $false }
+	$manifest = Get-AtlasManifest
+	if (-not $manifest -or -not $manifest.icons -or -not $manifest.icons.files) { return $false }
+
+	$base = Get-AtlasRemoteBase
+	$changed = $false
+	$iconFiles = @($manifest.icons.files)
+	if ($iconFiles.Count -eq 0) { return $false }
+
+	$iconsRoot = Join-Path $root 'icons'
+	$remoteVer = ''
+	if ($manifest.icons.version) { $remoteVer = [string]$manifest.icons.version }
+	$state = Get-AtlasIconsState -Root $root
+	$haveVer = ''
+	if ($state -and $state.version) { $haveVer = [string]$state.version }
+	$scan = $true
+	if ($haveVer -and $remoteVer -and $haveVer -eq $remoteVer -and (Test-Path -LiteralPath $iconsRoot)) { $scan = $false }
+	if (-not $scan) { return $false }
+
+	$diff = Get-AtlasIconDiff -Manifest $manifest -Root $root
+	if ($diff.Files.Count -eq 0)
 	{
-		$iconsRoot = Join-Path $root 'icons'
-		$remoteVer = ''
-		if ($manifest.icons.version) { $remoteVer = [string]$manifest.icons.version }
-		$state = Get-AtlasIconsState -Root $root
-		$haveVer = ''
-		if ($state -and $state.version) { $haveVer = [string]$state.version }
-		$scan = $true
-		if ($haveVer -and $remoteVer -and $haveVer -eq $remoteVer -and (Test-Path -LiteralPath $iconsRoot)) { $scan = $false }
-		if ($scan)
-		{
-			$diff = Get-AtlasIconDiff -Manifest $manifest -Root $root
-			if ($diff.Files.Count -eq 0)
-			{
-				Save-AtlasIconsState -Root $root -Version $remoteVer
-			}
-			else
-			{
-				if ($diff.Missing -eq $diff.Files.Count)
-				{
-					$what = 'The map icons are not installed.'
-				}
-				else
-				{
-					$bits = @()
-					if ($diff.Missing -gt 0) { $bits += ('{0} missing' -f $diff.Missing) }
-					if ($diff.Changed -gt 0) { $bits += ('{0} changed' -f $diff.Changed) }
-					$what = 'Map icons: ' + ($bits -join ', ') + '.'
-				}
-				$count = $diff.Files.Count
-				$word = if ($count -eq 1) { 'icon' } else { 'icons' }
-				$msg = "$what`n`nDownload $count ${word}? ($(Format-AtlasSize $diff.Bytes))`n`nThe map works without them - markers are then drawn as plain shapes."
-				if (Read-AtlasUpdateAnswer -Text $msg -Caption 'Entropia Map - Icons')
-				{
-					$items = New-Object System.Collections.Generic.List[object]
-					foreach ($f in $diff.Files)
-					{
-						$items.Add(@{ Url = ($base + '/icons/' + $f.Rel); Path = $f.Path; Size = $f.Size; Hash = [string]$f.Hash })
-					}
-					$r = Invoke-AtlasDownload -Title 'Entropia Map - downloading icons' -Items $items.ToArray()
-					if ($r.Failed.Count -eq 0 -and -not $r.Cancelled)
-					{
-						Save-AtlasIconsState -Root $root -Version $remoteVer
-						$changed = $true
-					}
-					elseif ($r.Failed.Count -gt 0)
-					{
-						$fw = if ($r.Failed.Count -eq 1) { 'icon' } else { 'icons' }
-						Show-AtlasNotice -Text ('{0} {1} could not be downloaded. They will be offered again the next time the map is opened.' -f $r.Failed.Count, $fw) -Caption 'Entropia Map - Download failed' -Icon 'Error'
-					}
-				}
-			}
-		}
+		Save-AtlasIconsState -Root $root -Version $remoteVer
+		return $false
 	}
 
+	if ($diff.Missing -eq $diff.Files.Count)
+	{
+		$what = 'The atlas icons are not installed.'
+	}
+	else
+	{
+		$bits = @()
+		if ($diff.Missing -gt 0) { $bits += ('{0} missing' -f $diff.Missing) }
+		if ($diff.Changed -gt 0) { $bits += ('{0} changed' -f $diff.Changed) }
+		$what = 'Atlas icons: ' + ($bits -join ', ') + '.'
+	}
+	$count = $diff.Files.Count
+	$word = if ($count -eq 1) { 'icon' } else { 'icons' }
+	$msg = "$what`n`nDownload $count ${word}? ($(Format-AtlasSize $diff.Bytes))`n`nThe map and market work without them - pictures are then left out."
+	if (Read-AtlasUpdateAnswer -Text $msg -Caption 'Entropia Atlas - Icons')
+	{
+		$items = New-Object System.Collections.Generic.List[object]
+		foreach ($f in $diff.Files)
+		{
+			$items.Add(@{ Url = ($base + '/icons/' + $f.Rel); Path = $f.Path; Size = $f.Size; Hash = [string]$f.Hash })
+		}
+		$r = Invoke-AtlasDownload -Title 'Entropia Atlas - downloading icons' -Items $items.ToArray()
+		if ($r.Failed.Count -eq 0 -and -not $r.Cancelled)
+		{
+			Save-AtlasIconsState -Root $root -Version $remoteVer
+			$changed = $true
+		}
+		elseif ($r.Failed.Count -gt 0)
+		{
+			$fw = if ($r.Failed.Count -eq 1) { 'icon' } else { 'icons' }
+			Show-AtlasNotice -Text ('{0} {1} could not be downloaded. They will be offered again the next time the atlas is opened.' -f $r.Failed.Count, $fw) -Caption 'Entropia Atlas - Download failed' -Icon 'Error'
+		}
+	}
 	return $changed
 }
 
@@ -1255,6 +1362,85 @@ function Sync-AtlasJump
 	if ($cmb.GetType().GetMethod('FitDropDownWidth')) { try { $cmb.FitDropDownWidth(360) } catch { } }
 }
 
+function Format-AtlasShopText
+{
+	param($Shop)
+	if (-not $Shop) { return '' }
+	$lines = New-Object System.Collections.Generic.List[string]
+	if ($Shop.Trade)
+	{
+		$head = 'TRADE'
+		if ($Shop.Trade.Currency -and $Shop.Trade.Currency.Name) {
+			$head += '  ' + [string][char]0x00B7 + '  ' + $Shop.Trade.Currency.Name
+		}
+		$lines.Add($head)
+		$tabs = @($Shop.Trade.Tabs)
+		$items = @($Shop.Trade.Items)
+		$count = [Math]::Max(1, $tabs.Count)
+		for ($ti = 0; $ti -lt $count; $ti++)
+		{
+			if ($tabs.Count -gt 1) { $lines.Add('  [' + $tabs[$ti] + ']') }
+			for ($i = 0; $i -lt $items.Count; $i++)
+			{
+				if ([int]$items[$i].Tab -ne $ti) { continue }
+				$q = ''
+				if ([int]$items[$i].Price -ne 1) { $q = '  x' + [int]$items[$i].Price }
+				$lines.Add('  ' + $items[$i].Name + $q)
+			}
+		}
+	}
+	foreach ($ex in @($Shop.Exchange))
+	{
+		if (-not $ex) { continue }
+		if ($lines.Count -gt 0) { $lines.Add('') }
+		$lines.Add('EXCHANGE  ' + [string][char]0x00B7 + '  ' + $ex.Label)
+		foreach ($set in @($ex.Sets))
+		{
+			$give = @($set.Cost | ForEach-Object {
+				$s = [string]$_.Name
+				if ([int]$_.Qty -gt 1) { $s += ' x' + [int]$_.Qty }
+				$s
+			}) -join ', '
+			$get = @($set.Get | ForEach-Object {
+				$s = [string]$_.Name
+				if ([int]$_.Qty -gt 1) { $s += ' x' + [int]$_.Qty }
+				$s
+			}) -join ', '
+			$lines.Add('  Give: ' + $give)
+			$lines.Add('  Get:  ' + $get)
+		}
+	}
+	if ($lines.Count -eq 0) { $lines.Add('No stock recorded.') }
+	return ($lines -join "`r`n")
+}
+
+function Set-AtlasCardRegion
+{
+	param($Panel, [bool]$Round = $true)
+	if (-not $Panel) { return }
+	if (-not $Round)
+	{
+		$old = $Panel.Region
+		$Panel.Region = $null
+		if ($old) { $old.Dispose() }
+		return
+	}
+	$w = [int]$Panel.Width; $h = [int]$Panel.Height
+	if ($w -lt 4 -or $h -lt 4) { return }
+	$r = [Math]::Min(11, [Math]::Min($w, $h) / 2)
+	$d = $r * 2
+	$p = New-Object System.Drawing.Drawing2D.GraphicsPath
+	$p.AddArc(0, 0, $d, $d, 180, 90)
+	$p.AddArc(($w - $d), 0, $d, $d, 270, 90)
+	$p.AddArc(($w - $d), ($h - $d), $d, $d, 0, 90)
+	$p.AddArc(0, ($h - $d), $d, $d, 90, 90)
+	$p.CloseFigure()
+	$old = $Panel.Region
+	$Panel.Region = New-Object System.Drawing.Region($p)
+	if ($old) { $old.Dispose() }
+	$p.Dispose()
+}
+
 function Update-AtlasDetail
 {
 	param([hashtable]$Ctx, [Atlas.Hit]$Hit)
@@ -1263,8 +1449,24 @@ function Update-AtlasDetail
 	$S = $Ctx.S; $pal = $Ctx.pal
 	$detail.Visible = $false
 	$detail.Tag = $null
+	$Ctx.detailDrag = $null
 	@($detail.Controls) | ForEach-Object { $_.Dispose() }
 	if (-not $Hit) { return }
+
+	$isShop = ($Hit.Kind -eq 'npc' -and $Hit.Shop)
+	$cardW = 252
+	if ($isShop)
+	{
+		$cardW = 452
+		$stageW = 0
+		if ($Ctx.stage) { $stageW = [int]$Ctx.stage.ClientSize.Width }
+		if ($stageW -gt 0) { $cardW = [Math]::Min(452, [Math]::Max(320, $stageW - 90)) }
+	}
+	$detail.Width = $cardW
+	$detail.BackColor = if ($isShop) { $pal.Panel } else { $pal.Panel2 }
+	$detail.BorderStyle = if ($isShop) { 'None' } else { 'FixedSingle' }
+	$detail.AutoScroll = $false
+	$detail.Cursor = [System.Windows.Forms.Cursors]::Default
 
 	$barColor = [System.Drawing.Color]::FromArgb(90, 176, 255)
 	$kindWord = 'node'
@@ -1273,36 +1475,60 @@ function Update-AtlasDetail
 		'species' { $kindWord = $Hit.Cat; if ($Hit.Color) { $barColor = $Hit.Color } }
 		'treasure' { $kindWord = 'treasure dig spot'; $barColor = [System.Drawing.Color]::FromArgb(212, 149, 58) }
 		'statue' { $kindWord = 'statue'; $barColor = [System.Drawing.Color]::FromArgb(77, 157, 224) }
-		'npc' { $kindWord = 'npc'; $barColor = [System.Drawing.Color]::FromArgb(63, 209, 106) }
+		'npc' {
+			$kindWord = if ($Hit.Shop) { ([string]$Hit.Shop.Kind).ToLowerInvariant() } else { 'npc' }
+			$barColor = if ($Hit.Shop) { [System.Drawing.Color]::FromArgb(255, 200, 87) } else { [System.Drawing.Color]::FromArgb(63, 209, 106) }
+		}
 	}
 
 	$bar = New-Object System.Windows.Forms.Panel
 	$bar.BackColor = $barColor
-	$bar.SetBounds(0, 0, 4, 24)
+	if ($isShop) { $bar.SetBounds(0, 0, $cardW, 3) } else { $bar.SetBounds(0, 0, 4, 24) }
 	$detail.Controls.Add($bar)
+
+	$nameX = 12; $nameY = 5; $nameW = $cardW - 46; $nameSize = 9.5
+	$kindY = 24
+	if ($isShop)
+	{
+		$lblDot = New-Object System.Windows.Forms.Label
+		$lblDot.Text = [string][char]0x25C6
+		$lblDot.ForeColor = $barColor
+		$lblDot.Font = Get-UIFont 'Segoe UI' 7.5
+		$lblDot.AutoSize = $false
+		$lblDot.Size = New-Object System.Drawing.Size(14, 14)
+		$lblDot.Location = New-Object System.Drawing.Point(12, 11)
+		$lblDot.BackColor = [System.Drawing.Color]::Transparent
+		$detail.Controls.Add($lblDot)
+		$nameX = 27; $nameY = 8; $nameW = $cardW - 64; $nameSize = 10.5
+		$kindY = 29
+	}
 
 	$lblName = New-Object System.Windows.Forms.Label
 	$lblName.Text = $Hit.Label
 	$lblName.ForeColor = $pal.Fg
-	$lblName.Font = Get-UIFont 'Segoe UI' 9.5 'Bold'
+	$lblName.Font = Get-UIFont 'Segoe UI' $nameSize 'Bold'
 	$lblName.AutoSize = $false
-	$lblName.Size = New-Object System.Drawing.Size(206, 19)
-	$lblName.Location = New-Object System.Drawing.Point(12, 5)
+	$lblName.Size = New-Object System.Drawing.Size($nameW, 20)
+	$lblName.Location = New-Object System.Drawing.Point($nameX, $nameY)
+	$lblName.Cursor = [System.Windows.Forms.Cursors]::SizeAll
 	$detail.Controls.Add($lblName)
 
 	$lblKind = New-Object System.Windows.Forms.Label
 	$bits = @($kindWord)
 	if ($Hit.Zone) { $bits += $Hit.Zone }
 	if ($S.Meta) { $bits += $S.Meta.Title }
-	$lblKind.Text = ($bits -join ' · ')
+	$kindText = ($bits -join ' · ')
+	if ($isShop) { $kindText = $kindText.ToUpperInvariant() }
+	$lblKind.Text = $kindText
 	$lblKind.ForeColor = $pal.Mut
 	$lblKind.Font = Get-UIFont 'Segoe UI' 7.5
 	$lblKind.AutoSize = $false
-	$lblKind.Size = New-Object System.Drawing.Size(206, 15)
-	$lblKind.Location = New-Object System.Drawing.Point(12, 24)
+	$lblKind.Size = New-Object System.Drawing.Size(($(if ($isShop) { $cardW - 24 } else { $cardW - 46 })), 15)
+	$lblKind.Location = New-Object System.Drawing.Point(12, $kindY)
+	$lblKind.Cursor = [System.Windows.Forms.Cursors]::SizeAll
 	$detail.Controls.Add($lblKind)
 
-	$y = 44
+	$y = if ($isShop) { 49 } else { 44 }
 	if ($Hit.Kind -eq 'treasure' -and $Hit.Full)
 	{
 		$imgPath = Join-Path $S.D.AssetRoot ($Hit.Full -replace '/', '\')
@@ -1319,7 +1545,7 @@ function Update-AtlasDetail
 			}
 			catch { }
 			$pb.SizeMode = 'Zoom'
-			$pb.Size = New-Object System.Drawing.Size(228, 124)
+			$pb.Size = New-Object System.Drawing.Size(($cardW - 24), 124)
 			$pb.Location = New-Object System.Drawing.Point(12, $y)
 			$pb.BackColor = [System.Drawing.Color]::FromArgb(24, 20, 14)
 			$detail.Controls.Add($pb)
@@ -1327,17 +1553,42 @@ function Update-AtlasDetail
 		}
 	}
 
-	$dl = New-Object System.Windows.Forms.Label
-	$lines = @(('World x{0,8:0.0}' -f $Hit.WX), ('World z{0,8:0.0}' -f $Hit.WZ))
-	if ($Hit.Kind -eq 'species') { $lines += ('Known at{0,7:N0} spots here' -f $S.PinsFor($Hit.Label).Count) }
-	$dl.Text = ($lines -join "`r`n")
-	$dl.ForeColor = $pal.Fg
-	$dl.Font = Get-UIFont 'Consolas' 8
-	$dl.AutoSize = $false
-	$dl.Size = New-Object System.Drawing.Size(228, (16 + 14 * $lines.Count))
-	$dl.Location = New-Object System.Drawing.Point(12, $y)
-	$detail.Controls.Add($dl)
-	$y += $dl.Height + 6
+	if ($isShop)
+	{
+		$inv = [System.Globalization.CultureInfo]::InvariantCulture
+		$dlNames = New-Object System.Windows.Forms.Label
+		$dlNames.Text = "World x`r`nWorld z"
+		$dlNames.ForeColor = $pal.Dim
+		$dlNames.Font = Get-UIFont 'Segoe UI' 8
+		$dlNames.AutoSize = $false
+		$dlNames.Size = New-Object System.Drawing.Size(52, 34)
+		$dlNames.Location = New-Object System.Drawing.Point(12, $y)
+		$detail.Controls.Add($dlNames)
+
+		$dlVals = New-Object System.Windows.Forms.Label
+		$dlVals.Text = (([double]$Hit.WX).ToString('0.0', $inv) + "`r`n" + ([double]$Hit.WZ).ToString('0.0', $inv))
+		$dlVals.ForeColor = $pal.Fg
+		$dlVals.Font = Get-UIFont 'Consolas' 8
+		$dlVals.AutoSize = $false
+		$dlVals.Size = New-Object System.Drawing.Size(($cardW - 76), 34)
+		$dlVals.Location = New-Object System.Drawing.Point(64, $y)
+		$detail.Controls.Add($dlVals)
+		$y += 50
+	}
+	else
+	{
+		$dl = New-Object System.Windows.Forms.Label
+		$lines = @(('World x{0,8:0.0}' -f $Hit.WX), ('World z{0,8:0.0}' -f $Hit.WZ))
+		if ($Hit.Kind -eq 'species') { $lines += ('Known at{0,7:N0} spots here' -f $S.PinsFor($Hit.Label).Count) }
+		$dl.Text = ($lines -join "`r`n")
+		$dl.ForeColor = $pal.Fg
+		$dl.Font = Get-UIFont 'Consolas' 8
+		$dl.AutoSize = $false
+		$dl.Size = New-Object System.Drawing.Size(($cardW - 24), (16 + 14 * $lines.Count))
+		$dl.Location = New-Object System.Drawing.Point(12, $y)
+		$detail.Controls.Add($dl)
+		$y += $dl.Height + 6
+	}
 
 	$btnX = New-Object System.Windows.Forms.Button
 	$btnX.Text = [string][char]0x00D7
@@ -1346,14 +1597,22 @@ function Update-AtlasDetail
 	$btnX.BackColor = [System.Drawing.Color]::Transparent
 	$btnX.ForeColor = $pal.Dim
 	$btnX.Size = New-Object System.Drawing.Size(22, 20)
-	$btnX.Location = New-Object System.Drawing.Point(222, 3)
+	$btnX.Location = New-Object System.Drawing.Point(($cardW - 30), $(if ($isShop) { 8 } else { 3 }))
+	if ($isShop)
+	{
+		$btnX.Font = Get-UIFont 'Segoe UI' 12
+		$btnX.Size = New-Object System.Drawing.Size(24, 24)
+		$btnX.Location = New-Object System.Drawing.Point(($cardW - 34), 5)
+	}
 	$btnX.Add_Click({ Update-AtlasDetail $Ctx $null }.GetNewClosure())
 	$detail.Controls.Add($btnX)
 
 	$hitX = $Hit.X
 	$hitY = $Hit.Y
 	$btnCentre = New-AtlasButton -Text 'Centre' -Tip 'Centre the map on this spot'
-	$btnCentre.SetBounds(12, $y, 104, 24)
+	$btnW = if ($isShop) { $cardW - 24 } else { 104 }
+	$btnH = if ($isShop) { 26 } else { 24 }
+	$btnCentre.SetBounds(12, $y, $btnW, $btnH)
 	$btnCentre.Add_Click({
 			$Ctx.canvas.CentreOn($hitX, $hitY)
 			Update-AtlasDetail $Ctx $null
@@ -1371,16 +1630,117 @@ function Update-AtlasDetail
 			}.GetNewClosure())
 		$detail.Controls.Add($btnOnly)
 	}
+	$y += $btnH + 8
 
-	$detail.Height = $y + 32
-	$detail.Visible = $true
+	if ($Hit.Shop)
+	{
+		$viewW = $cardW - 24
+		$view = New-Object Atlas.ShopView
+		$view.Shop = $Hit.Shop
+		$view.AssetRoot = $S.D.AssetRoot
+		$view.SetPalette($pal.Panel, $pal.Panel2, [System.Drawing.Color]::FromArgb(31, 42, 57), $pal.Line, [System.Drawing.Color]::FromArgb(49, 65, 90), $pal.Fg, $pal.Mut, $pal.Dim, $pal.Acc, [System.Drawing.Color]::FromArgb(255, 200, 87))
+		$view.SetBounds(12, $y, $viewW, 200)
+		$viewH = [int]$view.ContentHeight
+		$maxCard = 560
+		$stageH = 0
+		if ($Ctx.stage) { $stageH = [int]$Ctx.stage.ClientSize.Height }
+		if ($stageH -gt 0) { $maxCard = [Math]::Min($maxCard, [Math]::Max(220, $stageH - 16)) }
+		$room = [Math]::Max(80, $maxCard - $y - 12)
+		if ($viewH -gt $room) { $viewH = $room }
+		if ($viewH -lt 40) { $viewH = 40 }
+		$view.Height = $viewH
+		$view.Add_MouseEnter({
+			$f = $view.FindForm()
+			if ($f -and $f.ContainsFocus -and $view.CanFocus) { $view.Focus() }
+		}.GetNewClosure())
+		$view.Add_MouseLeave({
+			try { if ($Ctx.canvas -and $Ctx.canvas.CanFocus) { $Ctx.canvas.Focus() } } catch { }
+		}.GetNewClosure())
+		$detail.Controls.Add($view)
+		$y += $viewH
+	}
+
+	if ($isShop -and -not $detail.PSObject.Properties['AtlasRound'])
+	{
+		$detail | Add-Member -MemberType NoteProperty -Name 'AtlasRound' -Value $true
+		$detail.Add_Paint({
+			param($s, $e)
+			if (-not $s.Tag -or -not $s.Tag.Shop) { return }
+			$w = [int]$s.ClientSize.Width; $h = [int]$s.ClientSize.Height
+			if ($w -lt 4 -or $h -lt 4) { return }
+			$x0 = 0.5; $y0 = 0.5; $x1 = $w - 0.5; $y1 = $h - 0.5
+			$r = [Math]::Min(11, [Math]::Min($w, $h) / 2); $d = $r * 2
+			$p = New-Object System.Drawing.Drawing2D.GraphicsPath
+			$p.AddArc($x0, $y0, $d, $d, 180, 90)
+			$p.AddArc(($x1 - $d), $y0, $d, $d, 270, 90)
+			$p.AddArc(($x1 - $d), ($y1 - $d), $d, $d, 0, 90)
+			$p.AddArc($x0, ($y1 - $d), $d, $d, 90, 90)
+			$p.CloseFigure()
+			$pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(49, 65, 90), 1)
+			$e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+			$e.Graphics.DrawPath($pen, $p)
+			$pen.Dispose(); $p.Dispose()
+		}.GetNewClosure())
+	}
+
 	$detail.Tag = $Hit
+	$detail.Visible = $true
 	$sw = [int]$Ctx.stage.ClientSize.Width
 	$sh = [int]$Ctx.stage.ClientSize.Height
+	$detail.Height = $y + $(if ($isShop) { 10 } else { 32 })
 	if ($sw -gt 0 -and $sh -gt 0)
 	{
-		$detail.Location = New-Object System.Drawing.Point((($sw - $detail.Width) - 60), (($sh - $detail.Height) - 14))
+		$detail.Height = [Math]::Min($detail.Height, [Math]::Max(120, $sh - 16))
+		$pos = $Ctx.detailPos
+		if ($pos) {
+			$px = [Math]::Min([Math]::Max(8, $pos.X), [Math]::Max(8, $sw - $detail.Width - 8))
+			$py = [Math]::Min([Math]::Max(8, $pos.Y), [Math]::Max(8, $sh - $detail.Height - 8))
+			$Ctx.detailPos = New-Object System.Drawing.Point([int]$px, [int]$py)
+			$detail.Location = $Ctx.detailPos
+		} else {
+			$lx = [Math]::Max(8, ($sw - $detail.Width) - 60)
+			$ly = [Math]::Max(8, ($sh - $detail.Height) - 14)
+			$detail.Location = New-Object System.Drawing.Point([int]$lx, [int]$ly)
+		}
 	}
+
+	Set-AtlasCardRegion -Panel $detail -Round $isShop
+	$bar.Cursor = [System.Windows.Forms.Cursors]::SizeAll
+	$startDrag = {
+		param($s, $e)
+		if ($e.Button -ne 'Left') { return }
+		$p = [System.Windows.Forms.Cursor]::Position
+		$Ctx.detailDrag = @{ X = $p.X; Y = $p.Y; L = $detail.Left; T = $detail.Top }
+		$detail.Capture = $true
+		$detail.Cursor = [System.Windows.Forms.Cursors]::SizeAll
+	}.GetNewClosure()
+	$moveDrag = {
+		param($s, $e)
+		$drag = $Ctx.detailDrag
+		if (-not $drag) { return }
+		$p = [System.Windows.Forms.Cursor]::Position
+		$sw = [int]$Ctx.stage.ClientSize.Width
+		$sh = [int]$Ctx.stage.ClientSize.Height
+		$nx = [Math]::Min([Math]::Max(8, $drag.L + ($p.X - $drag.X)), [Math]::Max(8, $sw - $detail.Width - 8))
+		$ny = [Math]::Min([Math]::Max(8, $drag.T + ($p.Y - $drag.Y)), [Math]::Max(8, $sh - $detail.Height - 8))
+		$detail.Location = New-Object System.Drawing.Point([int]$nx, [int]$ny)
+		$Ctx.detailPos = $detail.Location
+	}.GetNewClosure()
+	$endDrag = {
+		if ($Ctx.detailDrag) {
+			$Ctx.detailDrag = $null
+			$detail.Capture = $false
+			$detail.Cursor = [System.Windows.Forms.Cursors]::Default
+		}
+	}.GetNewClosure()
+	foreach ($hdr in @($bar, $lblName, $lblKind))
+	{
+		$hdr.Cursor = [System.Windows.Forms.Cursors]::SizeAll
+		$hdr.Add_MouseDown($startDrag)
+	}
+	$detail.Add_MouseDown($startDrag)
+	$detail.Add_MouseMove($moveDrag)
+	$detail.Add_MouseUp($endDrag)
 }
 
 function Sync-Atlas
@@ -1519,6 +1879,7 @@ function Show-Atlas
 		S = $S; pal = $pal; form = $form
 		canvas = $null; sidebar = $null
 		top = $null; stage = $null; side = $null; detail = $null; sideTop = $null
+		detailPos = $null; detailDrag = $null
 		mining = $null; mineButtons = $null; guideButtons = $null
 		cmbGroup = $null; cmbJump = $null
 		btnPrev = $null; btnNext = $null
@@ -1890,7 +2251,7 @@ function Show-Atlas
 
 	function New-StatusLabel
 	{
-		param([string]$Text, [System.Drawing.Color]$Color, [int]$Width = 0, [System.Drawing.Font]$Font)
+		param([string]$Text, [System.Drawing.Color]$Color, [System.Drawing.Font]$Font)
 	Initialize-AtlasCore | Out-Null
 		$l = New-Object System.Windows.Forms.Label
 		$l.Text = $Text
@@ -1929,7 +2290,6 @@ function Show-Atlas
 	$Ctx.btnAllMaps = $btnAllMaps; $Ctx.btnNoneMaps = $btnNoneMaps
 	$Ctx.btnFold = $btnFold; $Ctx.btnUnfold = $btnUnfold
 	$Ctx.zoomBtns = $zoomBtns
-	$script:AtlasCtx = $Ctx
 
 	$btnPrev.Add_Click({
 			$visible = $Ctx.S.VisibleWorlds($Ctx.S.MapGroup)
@@ -2048,7 +2408,7 @@ function Show-Atlas
 					Sync-Atlas -Ctx $Ctx
 				}
 			}
-			else { $Ctx.canvas.FitPoints($Ctx.S.PinsFor($arg)) }
+			else { $Ctx.canvas.FitPoints($Ctx.S.PinsFor($arg, $e.Zone)) }
 		}.GetNewClosure())
 
 	$sidebar.Add_ZoneActivated({
@@ -2115,7 +2475,14 @@ function Show-Atlas
 			$zoomPanel.Location = New-Object System.Drawing.Point((($w - 34) - 14), (($h - 114) - 14))
 			if ($detail.Visible)
 			{
-				$detail.Location = New-Object System.Drawing.Point((($w - $detail.Width) - 60), (($h - $detail.Height) - 14))
+				if ($Ctx.detailPos) {
+					$px = [Math]::Min([Math]::Max(8, $Ctx.detailPos.X), [Math]::Max(8, $w - $detail.Width - 8))
+					$py = [Math]::Min([Math]::Max(8, $Ctx.detailPos.Y), [Math]::Max(8, $h - $detail.Height - 8))
+					$Ctx.detailPos = New-Object System.Drawing.Point([int]$px, [int]$py)
+					$detail.Location = $Ctx.detailPos
+				} else {
+					$detail.Location = New-Object System.Drawing.Point(([Math]::Max(8, ($w - $detail.Width) - 60)), ([Math]::Max(8, ($h - $detail.Height) - 14)))
+				}
 			}
 		}.GetNewClosure())
 
@@ -2244,12 +2611,6 @@ function Show-Atlas
 	$form.Show() | Out-Null
 	$canvas.Focus() | Out-Null
 	return $form
-}
-
-function Get-AtlasContext
-{
-	if (-not $script:AtlasForm -or $script:AtlasForm.IsDisposed) { return $null }
-	return $script:AtlasCtx
 }
 
 function Close-Atlas

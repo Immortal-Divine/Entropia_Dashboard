@@ -4,8 +4,6 @@
 
 function InitChatCommanderRunspace
 {
-    param($InstanceId)
-    
     $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
     
     
@@ -36,7 +34,6 @@ function Get-ChatCommanderScriptBlock
 
         $WM_KEYDOWN = 0x0100; $WM_KEYUP = 0x0101
         $VK_RETURN = 0x0D 
-        $VK_SHIFT = 0x10 
         $VK_BACK = 0x08 
         $WM_CHAR = 0x0102
 
@@ -89,7 +86,7 @@ function Invoke-ChatCommanderAction
         Write-Verbose "ChatCommander Runspace closed/broken. Attempting to restart..."
         try {
             if ($formData.RunspacePool) { $formData.RunspacePool.Dispose() }
-            $formData.RunspacePool = InitChatCommanderRunspace -InstanceId $formData.InstanceId
+            $formData.RunspacePool = InitChatCommanderRunspace
         }
         catch {
             Write-Verbose "Failed to restart Runspace: $_"
@@ -384,7 +381,7 @@ function StartChatCommanderSequence
     if (-not $formData.RunspacePool -or $formData.RunspacePool.RunspacePoolStateInfo.State -ne 'Opened')
     {
         if ($formData.RunspacePool) { try { $formData.RunspacePool.Dispose() } catch {} }
-        $formData.RunspacePool = InitChatCommanderRunspace -InstanceId $formData.InstanceId
+        $formData.RunspacePool = InitChatCommanderRunspace
     }
     
     if ($formData.PSObject.Properties['BtnRunSequence']) { $formData.BtnRunSequence.Enabled = $false; $formData.BtnRunSequence.Visible = $false }
@@ -1478,7 +1475,7 @@ function CreateChatCommanderForm
         ActiveSteps     = @()
         CurrentStepIndex= 0
         ActiveJobs      = [System.Collections.ArrayList]::new()
-        RunspacePool    = (InitChatCommanderRunspace -InstanceId $instanceId)
+        RunspacePool    = (InitChatCommanderRunspace)
         IsLoading       = $false
         EditingCommandId = $null 
         CurrentPage     = 1
@@ -1687,11 +1684,6 @@ function CreateSavedCommandEntryUI
 
 function GetAllSavedCommands
 {
-    param($currentInstanceId)
-    
-    
-    
-    
     if ($global:DashboardConfig.Config.Contains('ChatCommander') -and $global:DashboardConfig.Config['ChatCommander'].Contains('GlobalCommands')) {
         try {
             return ConvertFrom-Json $global:DashboardConfig.Config['ChatCommander']['GlobalCommands']

@@ -106,7 +106,7 @@ function GetIniFileContent
 {
 
 	[CmdletBinding()]
-	[OutputType([ordered])]
+	[OutputType([System.Collections.Specialized.OrderedDictionary])]
 	param(
 		[Parameter(Mandatory = $true)]
 		[string]$IniPath
@@ -122,7 +122,7 @@ function GetIniFileContent
 		}
 
 
-		$iniHandler = New-Object -TypeName IniFile -ArgumentList $IniPath
+		$iniHandler = [Custom.IniFile]::new($IniPath)
 
 		$iniContent = $iniHandler.ReadIniFile()
 
@@ -292,6 +292,77 @@ function InitializeIniConfig
 	return $true
 }
 
+function Get-LoginConfigProfileNames
+{
+	[CmdletBinding()]
+	param(
+		[Parameter()]
+		[System.Collections.IDictionary]$Config
+	)
+
+	$names = [System.Collections.Generic.List[string]]::new()
+	$names.Add('Default')
+	try
+	{
+		if ($Config -and $Config.Contains('Profiles'))
+		{
+			$profiles = $Config['Profiles']
+			if ($profiles -is [System.Collections.IDictionary])
+			{
+				foreach ($name in $profiles.Keys)
+				{
+					$text = [string]$name
+					if (-not [string]::IsNullOrWhiteSpace($text) -and -not $names.Contains($text)) { $names.Add($text) }
+				}
+			}
+		}
+	}
+	catch { }
+	return ,$names.ToArray()
+}
+
+function Split-LoginConfigFlatKey
+{
+	[CmdletBinding()]
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$Key,
+
+		[Parameter()]
+		[string[]]$ProfileNames = @()
+	)
+
+	$bestName = $null
+	foreach ($name in @($ProfileNames))
+	{
+		if ([string]::IsNullOrWhiteSpace($name)) { continue }
+		$prefix = $name + '_'
+		if ($Key.Length -gt $prefix.Length -and $Key.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase))
+		{
+			if ($null -eq $bestName -or $name.Length -gt $bestName.Length) { $bestName = $name }
+		}
+	}
+	if ($bestName)
+	{
+		return [pscustomobject]@{ Profile = $bestName; Setting = $Key.Substring($bestName.Length + 1); Matched = $true }
+	}
+
+	$settingPattern = '^(?<profile>.+)_(?<setting>ManualCoordsOverride|PostLoginDelay|SwitchLeft|SwitchRight|Client\d+_Settings|(?:Manual_)?[A-Za-z][A-Za-z0-9]*Coords)$'
+	$match = [regex]::Match($Key, $settingPattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+	if ($match.Success)
+	{
+		return [pscustomobject]@{ Profile = $match.Groups['profile'].Value; Setting = $match.Groups['setting'].Value; Matched = $true }
+	}
+
+	$separator = $Key.IndexOf('_')
+	if ($separator -gt 0)
+	{
+		return [pscustomobject]@{ Profile = $Key.Substring(0, $separator); Setting = $Key.Substring($separator + 1); Matched = $true }
+	}
+
+	return [pscustomobject]@{ Profile = 'Default'; Setting = $Key; Matched = $false }
+}
+
 function ReadConfig
 {
 	[CmdletBinding()]
@@ -337,35 +408,22 @@ function ReadConfig
 
 					if ($sourceSection -is [System.Collections.IDictionary])
 					{
+						$profileNames = Get-LoginConfigProfileNames -Config $readConfig
 						foreach ($flattenedKey in $sourceSection.Keys)
 						{
-							if ($flattenedKey -match '^([^_]+)_(.+)$')
-							{
-								$profileName = $Matches[1]
-								$settingName = $Matches[2]
-								$settingValue = $sourceSection[$flattenedKey]
+							$splitKey = Split-LoginConfigFlatKey -Key ([string]$flattenedKey) -ProfileNames $profileNames
+							$profileName = $splitKey.Profile
+							$settingName = $splitKey.Setting
+							$settingValue = $sourceSection[$flattenedKey]
 
-								if (-not $global:DashboardConfig.Config[$section].Contains($profileName))
-								{
-									$global:DashboardConfig.Config[$section][$profileName] = [ordered]@{}
-								}
-								$global:DashboardConfig.Config[$section][$profileName][$settingName] = $settingValue
+							if (-not $global:DashboardConfig.Config[$section].Contains($profileName))
+							{
+								$global:DashboardConfig.Config[$section][$profileName] = [ordered]@{}
 							}
-							else
+
+							if ($splitKey.Matched -or -not $global:DashboardConfig.Config[$section][$profileName].Contains($settingName))
 							{
-								$profileName = 'Default'
-								$settingName = $flattenedKey
-								$settingValue = $sourceSection[$flattenedKey]
-
-								if (-not $global:DashboardConfig.Config[$section].Contains($profileName))
-								{
-									$global:DashboardConfig.Config[$section][$profileName] = [ordered]@{}
-								}
-
-								if (-not $global:DashboardConfig.Config[$section][$profileName].Contains($settingName))
-								{
-									$global:DashboardConfig.Config[$section][$profileName][$settingName] = $settingValue
-								}
+								$global:DashboardConfig.Config[$section][$profileName][$settingName] = $settingValue
 							}
 						}
 					}

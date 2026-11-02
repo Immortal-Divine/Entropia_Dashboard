@@ -2958,6 +2958,13 @@ namespace Atlas
             return s;
         }
 
+        internal static object Val(Dictionary<string, object> d, string key)
+        {
+            if (d == null) return null;
+            object v;
+            return d.TryGetValue(key, out v) ? v : null;
+        }
+
         internal static double D(object o, double def)
         {
             if (o == null) return def;
@@ -3016,7 +3023,701 @@ namespace Atlas
     {
         public double X, Y;
         public int Ref;
-        public Pt(double x, double y, int r) { X = x; Y = y; Ref = r; }
+        public string Zone;
+        public Pt(double x, double y, int r) { X = x; Y = y; Ref = r; Zone = null; }
+        public Pt(double x, double y, int r, string z) { X = x; Y = y; Ref = r; Zone = z; }
+    }
+
+    public sealed class NpcStack
+    {
+        public string Name, Icon, Sym;
+        public int Id, Qty;
+    }
+
+    public sealed class NpcTradeItem
+    {
+        public string Name, Icon, Sym;
+        public int Id, Price, Tab;
+    }
+
+    public sealed class NpcTrade
+    {
+        public string[] Tabs = new string[0];
+        public NpcStack Currency;
+        public List<NpcTradeItem> Items = new List<NpcTradeItem>();
+    }
+
+    public sealed class NpcOffer
+    {
+        public List<NpcStack> Cost = new List<NpcStack>();
+        public List<NpcStack> Get = new List<NpcStack>();
+    }
+
+    public sealed class NpcExchange
+    {
+        public string Menu, Label;
+        public List<NpcOffer> Sets = new List<NpcOffer>();
+    }
+
+    public sealed class NpcShop
+    {
+        public string Script, Kind, Tag, Text;
+        public NpcTrade Trade;
+        public List<NpcExchange> Exchange = new List<NpcExchange>();
+    }
+
+    /* The trader card from the web map, painted here instead of assembled out
+     * of labels: a shop window is a panel, trade stock is a grid of pictures
+     * and prices, and an exchange set is one give -> get row.  A single NPC
+     * can keep eighty-four offers, so the view scrolls itself and the detail
+     * card stays on screen. */
+    public sealed class ShopView : Control
+    {
+        private NpcShop shop;
+        private string assetRoot;
+        private string[] fallbackRoots;
+        private int scroll;
+        private int contentH;
+        private bool scrollDrag;
+        private int dragY;
+        private int dragScroll;
+
+        private const int HeadH = 25;
+        private const int TabH = 16;
+        private const int ItemH = 30;
+        private const int OfferH = 29;
+        private const int Gap = 3;
+        private const int PanelGap = 8;
+        private const int ScrollW = 6;
+        private const int IconSize = 22;
+
+        private Color CShop = Color.FromArgb(14, 20, 28);
+        private Color CItem = Color.FromArgb(24, 33, 45);
+        private Color CPanel2 = Color.FromArgb(24, 33, 46);
+        private Color CPanel3 = Color.FromArgb(31, 42, 57);
+        private Color CLine = Color.FromArgb(38, 51, 69);
+        private Color CLine2 = Color.FromArgb(49, 65, 90);
+        private Color CFg = Color.FromArgb(231, 238, 247);
+        private Color CMut = Color.FromArgb(132, 150, 172);
+        private Color CDim = Color.FromArgb(93, 110, 131);
+        private Color CAcc = Color.FromArgb(90, 176, 255);
+        private Color CGold = Color.FromArgb(255, 200, 87);
+        private Color CScroll = Color.FromArgb(112, 130, 153);
+        private Color CScrollTrack = Color.FromArgb(20, 27, 37);
+
+        private Font fHead;
+        private Font fBody;
+        private Font fSmall;
+        private Font fMono;
+        private Font fItalic;
+
+        private static Dictionary<string, Bitmap> iconCache = new Dictionary<string, Bitmap>();
+        private static readonly object iconGate = new object();
+
+        public NpcShop Shop
+        {
+            get { return shop; }
+            set { shop = value; scroll = 0; Measure(); Invalidate(); }
+        }
+
+        public string AssetRoot
+        {
+            get { return assetRoot; }
+            set { assetRoot = value; Invalidate(); }
+        }
+
+        /* Extra folders searched when a shelf picture is not under the
+         * atlas root. The atlas now carries every picture itself, so this
+         * is only a safety net for custom asset layouts. */
+        public string[] FallbackRoots
+        {
+            get { return fallbackRoots; }
+            set { fallbackRoots = value; Invalidate(); }
+        }
+
+        public int ContentHeight { get { return contentH; } }
+
+        public void ScrollBy(int delta)
+        {
+            ScrollTo(scroll + delta);
+        }
+
+        public ShopView()
+        {
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
+                     ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.Selectable, true);
+            DoubleBuffered = true;
+            TabStop = true;
+            BackColor = Color.FromArgb(17, 24, 35);
+            fHead = new Font("Segoe UI", 7.5f, FontStyle.Bold);
+            fBody = new Font("Segoe UI", 7.5f, FontStyle.Regular);
+            fSmall = new Font("Segoe UI", 6.75f, FontStyle.Bold);
+            fMono = new Font("Consolas", 7.5f, FontStyle.Bold);
+            fItalic = new Font("Segoe UI", 7.5f, FontStyle.Italic);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (fHead != null) fHead.Dispose();
+                if (fBody != null) fBody.Dispose();
+                if (fSmall != null) fSmall.Dispose();
+                if (fMono != null) fMono.Dispose();
+                if (fItalic != null) fItalic.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        private static Color Blend(Color under, Color over, double t)
+        {
+            return Color.FromArgb(
+                (int)Math.Round(under.R + (over.R - under.R) * t),
+                (int)Math.Round(under.G + (over.G - under.G) * t),
+                (int)Math.Round(under.B + (over.B - under.B) * t));
+        }
+
+        public void SetPalette(Color card, Color panel2, Color panel3, Color line, Color line2,
+                               Color fg, Color mut, Color dim, Color acc, Color gold)
+        {
+            BackColor = card;
+            CShop = Blend(card, Color.FromArgb(10, 14, 19), 0.45);
+            CItem = Blend(CShop, panel3, 0.60);
+            CPanel2 = panel2;
+            CPanel3 = panel3;
+            CLine = line;
+            CLine2 = line2;
+            CFg = fg;
+            CMut = mut;
+            CDim = dim;
+            CAcc = acc;
+            CGold = gold;
+            Invalidate();
+        }
+
+        private int PanelWidth
+        {
+            get
+            {
+                int w = Width - ScrollW;
+                if (w < 80) w = Width;
+                return w;
+            }
+        }
+
+        private static GraphicsPath Round(Rectangle r, int radius)
+        {
+            GraphicsPath p = new GraphicsPath();
+            if (r.Width <= 0 || r.Height <= 0) return p;
+            int d = Math.Min(radius * 2, Math.Min(r.Width, r.Height));
+            if (d <= 1) { p.AddRectangle(r); return p; }
+            p.AddArc(r.X, r.Y, d, d, 180, 90);
+            p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            p.CloseFigure();
+            return p;
+        }
+
+        private static GraphicsPath TopRound(Rectangle r, int radius)
+        {
+            GraphicsPath p = new GraphicsPath();
+            if (r.Width <= 0 || r.Height <= 0) return p;
+            int d = Math.Min(radius * 2, Math.Min(r.Width, r.Height));
+            if (d <= 1) { p.AddRectangle(r); return p; }
+            p.AddArc(r.X, r.Y, d, d, 180, 90);
+            p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            p.AddLine(r.Right, r.Y + d / 2, r.Right, r.Bottom);
+            p.AddLine(r.Right, r.Bottom, r.X, r.Bottom);
+            p.AddLine(r.X, r.Bottom, r.X, r.Y + d / 2);
+            p.CloseFigure();
+            return p;
+        }
+
+        private int Columns(int innerW)
+        {
+            int cols = (innerW + Gap) / (132 + Gap);
+            return Math.Max(1, cols);
+        }
+
+        private int GridHeight(int count, int cols)
+        {
+            if (count <= 0) return 0;
+            int rows = (count + cols - 1) / cols;
+            return 4 + rows * ItemH + (rows - 1) * Gap + 6;
+        }
+
+        private string[] TabsOf(NpcTrade tr)
+        {
+            if (tr.Tabs != null && tr.Tabs.Length > 0) return tr.Tabs;
+            return new string[] { "Shop" };
+        }
+
+        private int CountTab(NpcTrade tr, int tab)
+        {
+            int n = 0;
+            for (int i = 0; i < tr.Items.Count; i++)
+            {
+                int t = tr.Items[i].Tab;
+                if (t < 0) t = 0;
+                if (t == tab) n++;
+            }
+            return n;
+        }
+
+        private int TradeHeight(int w)
+        {
+            int innerW = w - 12;
+            int cols = Columns(innerW);
+            NpcTrade tr = shop.Trade;
+            string[] tabs = TabsOf(tr);
+            int h = HeadH;
+            if (tabs.Length > 1)
+            {
+                for (int i = 0; i < tabs.Length; i++)
+                {
+                    int n = CountTab(tr, i);
+                    if (n == 0) continue;
+                    h += TabH + GridHeight(n, cols);
+                }
+            }
+            else
+            {
+                h += GridHeight(tr.Items.Count, cols);
+            }
+            return h;
+        }
+
+        private int ExchangeHeight(NpcExchange ex)
+        {
+            int h = HeadH;
+            for (int i = 0; i < ex.Sets.Count; i++)
+            {
+                NpcOffer set = ex.Sets[i];
+                int n = Math.Max(set.Cost.Count, set.Get.Count);
+                if (n < 1) n = 1;
+                h += 10 + n * OfferH + (n - 1) * Gap;
+            }
+            return h;
+        }
+
+        private void Measure()
+        {
+            contentH = 0;
+            if (shop == null) return;
+            int w = Width - ScrollW;
+            if (w < 120) w = 400;
+            int y = 0;
+            if (shop.Trade != null && shop.Trade.Items.Count > 0)
+            {
+                y += TradeHeight(w) + PanelGap;
+            }
+            if (shop.Exchange != null)
+            {
+                for (int i = 0; i < shop.Exchange.Count; i++)
+                {
+                    if (shop.Exchange[i].Sets.Count == 0) continue;
+                    y += ExchangeHeight(shop.Exchange[i]) + PanelGap;
+                }
+            }
+            if (y > 0) y -= PanelGap;
+            contentH = y;
+            int max = Math.Max(0, contentH - Height);
+            if (scroll > max) scroll = max;
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            Measure();
+            Invalidate();
+        }
+
+        private void Frame(Graphics g, Rectangle r)
+        {
+            using (GraphicsPath p = Round(r, 8))
+            using (SolidBrush b = new SolidBrush(CShop))
+            {
+                g.FillPath(b, p);
+            }
+            Rectangle head = new Rectangle(r.X, r.Y, r.Width, HeadH);
+            using (GraphicsPath hp = TopRound(head, 8))
+            using (SolidBrush b = new SolidBrush(CPanel2))
+            {
+                g.FillPath(b, hp);
+            }
+            using (Pen pen = new Pen(CLine))
+            {
+                g.DrawLine(pen, r.X + 1, r.Y + HeadH - 1, r.Right - 1, r.Y + HeadH - 1);
+            }
+            using (GraphicsPath p = Round(r, 8))
+            using (Pen pen = new Pen(CLine))
+            {
+                g.DrawPath(pen, p);
+            }
+        }
+
+        private void DrawHeader(Graphics g, Rectangle panel, string left, string right, string icon)
+        {
+            int maxW = Math.Max(0, panel.Width / 2 - 4);
+            int tw = 0;
+            int contentW = 0;
+            int startX = panel.Right - 8;
+            if (!string.IsNullOrEmpty(right))
+            {
+                tw = TextRenderer.MeasureText(right, fBody).Width + 2;
+                if (tw > maxW) tw = maxW;
+                contentW = tw + (string.IsNullOrEmpty(icon) ? 0 : 22);
+                startX = panel.Right - 8 - contentW;
+            }
+            int lw = panel.Width - 16 - (contentW > 0 ? contentW + 8 : 0);
+            Rectangle lr = new Rectangle(panel.X + 8, panel.Y, Math.Max(0, lw), HeadH);
+            TextRenderer.DrawText(g, left ?? "", fHead, lr, CAcc,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+                TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+
+            if (string.IsNullOrEmpty(right)) return;
+            if (!string.IsNullOrEmpty(icon))
+            {
+                DrawIcon(g, icon, startX, panel.Y + (HeadH - 18) / 2, 18);
+            }
+            Rectangle tr = new Rectangle(startX + (string.IsNullOrEmpty(icon) ? 0 : 22),
+                                         panel.Y, Math.Max(0, tw), HeadH);
+            TextRenderer.DrawText(g, right, fBody, tr, CMut,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+                TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+        }
+
+        private void DrawTab(Graphics g, Rectangle panel, string tab, int y)
+        {
+            Rectangle r = new Rectangle(panel.X + 8, y, Math.Max(0, panel.Width - 16), TabH);
+            TextRenderer.DrawText(g, (tab ?? "").ToUpperInvariant(), fSmall, r, CDim,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+                TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+        }
+
+        private void DrawItemCell(Graphics g, Rectangle r, string name, string icon, int value)
+        {
+            using (GraphicsPath p = Round(r, 5))
+            using (SolidBrush b = new SolidBrush(CItem))
+            {
+                g.FillPath(b, p);
+            }
+            int ix = r.X + 4;
+            int iy = r.Y + (r.Height - IconSize) / 2;
+            DrawIcon(g, icon, ix, iy, IconSize);
+
+            string q = value > 1 ? value.ToString() : null;
+            int qw = 0;
+            if (q != null) qw = TextRenderer.MeasureText(q, fMono).Width + 4;
+            int nx = ix + IconSize + 5;
+            int nw = Math.Max(0, r.Right - 4 - qw - nx);
+            TextRenderer.DrawText(g, name ?? "", fBody, new Rectangle(nx, r.Y, nw, r.Height), CFg,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+                TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+            if (q != null)
+            {
+                Rectangle qr = new Rectangle(r.Right - 4 - qw, r.Y, qw, r.Height);
+                TextRenderer.DrawText(g, q, fMono, qr, CGold,
+                    TextFormatFlags.Right | TextFormatFlags.VerticalCenter |
+                    TextFormatFlags.NoPrefix);
+            }
+        }
+
+        private void DrawTrade(Graphics g, int y, int w, int top, int bottom)
+        {
+            int h = TradeHeight(w);
+            Rectangle panel = new Rectangle(0, y, w, h);
+            Frame(g, panel);
+            NpcTrade tr = shop.Trade;
+            DrawHeader(g, panel, "TRADE", tr.Currency == null ? null : tr.Currency.Name,
+                       tr.Currency == null ? null : tr.Currency.Icon);
+
+            int innerW = panel.Width - 12;
+            int cols = Columns(innerW);
+            int cellW = (innerW - (cols - 1) * Gap) / cols;
+            int x0 = panel.X + 6;
+            int cy = panel.Y + HeadH;
+            string[] tabs = TabsOf(tr);
+            if (tabs.Length > 1)
+            {
+                for (int ti = 0; ti < tabs.Length; ti++)
+                {
+                    int n = CountTab(tr, ti);
+                    if (n == 0) continue;
+                    DrawTab(g, panel, tabs[ti], cy);
+                    cy += TabH;
+                    int gy = cy + 4;
+                    int drawn = 0;
+                    for (int i = 0; i < tr.Items.Count; i++)
+                    {
+                        NpcTradeItem it = tr.Items[i];
+                        int t = it.Tab < 0 ? 0 : it.Tab;
+                        if (t != ti) continue;
+                        Rectangle cell = new Rectangle(x0 + (drawn % cols) * (cellW + Gap),
+                                                       gy + (drawn / cols) * (ItemH + Gap), cellW, ItemH);
+                        if (cell.Bottom >= top && cell.Y <= bottom)
+                            DrawItemCell(g, cell, it.Name, it.Icon, it.Price);
+                        drawn++;
+                    }
+                    cy += GridHeight(n, cols);
+                }
+            }
+            else
+            {
+                int gy = cy + 4;
+                for (int i = 0; i < tr.Items.Count; i++)
+                {
+                    NpcTradeItem it = tr.Items[i];
+                    Rectangle cell = new Rectangle(x0 + (i % cols) * (cellW + Gap),
+                                                   gy + (i / cols) * (ItemH + Gap), cellW, ItemH);
+                    if (cell.Bottom >= top && cell.Y <= bottom)
+                        DrawItemCell(g, cell, it.Name, it.Icon, it.Price);
+                }
+            }
+        }
+
+        private void DrawStacks(Graphics g, List<NpcStack> stacks, int x, int y, int w, int blockH,
+                                int top, int bottom)
+        {
+            if (stacks == null || stacks.Count == 0)
+            {
+                if (y + blockH >= top && y <= bottom)
+                {
+                    TextRenderer.DrawText(g, "nothing", fItalic, new Rectangle(x, y, w, blockH), CDim,
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+                        TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+                }
+                return;
+            }
+            for (int i = 0; i < stacks.Count; i++)
+            {
+                Rectangle cell = new Rectangle(x, y + i * (OfferH + Gap), w, OfferH);
+                if (cell.Bottom < top || cell.Y > bottom) continue;
+                NpcStack s = stacks[i];
+                DrawItemCell(g, cell, s.Name, s.Icon, s.Qty);
+            }
+        }
+
+        private void DrawExchange(Graphics g, int y, int w, NpcExchange ex, int top, int bottom)
+        {
+            int h = ExchangeHeight(ex);
+            Rectangle panel = new Rectangle(0, y, w, h);
+            Frame(g, panel);
+            int n = ex.Sets.Count;
+            DrawHeader(g, panel, (ex.Label == null ? "Exchange" : ex.Label).ToUpperInvariant(),
+                       n.ToString() + (n == 1 ? " offer" : " offers"), null);
+
+            int cy = panel.Y + HeadH;
+            for (int i = 0; i < ex.Sets.Count; i++)
+            {
+                NpcOffer set = ex.Sets[i];
+                int rows = Math.Max(set.Cost.Count, set.Get.Count);
+                if (rows < 1) rows = 1;
+                int blockH = rows * OfferH + (rows - 1) * Gap;
+                int rowH = blockH + 10;
+                if (cy + rowH >= top && cy <= bottom)
+                {
+                    if (i > 0)
+                    {
+                        using (Pen pen = new Pen(CLine))
+                        {
+                            g.DrawLine(pen, panel.X + 1, cy, panel.Right - 1, cy);
+                        }
+                    }
+                    int contentW = panel.Width - 12;
+                    int colW = Math.Max(60, (contentW - 24) / 2);
+                    int lx = panel.X + 6;
+                    int rx = lx + colW + 16 + 8;
+                    int ty = cy + 5;
+                    DrawStacks(g, set.Cost, lx, ty, colW, blockH, top, bottom);
+                    DrawStacks(g, set.Get, rx, ty, colW, blockH, top, bottom);
+                    Rectangle ar = new Rectangle(lx + colW, cy, 16, rowH);
+                    TextRenderer.DrawText(g, "\u2192", fBody, ar, CDim,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                        TextFormatFlags.NoPrefix);
+                }
+                cy += rowH;
+            }
+        }
+
+        private void DrawIcon(Graphics g, string rel, int x, int y, int size)
+        {
+            Bitmap bmp = LoadIcon(rel);
+            if (bmp != null)
+            {
+                g.DrawImage(bmp, new Rectangle(x, y, size, size));
+                return;
+            }
+            using (GraphicsPath p = Round(new Rectangle(x, y, size, size), 3))
+            using (SolidBrush b = new SolidBrush(CPanel3))
+            {
+                g.FillPath(b, p);
+            }
+        }
+
+        private Bitmap LoadIcon(string rel)
+        {
+            if (string.IsNullOrEmpty(rel) || string.IsNullOrEmpty(assetRoot)) return null;
+            string key = rel;
+            lock (iconGate)
+            {
+                Bitmap hit;
+                if (iconCache.TryGetValue(key, out hit)) return hit;
+            }
+            Bitmap made = null;
+            try
+            {
+                string path = Path.IsPathRooted(rel) ? rel :
+                    Path.Combine(assetRoot, rel.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(path) && fallbackRoots != null)
+                {
+                    string leaf = Path.GetFileName(rel);
+                    for (int i = 0; i < fallbackRoots.Length; i++)
+                    {
+                        string root = fallbackRoots[i];
+                        if (string.IsNullOrEmpty(root)) continue;
+                        string alt = Path.Combine(root, leaf);
+                        if (File.Exists(alt)) { path = alt; break; }
+                    }
+                }
+                if (File.Exists(path))
+                {
+                    using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (Image src = Image.FromStream(fs))
+                    {
+                        made = new Bitmap(22, 22, PixelFormat.Format32bppArgb);
+                        using (Graphics g = Graphics.FromImage(made))
+                        {
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                            g.CompositingQuality = CompositingQuality.HighQuality;
+                            g.DrawImage(src, new Rectangle(0, 0, 22, 22));
+                        }
+                    }
+                }
+            }
+            catch { made = null; }
+            lock (iconGate)
+            {
+                iconCache[key] = made;
+            }
+            return made;
+        }
+
+        private Rectangle ThumbRect()
+        {
+            int track = Math.Max(1, Height - 4);
+            int thumb = Math.Max(24, (int)((long)Height * track / Math.Max(1, contentH)));
+            if (thumb > track) thumb = track;
+            int max = Math.Max(1, contentH - Height);
+            int travel = Math.Max(0, track - thumb);
+            int top = 2 + (int)((long)travel * scroll / max);
+            return new Rectangle(Width - 5, top, 4, thumb);
+        }
+
+        private void ScrollTo(int value)
+        {
+            int max = Math.Max(0, contentH - Height);
+            int next = Math.Max(0, Math.Min(value, max));
+            if (next == scroll) return;
+            scroll = next;
+            Invalidate();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            ScrollTo(scroll - (e.Delta / 120) * 60);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            Focus();
+            if (e.Button != MouseButtons.Left || contentH <= Height) return;
+            Rectangle thumb = ThumbRect();
+            if (e.X >= Width - 10)
+            {
+                if (thumb.Contains(e.Location))
+                {
+                    scrollDrag = true;
+                    dragY = e.Y;
+                    dragScroll = scroll;
+                    Capture = true;
+                }
+                else
+                {
+                    ScrollTo(scroll + (e.Y < thumb.Y ? -Height : Height));
+                }
+            }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (!scrollDrag) return;
+            int max = contentH - Height;
+            int track = Math.Max(1, Height - 4);
+            int thumb = ThumbRect().Height;
+            int travel = Math.Max(1, track - thumb);
+            ScrollTo(dragScroll + (int)((long)(e.Y - dragY) * max / travel));
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            if (scrollDrag)
+            {
+                scrollDrag = false;
+                Capture = false;
+            }
+            base.OnMouseUp(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Measure();
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            e.Graphics.Clear(BackColor);
+            e.Graphics.SetClip(ClientRectangle);
+            if (shop == null) return;
+
+            int y = -scroll;
+            int w = PanelWidth;
+            int top = 0;
+            int bottom = Height;
+            if (shop.Trade != null && shop.Trade.Items.Count > 0)
+            {
+                DrawTrade(e.Graphics, y, w, top, bottom);
+                y += TradeHeight(w) + PanelGap;
+            }
+            if (shop.Exchange != null)
+            {
+                for (int i = 0; i < shop.Exchange.Count; i++)
+                {
+                    NpcExchange ex = shop.Exchange[i];
+                    if (ex.Sets.Count == 0) continue;
+                    if (y + ExchangeHeight(ex) >= top && y <= bottom)
+                        DrawExchange(e.Graphics, y, w, ex, top, bottom);
+                    y += ExchangeHeight(ex) + PanelGap;
+                }
+            }
+            if (contentH > Height)
+            {
+                using (SolidBrush track = new SolidBrush(CScrollTrack))
+                {
+                    e.Graphics.FillRectangle(track, new Rectangle(Width - 5, 2, 4, Math.Max(0, Height - 4)));
+                }
+                using (GraphicsPath p = Round(ThumbRect(), 2))
+                using (SolidBrush b = new SolidBrush(CScroll))
+                {
+                    e.Graphics.FillPath(b, p);
+                }
+            }
+        }
     }
 
     public sealed class Region
@@ -3064,7 +3765,9 @@ namespace Atlas
 
         public List<Pt> Npcs = new List<Pt>();
         public string[] NpcNames = new string[0];
+        public string[] NpcLabel = new string[0];
         public string[] NpcZone = new string[0];
+        public NpcShop[] NpcShops = new NpcShop[0];
 
         public string[] Zones = new string[0];
         public List<Region> Regions = new List<Region>();
@@ -3173,7 +3876,164 @@ namespace Atlas
             {
                 object[] p = J.A(a[i]);
                 if (p == null || p.Length < 3) continue;
-                outp.Add(new Pt(J.D(p[0], 0), J.D(p[1], 0), (int)J.D(p[2], 0)));
+                string pz = p.Length > 3 ? J.S(p[3]) : null;
+                outp.Add(new Pt(J.D(p[0], 0), J.D(p[1], 0), (int)J.D(p[2], 0), pz));
+            }
+            return outp;
+        }
+
+        private static NpcStack ReadStack(Dictionary<string, object> m)
+        {
+            if (m == null) return null;
+            NpcStack s = new NpcStack();
+            s.Name = J.S(J.Val(m, "name"));
+            s.Icon = J.S(J.Val(m, "icon"));
+            s.Sym = J.S(J.Val(m, "sym"));
+            s.Id = (int)J.D(J.Val(m, "id"), 0);
+            s.Qty = (int)J.D(J.Val(m, "qty"), 0);
+            if (s.Qty <= 0) s.Qty = 1;
+            return s;
+        }
+
+        private static NpcTrade ReadTrade(Dictionary<string, object> m)
+        {
+            if (m == null) return null;
+            NpcTrade t = new NpcTrade();
+            t.Tabs = J.StrArray(m, "tabs");
+            t.Currency = ReadStack(J.M(J.Val(m, "currency")));
+            object[] items = J.A(J.Val(m, "items"));
+            if (items != null)
+            {
+                for (int i = 0; i < items.Length; i++)
+                {
+                    Dictionary<string, object> it = J.M(items[i]);
+                    if (it == null) continue;
+                    NpcTradeItem x = new NpcTradeItem();
+                    x.Name = J.S(J.Val(it, "name"));
+                    x.Icon = J.S(J.Val(it, "icon"));
+                    x.Sym = J.S(J.Val(it, "sym"));
+                    x.Id = (int)J.D(J.Val(it, "id"), 0);
+                    x.Price = (int)J.D(J.Val(it, "price"), 0);
+                    x.Tab = (int)J.D(J.Val(it, "tab"), 0);
+                    if (!string.IsNullOrEmpty(x.Name)) t.Items.Add(x);
+                }
+            }
+            if (t.Items.Count == 0) return null;
+            return t;
+        }
+
+        private static NpcOffer ReadOffer(Dictionary<string, object> m)
+        {
+            if (m == null) return null;
+            NpcOffer o = new NpcOffer();
+            object[] cost = J.A(J.Val(m, "cost"));
+            object[] get = J.A(J.Val(m, "get"));
+            if (cost != null)
+                for (int i = 0; i < cost.Length; i++)
+                {
+                    NpcStack s = ReadStack(J.M(cost[i]));
+                    if (s != null && !string.IsNullOrEmpty(s.Name)) o.Cost.Add(s);
+                }
+            if (get != null)
+                for (int i = 0; i < get.Length; i++)
+                {
+                    NpcStack s = ReadStack(J.M(get[i]));
+                    if (s != null && !string.IsNullOrEmpty(s.Name)) o.Get.Add(s);
+                }
+            if (o.Cost.Count == 0 && o.Get.Count == 0) return null;
+            return o;
+        }
+
+        private static NpcExchange ReadExchange(Dictionary<string, object> m)
+        {
+            if (m == null) return null;
+            NpcExchange e = new NpcExchange();
+            e.Menu = J.S(J.Val(m, "menu"));
+            e.Label = J.S(J.Val(m, "label"));
+            if (string.IsNullOrEmpty(e.Label)) e.Label = "Exchange";
+            object[] sets = J.A(J.Val(m, "sets"));
+            if (sets != null)
+                for (int i = 0; i < sets.Length; i++)
+                {
+                    NpcOffer o = ReadOffer(J.M(sets[i]));
+                    if (o != null) e.Sets.Add(o);
+                }
+            if (e.Sets.Count == 0) return null;
+            return e;
+        }
+
+        private static string StackLine(NpcStack s)
+        {
+            if (s == null) return "";
+            string n = s.Name ?? "";
+            if (s.Qty > 1) n += " x" + s.Qty.ToString(CultureInfo.InvariantCulture);
+            return n;
+        }
+
+        public static string ShopSearchText(string raw, string label, NpcShop shop)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append(label ?? raw); sb.Append(" \u00b7 ");
+            sb.Append(raw ?? ""); sb.Append(" \u00b7 npc \u00b7 npcs \u00b7 trade \u00b7 exchange \u00b7 shop \u00b7 vendor \u00b7 trader");
+            if (shop == null) return sb.ToString();
+            if (shop.Trade != null)
+            {
+                if (shop.Trade.Currency != null && !string.IsNullOrEmpty(shop.Trade.Currency.Name))
+                { sb.Append(" \u00b7 "); sb.Append(shop.Trade.Currency.Name); }
+                for (int i = 0; i < shop.Trade.Tabs.Length; i++)
+                { sb.Append(" \u00b7 "); sb.Append(shop.Trade.Tabs[i]); }
+                for (int i = 0; i < shop.Trade.Items.Count; i++)
+                { sb.Append(" \u00b7 "); sb.Append(shop.Trade.Items[i].Name); }
+            }
+            for (int e = 0; e < shop.Exchange.Count; e++)
+            {
+                NpcExchange ex = shop.Exchange[e];
+                if (!string.IsNullOrEmpty(ex.Label)) { sb.Append(" \u00b7 "); sb.Append(ex.Label); }
+                for (int i = 0; i < ex.Sets.Count; i++)
+                {
+                    for (int c = 0; c < ex.Sets[i].Cost.Count; c++)
+                    { sb.Append(" \u00b7 "); sb.Append(ex.Sets[i].Cost[c].Name); }
+                    for (int g = 0; g < ex.Sets[i].Get.Count; g++)
+                    { sb.Append(" \u00b7 "); sb.Append(ex.Sets[i].Get[g].Name); }
+                }
+            }
+            return sb.ToString();
+        }
+
+        private static NpcShop[] ReadShops(Dictionary<string, object> tbl, string key, int count)
+        {
+            NpcShop[] outp = new NpcShop[count];
+            if (tbl == null) return outp;
+            object v = null;
+            if (!tbl.TryGetValue(key, out v)) return outp;
+            object[] a = J.A(v);
+            if (a == null) return outp;
+            int n = Math.Min(count, a.Length);
+            for (int i = 0; i < n; i++)
+            {
+                Dictionary<string, object> m = J.M(a[i]);
+                if (m == null) continue;
+                NpcShop s = new NpcShop();
+                s.Script = J.S(J.Val(m, "script"));
+                s.Trade = ReadTrade(J.M(J.Val(m, "trade")));
+                object[] exs = J.A(J.Val(m, "exchange"));
+                if (exs != null)
+                    for (int e = 0; e < exs.Length; e++)
+                    {
+                        NpcExchange ex = ReadExchange(J.M(exs[e]));
+                        if (ex != null) s.Exchange.Add(ex);
+                    }
+                bool trade = s.Trade != null && s.Trade.Items.Count > 0;
+                bool exchange = s.Exchange.Count > 0;
+                s.Kind = trade && exchange ? "Trade + Exchange" :
+                         trade ? "Trade" : exchange ? "Exchange" : "Shop";
+                string tag = null;
+                if (s.Trade != null && s.Trade.Currency != null) tag = s.Trade.Currency.Name;
+                if (string.IsNullOrEmpty(tag) && s.Exchange.Count > 0) tag = s.Exchange[0].Label;
+                if (string.IsNullOrEmpty(tag)) tag = s.Kind;
+                s.Tag = tag;
+                s.Text = ShopSearchText(null, null, s);
+                outp[i] = s;
             }
             return outp;
         }
@@ -3226,7 +4086,16 @@ namespace Atlas
             w.StatueZone = J.StrArray(J.Sub(root, "statueZone"), k);
 
             w.NpcNames = J.StrArray(J.Sub(root, "npcNames"), k);
+            w.NpcLabel = J.StrArray(J.Sub(root, "npcLabel"), k);
             w.NpcZone = J.StrArray(J.Sub(root, "npcZone"), k);
+            w.NpcShops = ReadShops(J.Sub(root, "npcShops"), k, w.NpcNames.Length);
+            for (int i = 0; i < w.NpcShops.Length; i++)
+            {
+                if (w.NpcShops[i] == null) continue;
+                string label = i < w.NpcLabel.Length ? w.NpcLabel[i] : null;
+                if (string.IsNullOrEmpty(label)) label = w.NpcNames[i];
+                w.NpcShops[i].Text = ShopSearchText(w.NpcNames[i], label, w.NpcShops[i]);
+            }
 
             w.Zones = J.StrArray(J.Sub(root, "zones"), k);
 
@@ -3281,6 +4150,8 @@ namespace Atlas
     public sealed class Row
     {
         public string Key, Label, Group, Sw, Icon, Tag, Alt, Lvl, Zone, Cat, Text;
+        public NpcShop Shop;
+        public string RawName;
         public Color Color;
         public int N;
         public int Depth;
@@ -3314,6 +4185,7 @@ namespace Atlas
     {
         public string Kind;
         public string Label, Lvl, Alt, Zone, Icon, Full, Text, Cat;
+        public NpcShop Shop;
         public double X, Y, WX, WZ;
         public bool Boss;
         public Color Color;
@@ -3368,7 +4240,7 @@ namespace Atlas
         }
 
         private static readonly string[] LAYER_TITLES = {
-            "Ore","Plant","Bosses","Monsters","Items","Treasure Maps","Statues","NPCs" };
+            "Ore","Plant","Bosses","Monsters","Items","Treasure Maps","Statues","Traders","NPCs" };
 
         public static bool RiddleOn(string[] terms)
         {
@@ -3428,7 +4300,7 @@ namespace Atlas
             "dugolemtemple","dutrigremruins","duethralgarden","duskydungeon01","dutempleofthedeep",
             "duveruxwinter","duveruxfiresmoke","duumbala01","dupiratecave","duelysianisland",
             "wdveruxjpinfinitycastle","dudracmaus","duveruxruins" };
-        private static readonly string[] G_EVENT = { "wdpokeevent01","wdcandyworld","duhalloween","wdeasterevent" };
+        private static readonly string[] G_EVENT = { "wdpokeevent01","wdcandyworld","duhalloween","wdeasterevent","wdhalloweenfarm" };
 
         private static readonly string[] TIER_UNTIL = {
             "dudreadfulcave","ducontaminatedtrails","dugolemtemple","dutempleofthedeep","duveruxruins" };
@@ -3965,32 +4837,188 @@ namespace Atlas
             Finish(g, w.Zones, new string[0], null, 0);
         }
 
+        public static string NpcArea(World w, Pt p, int refI)
+        {
+            string z = p.Zone;
+            if (string.IsNullOrEmpty(z)) z = Str(w.NpcZone, refI);
+            return string.IsNullOrEmpty(z) ? null : z;
+        }
+
+        private static int ZoneOrder(string[] zones, string z)
+        {
+            if (zones == null) return 0;
+            int i = Array.IndexOf(zones, z);
+            return i < 0 ? zones.Length : i;
+        }
+
+        private static List<string> NpcWords(string s)
+        {
+            List<string> outp = new List<string>();
+            StringBuilder b = new StringBuilder();
+            char prev = '\0';
+            for (int i = 0; i < (s ?? "").Length; i++)
+            {
+                char c = s[i];
+                if (char.IsUpper(c) && (char.IsLower(prev) || char.IsDigit(prev))) b.Append(' ');
+                if (char.IsLetterOrDigit(c)) b.Append(char.ToLowerInvariant(c));
+                else b.Append(' ');
+                prev = c;
+            }
+            string[] parts = b.ToString().Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < parts.Length; i++) outp.Add(parts[i]);
+            return outp;
+        }
+
+        private static string NpcDistinctToken(string name, string label, List<string> names)
+        {
+            HashSet<string> skip = new HashSet<string>();
+            skip.Add("npc"); skip.Add("vendor"); skip.Add("shop"); skip.Add("trader");
+            skip.Add("the"); skip.Add("and"); skip.Add("of");
+            List<string> mine = NpcWords(name);
+            List<List<string>> others = new List<List<string>>();
+            List<string> labelWords = NpcWords(label);
+            for (int i = 0; i < labelWords.Count; i++) skip.Add(labelWords[i]);
+            for (int i = 0; i < names.Count; i++)
+                if (names[i] != name) others.Add(NpcWords(names[i]));
+            List<string> only = new List<string>();
+            for (int i = 0; i < mine.Count; i++)
+            {
+                if (skip.Contains(mine[i])) continue;
+                bool seen = false;
+                for (int j = 0; j < others.Count; j++)
+                {
+                    if (others[j].Contains(mine[i])) { seen = true; break; }
+                }
+                if (!seen) only.Add(mine[i]);
+            }
+            if (only.Count == 0) return "";
+            string w = only[only.Count - 1];
+            return char.ToUpperInvariant(w[0]) + w.Substring(1);
+        }
+
+        private static void AnnotateDuplicateTraders(List<Row> rows)
+        {
+            Dictionary<string, List<Row>> byLabel = new Dictionary<string, List<Row>>();
+            for (int i = 0; i < rows.Count; i++)
+            {
+                string key = rows[i].Label ?? "";
+                List<Row> list;
+                if (!byLabel.TryGetValue(key, out list)) { list = new List<Row>(); byLabel[key] = list; }
+                list.Add(rows[i]);
+            }
+            foreach (KeyValuePair<string, List<Row>> kv in byLabel)
+            {
+                List<Row> group = kv.Value;
+                if (group.Count < 2) continue;
+                HashSet<string> tags = new HashSet<string>();
+                HashSet<string> zones = new HashSet<string>();
+                HashSet<string> kinds = new HashSet<string>();
+                List<string> raws = new List<string>();
+                for (int i = 0; i < group.Count; i++)
+                {
+                    Row r = group[i];
+                    tags.Add(r.Shop == null ? "" : (r.Shop.Tag ?? ""));
+                    zones.Add(r.Zone ?? "");
+                    kinds.Add(r.Shop == null ? "" : (r.Shop.Kind ?? ""));
+                    raws.Add(r.RawName ?? "");
+                }
+                for (int i = 0; i < group.Count; i++)
+                {
+                    Row r = group[i];
+                    string tag = "";
+                    if (tags.Count > 1) tag = r.Shop == null ? "" : (r.Shop.Tag ?? "");
+                    else if (zones.Count > 1) tag = r.Zone ?? "";
+                    else if (kinds.Count > 1) tag = r.Shop == null ? "" : (r.Shop.Kind ?? "");
+                    if (string.IsNullOrEmpty(tag)) tag = NpcDistinctToken(r.RawName, r.Label, raws);
+                    if (string.IsNullOrEmpty(tag)) tag = (i + 1).ToString(CultureInfo.InvariantCulture);
+                    if (r.Shop != null && tag != r.Shop.Kind)
+                        r.Tag = r.Shop.Kind + " \u00b7 " + tag;
+                }
+            }
+        }
+
+        private static Row NpcRow(string raw, string label, NpcShop shop, string zone, int n)
+        {
+            Row r = new Row();
+            r.Key = K.N + raw; r.Label = label; r.RawName = raw;
+            r.Group = shop != null ? "Traders" : "NPCs";
+            r.Sw = shop != null ? "trader" : "npc";
+            r.Color = ColorTranslator.FromHtml(shop != null ? "#ffc857" : "#3fd16a");
+            r.Shop = shop;
+            r.Zone = zone; r.N = n;
+            r.Tag = shop != null ? shop.Kind : "";
+            r.Text = shop != null ? shop.Text : raw;
+            return r;
+        }
+
         private void BuildNpcGroup(World w)
         {
             Dictionary<int, int> cnt = Counts(w.Npcs);
-            List<Row> rows = new List<Row>();
+            List<Row> traders = new List<Row>();
+            List<Row> plain = new List<Row>();
             for (int refI = 0; refI < w.NpcNames.Length; refI++)
             {
                 string n = w.NpcNames[refI];
                 int c;
                 if (!cnt.TryGetValue(refI, out c) || c == 0) continue;
-                Row r = new Row();
-                r.Key = K.N + n; r.Label = n; r.Group = "NPCs";
-                r.Sw = "npc"; r.Color = ColorTranslator.FromHtml("#3fd16a");
-                r.Zone = Str(w.NpcZone, refI);
-                r.N = c;
-                rows.Add(r);
+                string label = Str(w.NpcLabel, refI);
+                if (string.IsNullOrEmpty(label)) label = n;
+                NpcShop shop = refI < w.NpcShops.Length ? w.NpcShops[refI] : null;
+                if (shop != null) shop.Text = Data.ShopSearchText(n, label, shop);
+
+                Dictionary<string, int> areas = new Dictionary<string, int>();
+                for (int p = 0; p < w.Npcs.Count; p++)
+                {
+                    if (w.Npcs[p].Ref != refI) continue;
+                    string az = NpcArea(w, w.Npcs[p], refI);
+                    if (az == null) continue;
+                    int ac;
+                    areas.TryGetValue(az, out ac);
+                    areas[az] = ac + 1;
+                }
+                List<string> areaNames = new List<string>(areas.Keys);
+                areaNames.Sort(delegate (string a, string b)
+                {
+                    int ia = ZoneOrder(w.Zones, a), ib = ZoneOrder(w.Zones, b);
+                    if (ia != ib) return ia.CompareTo(ib);
+                    return string.Compare(a, b, StringComparison.CurrentCultureIgnoreCase);
+                });
+
+                List<Row> target = shop != null ? traders : plain;
+                if (areaNames.Count > 1)
+                {
+                    for (int a = 0; a < areaNames.Count; a++)
+                        target.Add(NpcRow(n, label, shop, areaNames[a], areas[areaNames[a]]));
+                }
+                else
+                {
+                    string zone = areaNames.Count == 1 ? areaNames[0] : Str(w.NpcZone, refI);
+                    target.Add(NpcRow(n, label, shop, zone, c));
+                }
             }
-            if (rows.Count == 0) return;
-            rows.Sort(delegate (Row a, Row b)
+
+            AnnotateDuplicateTraders(traders);
+            Comparison<Row> byZoneLabel = delegate (Row a, Row b)
             {
                 int c = string.Compare(a.Zone ?? "", b.Zone ?? "", StringComparison.CurrentCultureIgnoreCase);
                 if (c != 0) return c;
                 return string.Compare(a.Label, b.Label, StringComparison.CurrentCultureIgnoreCase);
-            });
-            Group g = new Group();
-            g.Title = "NPCs"; g.UnitSing = "npc"; g.UnitPlur = "npcs"; g.Rows = rows;
-            Finish(g, w.Zones, new string[0], null, 0);
+            };
+            traders.Sort(byZoneLabel);
+            plain.Sort(byZoneLabel);
+
+            if (traders.Count > 0)
+            {
+                Group gt = new Group();
+                gt.Title = "Traders"; gt.UnitSing = "trader"; gt.UnitPlur = "traders"; gt.Rows = traders;
+                Finish(gt, w.Zones, new string[0], null, 0);
+            }
+            if (plain.Count > 0)
+            {
+                Group g = new Group();
+                g.Title = "NPCs"; g.UnitSing = "npc"; g.UnitPlur = "npcs"; g.Rows = plain;
+                Finish(g, w.Zones, new string[0], null, 0);
+            }
         }
 
         private static bool LvlHit(Row r, string term)
@@ -4138,6 +5166,24 @@ namespace Atlas
             return outp;
         }
 
+        public List<Pt> PinsFor(string key, string zone)
+        {
+            List<Pt> all = PinsFor(key);
+            if (string.IsNullOrEmpty(zone) || !key.StartsWith(K.N, StringComparison.Ordinal)) return all;
+            World w = W;
+            if (w == null) return all;
+            string n = key.Substring(3);
+            int refI = Array.IndexOf(w.NpcNames, n);
+            if (refI < 0) return all;
+            List<Pt> outp = new List<Pt>();
+            for (int i = 0; i < all.Count; i++)
+            {
+                string z = NpcArea(w, all[i], refI);
+                if (z == zone) outp.Add(all[i]);
+            }
+            return outp.Count > 0 ? outp : all;
+        }
+
         public static List<Pt> PinsForOn(string mapKey, string key, Data d)
         {
             List<Pt> outp = new List<Pt>();
@@ -4179,7 +5225,7 @@ namespace Atlas
                 {
                     Row row = g.Rows[r];
                     if (!string.IsNullOrEmpty(zone) && row.Zone != zone) continue;
-                    List<Pt> pins = PinsFor(row.Key);
+                    List<Pt> pins = PinsFor(row.Key, row.Zone);
                     for (int p = 0; p < pins.Count; p++) outp.Add(pins[p]);
                 }
             }
@@ -4239,7 +5285,12 @@ namespace Atlas
                 for (int i = 0; i < w.NpcNames.Length; i++)
                 {
                     if (!nc.ContainsKey(i) || nc[i] == 0) continue;
-                    AddX(mk, K.N + w.NpcNames[i], w.NpcNames[i], "NPCs", Str(w.NpcZone, i), null, null, null, null);
+                    NpcShop shop = i < w.NpcShops.Length ? w.NpcShops[i] : null;
+                    string label = Str(w.NpcLabel, i);
+                    if (string.IsNullOrEmpty(label)) label = w.NpcNames[i];
+                    AddX(mk, K.N + w.NpcNames[i], label,
+                         shop != null ? "Traders" : "NPCs", Str(w.NpcZone, i), null, null, null,
+                         shop != null ? shop.Text : w.NpcNames[i]);
                 }
             }
             for (int si = 0; si < D.Species.Count; si++)
@@ -5503,14 +6554,17 @@ namespace Atlas
             if (w == null) return;
             bool far = Sc < 0.5;
             double ds = Math.Max(2.5, Math.Min(6, Sc * 10));
+            Color npcCol = ColorTranslator.FromHtml("#3fd16a");
+            Color traderCol = ColorTranslator.FromHtml("#ffc857");
             Batch b = new Batch();
             for (int i = 0; i < w.Npcs.Count; i++)
             {
                 Pt p = w.Npcs[i];
                 if (!S.Shown(K.N + Str(w.NpcNames, p.Ref))) continue;
+                Color c = p.Ref < w.NpcShops.Length && w.NpcShops[p.Ref] != null ? traderCol : npcCol;
                 float cx = LX(p.X), cy = LY(p.Y);
-                if (far) { b.AddRect(cx - (float)ds / 2, cy - (float)ds / 2, (float)ds, ColorTranslator.FromHtml("#3fd16a")); continue; }
-                Diamond(g, cx, cy, (float)(BigR * 1.45f), (float)(BigR * 1.45f), ColorTranslator.FromHtml("#3fd16a"));
+                if (far) { b.AddRect(cx - (float)ds / 2, cy - (float)ds / 2, (float)ds, c); continue; }
+                Diamond(g, cx, cy, (float)(BigR * 1.45f), (float)(BigR * 1.45f), c);
             }
             b.Flush(g);
         }
@@ -5727,8 +6781,17 @@ namespace Atlas
                 }
                 else if (kind == "npc")
                 {
-                    h.Zone = Str(w.NpcZone, p.Ref);
-                    h.Color = ColorTranslator.FromHtml("#3fd16a");
+                    string shown = Str(w.NpcLabel, p.Ref);
+                    if (!string.IsNullOrEmpty(shown)) h.Label = shown;
+                    h.Zone = State.NpcArea(w, p, p.Ref);
+                    NpcShop shop = p.Ref < w.NpcShops.Length ? w.NpcShops[p.Ref] : null;
+                    h.Shop = shop;
+                    if (shop != null)
+                    {
+                        h.Color = ColorTranslator.FromHtml("#ffc857");
+                        h.Alt = shop.Kind;
+                    }
+                    else h.Color = ColorTranslator.FromHtml("#3fd16a");
                 }
                 else if (kind == "item")
                 {
@@ -5931,7 +6994,7 @@ namespace Atlas
             public string Label;
             public string Group;
             public string Zone;
-            public string Lvl, Alt, Icon, BTag;
+            public string Lvl, Alt, Icon, BTag, Tag;
             public Color Color;
             public int N, Total, Indent;
             public bool Tri;
@@ -6100,6 +7163,7 @@ namespace Atlas
                         it.Kind = K_ROW; it.Key = rw.Key; it.Label = rw.Label;
                         it.Group = g.Title; it.Zone = rw.Zone;
                         it.Lvl = rw.Lvl; it.Alt = rw.Alt; it.Icon = rw.Icon;
+                        it.Tag = rw.Tag;
                         it.Color = rw.Color; it.N = rw.N;
                         it.Stray = rw.Stray;
                         it.Indent = bk.Title == null ? 1 : (inSet ? 4 : 3);
@@ -6260,10 +7324,12 @@ namespace Atlas
             int arrowW = ARROW_W;
 
             int tagW = 0;
-            if (it.Kind == K_XROW && !string.IsNullOrEmpty(it.Group))
+            if ((it.Kind == K_XROW && !string.IsNullOrEmpty(it.Group)) ||
+                (it.Kind == K_ROW && !string.IsNullOrEmpty(it.Tag)))
             {
                 Font ft = FTag;
-                tagW = (int)g.MeasureString(it.Group, ft).Width + 9;
+                string tt = it.Kind == K_XROW ? it.Group : it.Tag;
+                tagW = (int)g.MeasureString(tt, ft).Width + 9;
             }
             int zoneW = 0;
             if (it.Kind == K_XROW && !string.IsNullOrEmpty(it.Zone))
@@ -6313,7 +7379,7 @@ namespace Atlas
             {
                 using (SolidBrush b = new SolidBrush(SOn(it.Key) ? it.Color : Fade(it.Color)))
                 {
-                    if (it.Group == "Items" || it.Group == "Treasure Maps" || it.Group == "Statues" || it.Group == "NPCs")
+                    if (it.Group == "Items" || it.Group == "Treasure Maps" || it.Group == "Statues" || it.Group == "NPCs" || it.Group == "Traders")
                     {
                         var c = new Point[] { new Point(tx + 7, y + 5), new Point(tx + 15, y + 12), new Point(tx + 7, y + 19), new Point(tx - 1, y + 12) };
                         g.FillPolygon(b, c);
@@ -6334,12 +7400,14 @@ namespace Atlas
             if (tagW > 0)
             {
                 Font ft = FTag;
+                string tt = it.Kind == K_XROW ? it.Group : it.Tag;
+                Color tc = it.Kind == K_ROW ? it.Color : CDim;
                 using (Pen p = new Pen(CLine))
-                using (SolidBrush b = new SolidBrush(CDim))
+                using (SolidBrush b = new SolidBrush(tc))
                 {
                     var tr = new RectangleF(tx, y + 4, tagW, 14);
                     g.DrawRectangle(p, tr.X, tr.Y, tr.Width, tr.Height);
-                    g.DrawString(it.Group, ft, b, tr.X + 4, tr.Y + 1);
+                    g.DrawString(tt, ft, b, tr.X + 4, tr.Y + 1);
                 }
                 tx += tagW + 6;
             }
@@ -6567,7 +7635,13 @@ namespace Atlas
             if (it.Kind == K_ROW)
             {
                 if (!SIsOn(it.Key)) SetRow(it.Key, true);
-                if (RowActivated != null) RowActivated(this, new AtlasPickEventArgs(it.Key));
+                if (RowActivated != null)
+                {
+                    AtlasPickEventArgs a = new AtlasPickEventArgs(it.Key);
+                    a.Group = it.Group;
+                    a.Zone = it.Zone;
+                    RowActivated(this, a);
+                }
             }
             else if (it.Kind == K_XROW)
             {
