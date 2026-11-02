@@ -492,16 +492,28 @@ function New-AtlasDownloadState
 
 	try
 	{
-		if ($global:DashboardConfig -and $global:DashboardConfig.UI -and $global:DashboardConfig.UI.MainForm -and -not $global:DashboardConfig.UI.MainForm.IsDisposed)
+		try
 		{
-			$form.Owner = $global:DashboardConfig.UI.MainForm
+			if ($global:DashboardConfig -and $global:DashboardConfig.UI -and $global:DashboardConfig.UI.MainForm -and -not $global:DashboardConfig.UI.MainForm.IsDisposed)
+			{
+				$form.Owner = $global:DashboardConfig.UI.MainForm
+			}
 		}
-	}
-	catch { }
+		catch { }
 
-	$form.Show()
-	try { $form.Activate() } catch { }
-	$timer.Start()
+		$form.Show()
+		try { $form.Activate() } catch { }
+		$timer.Start()
+	}
+	catch
+	{
+		$script:AtlasDownloadState = $null
+		try { $timer.Stop() } catch { }
+		try { $timer.Dispose() } catch { }
+		try { if ($state.Client) { $state.Client.Dispose() } } catch { }
+		try { if (-not $form.IsDisposed) { $form.Close(); $form.Dispose() } } catch { }
+		throw
+	}
 	return $state
 }
 
@@ -949,6 +961,10 @@ function Sync-AtlasAssets
 						try { Show-Atlas -SkipAssetSync | Out-Null } catch { }
 					}
 				}
+				elseif ($r.Cancelled)
+				{
+					$script:AtlasOpenPending = $false
+				}
 				elseif ($r.Failed.Count -gt 0)
 				{
 					$script:AtlasOpenPending = $false
@@ -996,6 +1012,10 @@ function Sync-AtlasAssets
 							$script:AtlasOpenPending = $false
 							try { Show-Atlas -SkipAssetSync | Out-Null } catch { }
 						}
+					}
+					elseif ($r.Cancelled)
+					{
+						$script:AtlasOpenPending = $false
 					}
 					elseif ($r.Failed.Count -gt 0)
 					{
@@ -2112,7 +2132,6 @@ function Show-Atlas
 		if (Test-AtlasDownloadActive -Kind 'AtlasData')
 		{
 			$script:AtlasOpenPending = $true
-			Show-AtlasNotice -Text 'The map data is downloading. The map will open as soon as it is ready.' -Caption 'Entropia Map' -Icon 'Information'
 			return $null
 		}
 		$msg = "The Entropia Map data could not be loaded.`r`n`r`n$($_.Exception.Message)"
