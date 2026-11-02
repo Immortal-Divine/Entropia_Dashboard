@@ -11,11 +11,12 @@
  * Bump CACHE when the way things are stored changes; the old cache is then
  * dropped on activate.
  */
-var CACHE = 'entropia-maps-v1';
+var CACHE = 'entropia-maps-v2';
 
 /* The shell is small and is what makes the page work offline at all; the data
- * file is half a megabyte and is worth having before the first pan. */
-var SHELL = ['./', 'src/app.js', 'src/data.js'];
+ * file is a few megabytes and is worth having before the first pan.  Keep the
+ * data query below in step with the <script> in index.html. */
+var SHELL = ['./', 'src/app.js', 'src/data.js?v=2026-11-02'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(

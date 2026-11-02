@@ -2618,7 +2618,10 @@ function globalMatchingKeys() {
     var ncnt = countsOf(D.npcs[k] || []), nzn = NZN[k] || [];
     (NTM[k] || []).forEach(function (name, ref) {
       if (!ncnt[ref]) return;
-      if (mapHit || hit('NPCs', nzn[ref], null, name, null, null, null, null))
+      var shop = npcShop(k, ref), lab = npcLabel(k, ref);
+      if (mapHit || hit(shop ? 'Traders' : 'NPCs', nzn[ref], null, lab,
+                        null, null,
+                        shop ? npcShopText(k, ref) : name, null))
         add(NKEY + name);
     });
   });

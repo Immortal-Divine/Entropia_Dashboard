@@ -814,6 +814,30 @@ function Test-MarketStartupComplete
     try { return [bool][System.Windows.Forms.Application]::MessageLoopRunning } catch { return $true }
 }
 
+function Update-MarketAssetView
+{
+    [CmdletBinding()]
+    param()
+
+    try { Stop-MarketIconMapLoad } catch { }
+    $script:MarketCatalog = $null
+    $script:MarketNamesCache = $null
+    $script:MarketIconMap = $null
+    $script:MarketIconMapPartial = $null
+    try { $script:MarketIconBaseRootCache = @{} } catch { }
+    try { $script:MarketIconCache.Clear() } catch { $script:MarketIconCache = @{} }
+    try
+    {
+        if ($null -ne (Get-MarketUIControl -Name 'MarketSearchInput'))
+        {
+            try { Start-MarketIconMapLoad } catch { }
+            try { Set-MarketIcons } catch { }
+            try { Update-MarketView } catch { }
+        }
+    }
+    catch { }
+}
+
 function Invoke-MarketAssetSync
 {
     [CmdletBinding()]
@@ -828,24 +852,7 @@ function Invoke-MarketAssetSync
     $script:MarketAssetsChecked = $true
     try
     {
-        if (Sync-MarketAssets)
-        {
-            try { Stop-MarketIconMapLoad } catch { }
-            $script:MarketCatalog = $null
-            $script:MarketNamesCache = $null
-            $script:MarketIconMap = $null
-            $script:MarketIconMapPartial = $null
-            try
-            {
-                if ($null -ne (Get-MarketUIControl -Name 'MarketSearchInput'))
-                {
-                    try { Start-MarketIconMapLoad } catch { }
-                    try { Set-MarketIcons } catch { }
-                    try { Update-MarketView } catch { }
-                }
-            }
-            catch { }
-        }
+        if (Sync-MarketAssets) { Update-MarketAssetView }
     }
     catch { Write-Verbose "MARKET: asset sync failed: $($_.Exception.Message)" }
 }
@@ -930,6 +937,11 @@ function Sync-MarketAssets
         }
         if ($missing -or $stale)
         {
+            $catalogBusy = $false
+            if ($null -ne (Get-Command -Name 'Test-AtlasDownloadActive' -CommandType Function -ErrorAction SilentlyContinue))
+            {
+                try { $catalogBusy = Test-AtlasDownloadActive -Kind 'MarketCatalog' } catch { $catalogBusy = $false }
+            }
             if ($missing)
             {
                 $text = "The market item list is not installed yet.`n`nDownload it now? ($(Format-MarketSize $catSize))"
@@ -944,20 +956,25 @@ function Sync-MarketAssets
                 $cap = 'Entropia Market - Update'
                 $title = 'Entropia Market - updating the item list'
             }
-            if (Read-MarketPrompt -Text $text -Caption $cap)
+            if (-not $catalogBusy -and (Read-MarketPrompt -Text $text -Caption $cap))
             {
-                $r = Invoke-MarketDownload -Title $title -Items @(@{ Url = $catUrl; Path = $catPath; Size = $catSize; Hash = $catWant })
-                if ($r.Done -gt 0)
+                $after = {
+                    param($r)
+                    if ($r.Done -gt 0) { Update-MarketAssetView }
+                    elseif ($r.Failed.Count -gt 0)
+                    {
+                        Show-MarketNotice -Text 'The market item list could not be downloaded. Check your connection and open the market again.' -Caption 'Entropia Market - Download failed' -Icon 'Error'
+                    }
+                }.GetNewClosure()
+                if ($null -ne (Get-Command -Name 'Start-AtlasDownload' -CommandType Function -ErrorAction SilentlyContinue))
                 {
-                    $changed = $true
-                    $script:MarketCatalog = $null
-                    $script:MarketNamesCache = $null
-                    $script:MarketIconMap = $null
-                    $script:MarketIconMapPartial = $null
+                    Start-AtlasDownload -Title $title -Kind 'MarketCatalog' -Items @(@{ Url = $catUrl; Path = $catPath; Size = $catSize; Hash = $catWant }) -OnComplete $after | Out-Null
                 }
-                elseif ($r.Failed.Count -gt 0)
+                else
                 {
-                    Show-MarketNotice -Text 'The market item list could not be downloaded. Check your connection and open the market again.' -Caption 'Entropia Market - Download failed' -Icon 'Error'
+                    $r = Invoke-MarketDownload -Title $title -Items @(@{ Url = $catUrl; Path = $catPath; Size = $catSize; Hash = $catWant })
+                    & $after $r
+                    if ($r.Done -gt 0) { $changed = $true }
                 }
             }
         }
@@ -967,7 +984,12 @@ function Sync-MarketAssets
     # one download check shared by the map and the market.
     if ($null -ne (Get-Command -Name 'Sync-AtlasIcons' -CommandType Function -ErrorAction SilentlyContinue))
     {
-        try { if (Sync-AtlasIcons) { $changed = $true } } catch { }
+        try
+        {
+            $afterIcons = { Update-MarketAssetView }.GetNewClosure()
+            if (Sync-AtlasIcons -OnComplete $afterIcons) { $changed = $true }
+        }
+        catch { }
     }
 
     if ($changed)

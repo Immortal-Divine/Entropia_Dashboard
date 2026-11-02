@@ -194,7 +194,8 @@ function Get-AtlasData
 $script:AtlasRemoteDefault = 'https://raw.githubusercontent.com/Immortal-Divine/Entropia_Dashboard/main/atlas'
 $script:AtlasManifest = $null
 $script:AtlasManifestTried = [datetime]::MinValue
-$script:AtlasDownloadCancel = $false
+$script:AtlasDownloadState = $null
+$script:AtlasOpenPending = $false
 
 function Get-AtlasRemoteBase
 {
@@ -387,21 +388,34 @@ function Show-AtlasNotice
 	try { [void][System.Windows.Forms.MessageBox]::Show($Text, $Caption, 'OK', $Icon) } catch { }
 }
 
-function Invoke-AtlasDownload
+function New-AtlasDownloadClient
 {
-	param([string]$Title, [object[]]$Items)
+	param([int]$Threads = 12)
+	try { Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue } catch { }
+	try
+	{
+		$client = [System.Net.Http.HttpClient]::new()
+		$client.Timeout = [TimeSpan]::FromSeconds(120)
+		$client.DefaultRequestHeaders.UserAgent.ParseAdd('EntropiaDashboard')
+		return $client
+	}
+	catch { return $null }
+}
+
+function New-AtlasDownloadState
+{
 	Enable-AtlasTls
 	try { Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue } catch { }
 	$pal = Get-AtlasPalette
 	$form = New-Object System.Windows.Forms.Form
-	$form.Text = $Title
+	$form.Text = 'Entropia Atlas - Downloading'
 	$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
 	$form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
 	$form.MinimizeBox = $false
 	$form.MaximizeBox = $false
 	$form.ShowInTaskbar = $false
 	$form.ControlBox = $false
-	$form.TopMost = $true
+	$form.TopMost = $false
 	$form.ClientSize = New-Object System.Drawing.Size(430, 118)
 	$form.BackColor = $pal.Panel
 	$form.ForeColor = $pal.Fg
@@ -416,7 +430,7 @@ function Invoke-AtlasDownload
 	$bar = New-Object System.Windows.Forms.ProgressBar
 	$bar.SetBounds(16, 38, 398, 14)
 	$bar.Minimum = 0
-	$bar.Maximum = [Math]::Max(1, $Items.Count)
+	$bar.Maximum = 1
 	$bar.Style = [System.Windows.Forms.ProgressBarStyle]::Continuous
 	$form.Controls.Add($bar)
 
@@ -429,15 +443,7 @@ function Invoke-AtlasDownload
 
 	$btnCancel = New-AtlasButton -Text 'Cancel' -Width 80
 	$btnCancel.SetBounds(334, 82, 80, 24)
-	$btnCancel.Add_Click({ $script:AtlasDownloadCancel = $true; $btnCancel.Enabled = $false }.GetNewClosure())
 	$form.Controls.Add($btnCancel)
-
-	$script:AtlasDownloadCancel = $false
-	$failed = New-Object System.Collections.Generic.List[string]
-	$done = 0
-	$bytesDone = [long]0
-	$totalBytes = [long]0
-	foreach ($it in $Items) { $totalBytes += [long]$it.Size }
 
 	$threads = 12
 	try
@@ -456,138 +462,360 @@ function Invoke-AtlasDownload
 	}
 	catch { }
 
-	$client = $null
+	$state = @{
+		Form = $form
+		Status = $lblStatus
+		Bar = $bar
+		Bytes = $lblBytes
+		CancelButton = $btnCancel
+		Queue = (New-Object System.Collections.Generic.List[object])
+		Job = $null
+		Client = $null
+		Threads = $threads
+		CancelAll = $false
+		Timer = $null
+	}
+	$state.Client = New-AtlasDownloadClient -Threads $threads
+
+	$btnCancel.Add_Click({
+			$st = $script:AtlasDownloadState
+			if ($null -eq $st) { return }
+			$st.CancelAll = $true
+			try { $st.CancelButton.Enabled = $false } catch { }
+		})
+
+	$timer = New-Object System.Windows.Forms.Timer
+	$timer.Interval = 40
+	$timer.Add_Tick({ Update-AtlasDownload })
+	$state.Timer = $timer
+	$script:AtlasDownloadState = $state
+
 	try
 	{
-		$client = [System.Net.Http.HttpClient]::new()
-		$client.Timeout = [TimeSpan]::FromSeconds(120)
-		$client.DefaultRequestHeaders.UserAgent.ParseAdd('EntropiaDashboard')
+		if ($global:DashboardConfig -and $global:DashboardConfig.UI -and $global:DashboardConfig.UI.MainForm -and -not $global:DashboardConfig.UI.MainForm.IsDisposed)
+		{
+			$form.Owner = $global:DashboardConfig.UI.MainForm
+		}
 	}
-	catch
-	{
-		if ($client) { try { $client.Dispose() } catch { } }
-		$client = $null
-	}
+	catch { }
 
 	$form.Show()
+	try { $form.Activate() } catch { }
+	$timer.Start()
+	return $state
+}
+
+function Start-AtlasDownload
+{
+	param([string]$Title, [object[]]$Items, [scriptblock]$OnComplete, [string]$Kind = '')
+
+	if ($null -eq $Items) { $Items = @() }
+	if ($Items.Count -eq 0)
+	{
+		$result = @{ Failed = (New-Object System.Collections.Generic.List[string]); Cancelled = $false; Done = 0 }
+		if ($OnComplete)
+		{
+			try { & $OnComplete $result }
+			catch { Write-Verbose "ATLAS: empty download callback failed: $($_.Exception.Message)" }
+		}
+		return $true
+	}
+
+	$state = $script:AtlasDownloadState
+	if ($null -eq $state -or $null -eq $state.Form -or $state.Form.IsDisposed)
+	{
+		try { $state = New-AtlasDownloadState }
+		catch
+		{
+			Write-Verbose "ATLAS: the download window could not be opened: $($_.Exception.Message)"
+			$failed = New-Object System.Collections.Generic.List[string]
+			foreach ($it in $Items) { $failed.Add([string]$it.Path) }
+			if ($OnComplete)
+			{
+				try { & $OnComplete @{ Failed = $failed; Cancelled = $false; Done = 0 } }
+				catch { }
+			}
+			return $false
+		}
+	}
+
+	$job = @{
+		Title = $Title
+		Kind = [string]$Kind
+		Items = @($Items)
+		OnComplete = $OnComplete
+		Failed = (New-Object System.Collections.Generic.List[string])
+		Pending = (New-Object System.Collections.Generic.List[object])
+		Active = (New-Object System.Collections.ArrayList)
+		Next = 0
+		Done = 0
+		BytesDone = [long]0
+		TotalBytes = [long]0
+		LastName = ''
+		LastUi = [DateTime]::MinValue
+		DirsMade = @{}
+		Cancelled = $false
+		Finished = $false
+		Sequential = ($null -eq $state.Client)
+	}
+	foreach ($it in $job.Items)
+	{
+		$job.Pending.Add($it)
+		$job.TotalBytes += [long]$it.Size
+	}
+	$state.Queue.Add($job)
+	if ($null -eq $state.Job) { Start-AtlasDownloadJob }
+	return $true
+}
+
+function Test-AtlasDownloadActive
+{
+	param([string]$Kind = '')
+	$state = $script:AtlasDownloadState
+	if ($null -eq $state) { return $false }
+	if ($null -ne $state.Job)
+	{
+		if (-not $Kind -or [string]$state.Job.Kind -eq $Kind) { return $true }
+	}
 	try
 	{
-		$form.Activate()
-		if ($null -eq $client)
+		foreach ($job in $state.Queue)
 		{
-			foreach ($it in $Items)
-			{
-				if ($script:AtlasDownloadCancel) { break }
-				$name = Split-Path -Leaf ([string]$it.Path)
-				$lblStatus.Text = ('Downloading {0}   ({1} of {2})' -f $name, [Math]::Min($done + 1, $Items.Count), $Items.Count)
-				$bar.Value = [Math]::Min($bar.Maximum, $done)
-				[System.Windows.Forms.Application]::DoEvents()
-				try
-				{
-					Invoke-AtlasDownloadFile -Url ([string]$it.Url) -Path ([string]$it.Path) -Hash ([string]$it.Hash) | Out-Null
-					$done++
-					$bytesDone += [long]$it.Size
-				}
-				catch
-				{
-					$failed.Add([string]$it.Path)
-				}
-				$lblBytes.Text = ('{0} of {1}' -f (Format-AtlasSize $bytesDone), (Format-AtlasSize $totalBytes))
-				[System.Windows.Forms.Application]::DoEvents()
-			}
-		}
-		else
-		{
-			$pending = New-Object System.Collections.Generic.List[object]
-			foreach ($it in $Items) { $pending.Add($it) }
-			$active = New-Object System.Collections.ArrayList
-			$next = 0
-			$lastName = ''
-			$lastUi = [DateTime]::UtcNow
-			$dirsMade = @{}
-
-			while (($next -lt $pending.Count -or $active.Count -gt 0) -and -not $script:AtlasDownloadCancel)
-			{
-				$sawCompleted = $false
-				while ($active.Count -lt $threads -and $next -lt $pending.Count)
-				{
-					$it = $pending[$next]
-					$next++
-					$job = @{ Item = $it; Name = (Split-Path -Leaf ([string]$it.Path)); Task = $null; Error = '' }
-					try { $job.Task = $client.GetByteArrayAsync([string]$it.Url) }
-					catch { $job.Error = $_.Exception.Message }
-					[void]$active.Add($job)
-				}
-
-				for ($i = $active.Count - 1; $i -ge 0; $i--)
-				{
-					$job = $active[$i]
-					$path = [string]$job.Item.Path
-					if ($job.Error)
-					{
-						$failed.Add($path)
-						$active.RemoveAt($i)
-						$sawCompleted = $true
-						continue
-					}
-					$task = $job.Task
-					if ($null -eq $task -or -not $task.IsCompleted) { continue }
-
-					$active.RemoveAt($i)
-					$sawCompleted = $true
-					try
-					{
-						if ($task.IsFaulted) { throw $task.Exception.GetBaseException() }
-						if ($task.IsCanceled) { throw 'The download was cancelled.' }
-						$bytes = [byte[]]$task.Result
-						$want = [string]$job.Item.Hash
-						if ($want)
-						{
-							$got = Get-AtlasBytesHash -Bytes $bytes
-							if (-not $got -or $got -ne $want) { throw 'The downloaded file did not match its published checksum.' }
-						}
-						$dir = [System.IO.Path]::GetDirectoryName($path)
-						if ($dir -and -not $dirsMade.ContainsKey($dir))
-						{
-							[void][System.IO.Directory]::CreateDirectory($dir)
-							$dirsMade[$dir] = $true
-						}
-						[System.IO.File]::WriteAllBytes($path, $bytes)
-						$done++
-						$bytesDone += [long]$job.Item.Size
-						$lastName = [string]$job.Name
-					}
-					catch
-					{
-						$failed.Add($path)
-					}
-				}
-
-				$now = [DateTime]::UtcNow
-				if (($now - $lastUi).TotalMilliseconds -ge 80)
-				{
-					$bar.Value = [Math]::Min($bar.Maximum, $done)
-					$lblBytes.Text = ('{0} of {1}' -f (Format-AtlasSize $bytesDone), (Format-AtlasSize $totalBytes))
-					if ($lastName) { $lblStatus.Text = ('Downloading {0}   ({1} of {2})' -f $lastName, [Math]::Min($done + 1, $Items.Count), $Items.Count) }
-					else { $lblStatus.Text = ('Downloading {0} files...' -f $Items.Count) }
-					[System.Windows.Forms.Application]::DoEvents()
-					$lastUi = $now
-				}
-				if (-not $sawCompleted) { Start-Sleep -Milliseconds 3 }
-			}
-
-			if ($script:AtlasDownloadCancel) { try { $client.CancelPendingRequests() } catch { } }
+			if (-not $Kind -or [string]$job.Kind -eq $Kind) { return $true }
 		}
 	}
-	finally
+	catch { }
+	return $false
+}
+
+function Start-AtlasDownloadJob
+{
+	$state = $script:AtlasDownloadState
+	if ($null -eq $state -or $null -ne $state.Job) { return }
+	if ($state.Queue.Count -eq 0)
 	{
-		if ($client) { try { $client.Dispose() } catch { } }
-		$bar.Value = [Math]::Min($bar.Maximum, $done)
-		[System.Windows.Forms.Application]::DoEvents()
-		$form.Close()
-		$form.Dispose()
+		Stop-AtlasDownloadState
+		return
 	}
-	return @{ Failed = $failed; Cancelled = $script:AtlasDownloadCancel; Done = $done }
+
+	$job = $state.Queue[0]
+	$state.Queue.RemoveAt(0)
+	$state.Job = $job
+	$job.LastUi = [DateTime]::MinValue
+	try
+	{
+		$state.Form.Text = [string]$job.Title
+		$state.Status.Text = 'Preparing...'
+		$state.Bar.Maximum = [Math]::Max(1, $job.Items.Count)
+		$state.Bar.Value = 0
+		$state.Bytes.Text = ''
+		$state.CancelButton.Enabled = $true
+	}
+	catch { }
+}
+
+function Stop-AtlasDownloadState
+{
+	$state = $script:AtlasDownloadState
+	if ($null -eq $state) { return }
+	$script:AtlasDownloadState = $null
+	try { if ($state.Timer) { $state.Timer.Stop() } } catch { }
+	try { if ($state.Timer) { $state.Timer.Dispose() } } catch { }
+	try { if ($state.Client) { $state.Client.Dispose() } } catch { }
+	try
+	{
+		if ($state.Form -and -not $state.Form.IsDisposed)
+		{
+			$state.Form.Close()
+			$state.Form.Dispose()
+		}
+	}
+	catch { }
+}
+
+function Complete-AtlasDownloadJob
+{
+	param($Job)
+	$state = $script:AtlasDownloadState
+	if ($null -eq $state -or $null -eq $Job -or $Job.Finished) { return }
+
+	$Job.Finished = $true
+	if ($null -ne $state.Job -and [object]::ReferenceEquals($state.Job, $Job)) { $state.Job = $null }
+	$result = @{ Failed = $Job.Failed; Cancelled = [bool]$Job.Cancelled; Done = [int]$Job.Done }
+	$hasMore = $state.Queue.Count -gt 0
+	if (-not $hasMore) { Stop-AtlasDownloadState }
+
+	if ($Job.OnComplete)
+	{
+		try { & $Job.OnComplete $result }
+		catch { Write-Verbose "ATLAS: download completion callback failed: $($_.Exception.Message)" }
+	}
+
+	$live = $script:AtlasDownloadState
+	if ($null -ne $live -and $null -eq $live.Job -and $live.Queue.Count -gt 0)
+	{
+		Start-AtlasDownloadJob
+	}
+}
+
+function Cancel-AtlasDownloads
+{
+	$state = $script:AtlasDownloadState
+	if ($null -eq $state) { return }
+
+	$jobs = New-Object System.Collections.Generic.List[object]
+	if ($null -ne $state.Job) { $jobs.Add($state.Job) }
+	foreach ($queued in $state.Queue) { $jobs.Add($queued) }
+	$state.Job = $null
+	$state.Queue.Clear()
+
+	try { if ($state.Client) { $state.Client.CancelPendingRequests() } } catch { }
+	Stop-AtlasDownloadState
+
+	foreach ($job in $jobs)
+	{
+		if ($job.Finished) { continue }
+		$job.Finished = $true
+		$job.Cancelled = $true
+		$result = @{ Failed = $job.Failed; Cancelled = $true; Done = [int]$job.Done }
+		if ($job.OnComplete)
+		{
+			try { & $job.OnComplete $result }
+			catch { Write-Verbose "ATLAS: download cancel callback failed: $($_.Exception.Message)" }
+		}
+	}
+}
+
+function Update-AtlasDownload
+{
+	$state = $script:AtlasDownloadState
+	if ($null -eq $state) { return }
+	if ($null -eq $state.Form -or $state.Form.IsDisposed)
+	{
+		Stop-AtlasDownloadState
+		return
+	}
+	if ($state.CancelAll)
+	{
+		Cancel-AtlasDownloads
+		return
+	}
+
+	$job = $state.Job
+	if ($null -eq $job)
+	{
+		Start-AtlasDownloadJob
+		return
+	}
+
+	if ($job.Next -ge $job.Pending.Count -and $job.Active.Count -eq 0)
+	{
+		Complete-AtlasDownloadJob -Job $job
+		return
+	}
+
+	if ($job.Sequential)
+	{
+		if ($job.Next -lt $job.Pending.Count)
+		{
+			$it = $job.Pending[$job.Next]
+			$job.Next++
+			$job.LastName = Split-Path -Leaf ([string]$it.Path)
+			try
+			{
+				Invoke-AtlasDownloadFile -Url ([string]$it.Url) -Path ([string]$it.Path) -Hash ([string]$it.Hash) | Out-Null
+				$job.Done++
+				$job.BytesDone += [long]$it.Size
+			}
+			catch { $job.Failed.Add([string]$it.Path) }
+		}
+	}
+	else
+	{
+		if ($null -eq $state.Client)
+		{
+			$state.Client = New-AtlasDownloadClient -Threads $state.Threads
+			if ($null -eq $state.Client) { $job.Sequential = $true; return }
+		}
+
+		while ($job.Active.Count -lt $state.Threads -and $job.Next -lt $job.Pending.Count)
+		{
+			$it = $job.Pending[$job.Next]
+			$job.Next++
+			$entry = @{ Item = $it; Name = (Split-Path -Leaf ([string]$it.Path)); Task = $null; Error = '' }
+			try { $entry.Task = $state.Client.GetByteArrayAsync([string]$it.Url) }
+			catch { $entry.Error = $_.Exception.Message }
+			[void]$job.Active.Add($entry)
+		}
+
+		for ($i = $job.Active.Count - 1; $i -ge 0; $i--)
+		{
+			$entry = $job.Active[$i]
+			$path = [string]$entry.Item.Path
+			if ($entry.Error)
+			{
+				$job.Failed.Add($path)
+				$job.Active.RemoveAt($i)
+				continue
+			}
+			$task = $entry.Task
+			if ($null -eq $task -or -not $task.IsCompleted) { continue }
+
+			$job.Active.RemoveAt($i)
+			try
+			{
+				if ($task.IsFaulted) { throw $task.Exception.GetBaseException() }
+				if ($task.IsCanceled) { throw 'The download was cancelled.' }
+				$bytes = [byte[]]$task.Result
+				$want = [string]$entry.Item.Hash
+				if ($want)
+				{
+					$got = Get-AtlasBytesHash -Bytes $bytes
+					if (-not $got -or $got -ne $want) { throw 'The downloaded file did not match its published checksum.' }
+				}
+				$dir = [System.IO.Path]::GetDirectoryName($path)
+				if ($dir -and -not $job.DirsMade.ContainsKey($dir))
+				{
+					[void][System.IO.Directory]::CreateDirectory($dir)
+					$job.DirsMade[$dir] = $true
+				}
+				[System.IO.File]::WriteAllBytes($path, $bytes)
+				$job.Done++
+				$job.BytesDone += [long]$entry.Item.Size
+				$job.LastName = [string]$entry.Name
+			}
+			catch
+			{
+				$job.Failed.Add($path)
+			}
+		}
+	}
+
+	if ($job.Next -ge $job.Pending.Count -and $job.Active.Count -eq 0)
+	{
+		Complete-AtlasDownloadJob -Job $job
+		return
+	}
+
+	$now = [DateTime]::UtcNow
+	if (($now - $job.LastUi).TotalMilliseconds -ge 80)
+	{
+		try
+		{
+			$state.Bar.Value = [Math]::Min([int]$state.Bar.Maximum, [int]$job.Done)
+			$state.Bytes.Text = ('{0} of {1}' -f (Format-AtlasSize $job.BytesDone), (Format-AtlasSize $job.TotalBytes))
+			if ($job.LastName)
+			{
+				$state.Status.Text = ('Downloading {0}   ({1} of {2})' -f $job.LastName, [Math]::Min($job.Done + 1, $job.Items.Count), $job.Items.Count)
+			}
+			else
+			{
+				$state.Status.Text = ('Downloading {0} files...' -f $job.Items.Count)
+			}
+		}
+		catch { }
+		$job.LastUi = $now
+	}
 }
 
 function Get-AtlasIconsState
@@ -703,18 +931,30 @@ function Sync-AtlasAssets
 	if ($manifest.data.size) { $dataSize = [long]$manifest.data.size }
 	$dataWant = [string]$manifest.data.sha256
 	$dataDate = [string]$manifest.data.date
+	$dataBusy = Test-AtlasDownloadActive -Kind 'AtlasData'
 
 	if (-not (Test-Path -LiteralPath $dataPath))
 	{
 		$msg = "The Entropia Map data is not installed yet.`n`nDownload it now? ($(Format-AtlasSize $dataSize))"
-		if (Read-AtlasUpdateAnswer -Text $msg -Caption 'Entropia Map - Map data')
+		if (-not $dataBusy -and (Read-AtlasUpdateAnswer -Text $msg -Caption 'Entropia Map - Map data'))
 		{
-			$r = Invoke-AtlasDownload -Title 'Entropia Map - map data' -Items @(@{ Url = $dataUrl; Path = $dataPath; Size = $dataSize; Hash = $dataWant })
-			if ($r.Done -gt 0) { $changed = $true }
-			elseif ($r.Failed.Count -gt 0)
-			{
-				Show-AtlasNotice -Text 'The map data could not be downloaded. Check your connection and open the map again.' -Caption 'Entropia Map - Download failed' -Icon 'Error'
-			}
+			Start-AtlasDownload -Title 'Entropia Map - map data' -Kind 'AtlasData' -Items @(@{ Url = $dataUrl; Path = $dataPath; Size = $dataSize; Hash = $dataWant }) -OnComplete {
+				param($r)
+				if ($r.Done -gt 0)
+				{
+					Reset-AtlasCaches
+					if ($script:AtlasOpenPending)
+					{
+						$script:AtlasOpenPending = $false
+						try { Show-Atlas -SkipAssetSync | Out-Null } catch { }
+					}
+				}
+				elseif ($r.Failed.Count -gt 0)
+				{
+					$script:AtlasOpenPending = $false
+					Show-AtlasNotice -Text 'The map data could not be downloaded. Check your connection and open the map again.' -Caption 'Entropia Map - Download failed' -Icon 'Error'
+				}
+			} | Out-Null
 		}
 	}
 	elseif ($dataWant)
@@ -744,14 +984,25 @@ function Sync-AtlasAssets
 			$when = ''
 			if ($dataDate) { $when = ' (updated ' + $dataDate + ')' }
 			$msg = "A newer version of the map data is available$($when).`n`nDownload it now? ($(Format-AtlasSize $dataSize))"
-			if (Read-AtlasUpdateAnswer -Text $msg -Caption 'Entropia Map - Update')
+			if (-not $dataBusy -and (Read-AtlasUpdateAnswer -Text $msg -Caption 'Entropia Map - Update'))
 			{
-				$r = Invoke-AtlasDownload -Title 'Entropia Map - updating map data' -Items @(@{ Url = $dataUrl; Path = $dataPath; Size = $dataSize; Hash = $dataWant })
-				if ($r.Done -gt 0) { $changed = $true }
-				if ($r.Failed.Count -gt 0)
-				{
-					Show-AtlasNotice -Text 'The new map data could not be downloaded. The map will keep using the copy it has.' -Caption 'Entropia Map - Download failed' -Icon 'Error'
-				}
+				Start-AtlasDownload -Title 'Entropia Map - updating map data' -Kind 'AtlasData' -Items @(@{ Url = $dataUrl; Path = $dataPath; Size = $dataSize; Hash = $dataWant }) -OnComplete {
+					param($r)
+					if ($r.Done -gt 0)
+					{
+						Reset-AtlasCaches
+						if ($script:AtlasOpenPending)
+						{
+							$script:AtlasOpenPending = $false
+							try { Show-Atlas -SkipAssetSync | Out-Null } catch { }
+						}
+					}
+					elseif ($r.Failed.Count -gt 0)
+					{
+						$script:AtlasOpenPending = $false
+						Show-AtlasNotice -Text 'The new map data could not be downloaded. The map will keep using the copy it has.' -Caption 'Entropia Map - Download failed' -Icon 'Error'
+					}
+				} | Out-Null
 			}
 		}
 	}
@@ -765,7 +1016,7 @@ function Sync-AtlasIcons
 {
 	[CmdletBinding()]
 	[OutputType([bool])]
-	param()
+	param([scriptblock]$OnComplete = $null)
 
 	$root = Get-AtlasInstallRoot
 	if (-not $root) { return $false }
@@ -786,6 +1037,7 @@ function Sync-AtlasIcons
 	$scan = $true
 	if ($haveVer -and $remoteVer -and $haveVer -eq $remoteVer -and (Test-Path -LiteralPath $iconsRoot)) { $scan = $false }
 	if (-not $scan) { return $false }
+	if (Test-AtlasDownloadActive -Kind 'AtlasIcons') { return $false }
 
 	$diff = Get-AtlasIconDiff -Manifest $manifest -Root $root
 	if ($diff.Files.Count -eq 0)
@@ -815,17 +1067,24 @@ function Sync-AtlasIcons
 		{
 			$items.Add(@{ Url = ($base + '/icons/' + $f.Rel); Path = $f.Path; Size = $f.Size; Hash = [string]$f.Hash })
 		}
-		$r = Invoke-AtlasDownload -Title 'Entropia Atlas - downloading icons' -Items $items.ToArray()
-		if ($r.Failed.Count -eq 0 -and -not $r.Cancelled)
-		{
-			Save-AtlasIconsState -Root $root -Version $remoteVer
-			$changed = $true
-		}
-		elseif ($r.Failed.Count -gt 0)
-		{
-			$fw = if ($r.Failed.Count -eq 1) { 'icon' } else { 'icons' }
-			Show-AtlasNotice -Text ('{0} {1} could not be downloaded. They will be offered again the next time the atlas is opened.' -f $r.Failed.Count, $fw) -Caption 'Entropia Atlas - Download failed' -Icon 'Error'
-		}
+		$rootForDone = $root
+		$versionForDone = $remoteVer
+		$after = $OnComplete
+		$done = {
+			param($r)
+			if ($r.Failed.Count -eq 0 -and -not $r.Cancelled)
+			{
+				Save-AtlasIconsState -Root $rootForDone -Version $versionForDone
+				Reset-AtlasCaches
+				if ($after) { try { & $after $r } catch { } }
+			}
+			elseif ($r.Failed.Count -gt 0)
+			{
+				$fw = if ($r.Failed.Count -eq 1) { 'icon' } else { 'icons' }
+				Show-AtlasNotice -Text ('{0} {1} could not be downloaded. They will be offered again the next time the atlas is opened.' -f $r.Failed.Count, $fw) -Caption 'Entropia Atlas - Download failed' -Icon 'Error'
+			}
+		}.GetNewClosure()
+		Start-AtlasDownload -Title 'Entropia Atlas - downloading icons' -Kind 'AtlasIcons' -Items $items.ToArray() -OnComplete $done | Out-Null
 	}
 	return $changed
 }
@@ -1821,6 +2080,8 @@ function Start-AtlasLoadNotice
 
 function Show-Atlas
 {
+	param([switch]$SkipAssetSync)
+
 	Initialize-AtlasCore | Out-Null
 	if ($script:AtlasForm -and -not $script:AtlasForm.IsDisposed)
 	{
@@ -1835,16 +2096,25 @@ function Show-Atlas
 		catch { }
 	}
 
-	try
+	if (-not $SkipAssetSync)
 	{
-		if (Sync-AtlasAssets) { Reset-AtlasCaches }
+		try
+		{
+			if (Sync-AtlasAssets) { Reset-AtlasCaches }
+		}
+		catch { }
 	}
-	catch { }
 
 	$data = $null
 	try { $data = Get-AtlasData }
 	catch
 	{
+		if (Test-AtlasDownloadActive -Kind 'AtlasData')
+		{
+			$script:AtlasOpenPending = $true
+			Show-AtlasNotice -Text 'The map data is downloading. The map will open as soon as it is ready.' -Caption 'Entropia Map' -Icon 'Information'
+			return $null
+		}
 		$msg = "The Entropia Map data could not be loaded.`r`n`r`n$($_.Exception.Message)"
 		if (Test-DashboardCommand 'Show-DarkMessageBox') { Show-DarkMessageBox $msg 'Entropia Map' 'Ok' 'Error' | Out-Null }
 		else { [System.Windows.Forms.MessageBox]::Show($msg, 'Entropia Map') | Out-Null }
