@@ -1,15 +1,27 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>https://immortal-divine.github.io/Entropia_Dashboard/index.html</loc>
-    <lastmod>2026-11-03T12:57:53Z</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://immortal-divine.github.io/Entropia_Dashboard/maps/index.html</loc>
-    <lastmod>2026-11-03T12:57:53Z</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.5</priority>
-  </url>
-</urlset>
+<?xml version='1.0' encoding='UTF-8'?>
+<ns0:urlset xmlns:ns0="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <ns0:url>
+    <ns0:loc>https://immortal-divine.github.io/Entropia_Dashboard/index.html</ns0:loc>
+    <ns0:lastmod>2026-11-03T13:03:37Z</ns0:lastmod>
+    <ns0:changefreq>weekly</ns0:changefreq>
+    <ns0:priority>0.5</ns0:priority>
+  </ns0:url>
+  <ns0:url>
+    <ns0:loc>https://immortal-divine.github.io/Entropia_Dashboard/maps/index.html</ns0:loc>
+    <ns0:lastmod>2026-11-03T13:03:37Z</ns0:lastmod>
+    <ns0:changefreq>weekly</ns0:changefreq>
+    <ns0:priority>0.5</ns0:priority>
+  </ns0:url>
+<ns0:url>
+    <ns0:loc>https://immortal-divine.github.io/Entropia_Dashboard/</ns0:loc>
+    <ns0:lastmod>2026-11-03T13:03:37Z</ns0:lastmod>
+    <ns0:changefreq>weekly</ns0:changefreq>
+    <ns0:priority>0.5</ns0:priority>
+  </ns0:url>
+  <ns0:url>
+    <ns0:loc>https://immortal-divine.github.io/Entropia_Dashboard/maps/</ns0:loc>
+    <ns0:lastmod>2026-11-03T13:03:37Z</ns0:lastmod>
+    <ns0:changefreq>weekly</ns0:changefreq>
+    <ns0:priority>0.5</ns0:priority>
+  </ns0:url>
+</ns0:urlset>
