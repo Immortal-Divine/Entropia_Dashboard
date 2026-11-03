@@ -28,6 +28,8 @@ jobs:
           import copy
           import xml.etree.ElementTree as ET
 
+          ET.register_namespace("", "http://www.sitemaps.org/schemas/sitemap/0.9")
+
           sitemap_path = "docs/sitemap.xml"
           tree = ET.parse(sitemap_path)
           root = tree.getroot()
@@ -64,6 +66,7 @@ jobs:
                   root.append(directory_entry)
 
           tree.write(sitemap_path, encoding="UTF-8", xml_declaration=True)
+
           PY
 
       - name: Commit sitemap
