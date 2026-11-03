@@ -1895,6 +1895,26 @@ function SaveLoginCoordinateFields
 
 #endregion
 
+function Get-BinFileHash
+{
+	[CmdletBinding()]
+	[OutputType([string])]
+	param([string]$Path = '')
+	$sha = $null; $fs = $null
+	try
+	{
+		$sha = [System.Security.Cryptography.SHA256]::Create()
+		$fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+		return ([System.BitConverter]::ToString($sha.ComputeHash($fs)).Replace('-', '').ToLowerInvariant())
+	}
+	catch { return '' }
+	finally
+	{
+		if ($fs) { $fs.Dispose() }
+		if ($sha) { $sha.Dispose() }
+	}
+}
+
 function Copy-BinFoldersToProfiles
 {
 	[CmdletBinding()]
@@ -1913,6 +1933,7 @@ function Copy-BinFoldersToProfiles
 		Unchanged      = 0
 		Skipped        = New-Object System.Collections.Generic.List[string]
 		MissingFolders = New-Object System.Collections.Generic.List[string]
+		NotSynced      = New-Object System.Collections.Generic.List[string]
 	}
 
 	$sourceBins = @()
@@ -1993,10 +2014,15 @@ function Copy-BinFoldersToProfiles
 						New-Item -ItemType Directory -Path $dstParent -Force -ErrorAction Stop | Out-Null
 					}
 
+					$srcHash = Get-BinFileHash -Path $srcFile.FullName
 					if (Test-Path -LiteralPath $dstFile)
 					{
-						$dstItem = Get-Item -LiteralPath $dstFile -Force -ErrorAction Stop
-						if ($dstItem.Length -eq $srcFile.Length -and $dstItem.LastWriteTimeUtc -eq $srcFile.LastWriteTimeUtc)
+						# The bytes, not the size and the timestamp: Copy-Item stamps the
+						# destination with the source's timestamp, so after one copy the
+						# two numbers match for ever and a rerun called a stale neuz.exe
+						# "unchanged" instead of patching it.
+						$dstHash = Get-BinFileHash -Path $dstFile
+						if ($srcHash -and $dstHash -and $srcHash -eq $dstHash)
 						{
 							$result.Unchanged++
 							continue
@@ -2004,6 +2030,20 @@ function Copy-BinFoldersToProfiles
 					}
 
 					Copy-Item -LiteralPath $srcFile.FullName -Destination $dstFile -Force -ErrorAction Stop
+					$afterHash = Get-BinFileHash -Path $dstFile
+					if ($srcHash -and $afterHash -ne $srcHash)
+					{
+						# A client that is still running holds its own exe; the lock is
+						# usually gone a moment later, once the file is closed.
+						Start-Sleep -Milliseconds 250
+						try { Copy-Item -LiteralPath $srcFile.FullName -Destination $dstFile -Force -ErrorAction Stop } catch { }
+						$afterHash = Get-BinFileHash -Path $dstFile
+					}
+					if ($srcHash -and $afterHash -ne $srcHash)
+					{
+						$result.NotSynced.Add("$targetName : $binLeaf\$rel")
+						continue
+					}
 					$result.Copied++
 				}
 				catch
@@ -2896,7 +2936,7 @@ function InitializeUI
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; id = 'TitleLabel'; text = 'Entropia Dashboard'; tag = 'Title'; font = (Get-UIFont 'Segoe UI' 8 'Bold') }
 	$titleLabelForm = SetUIElement @p
 
-	$p = @{ type = 'Label'; width = 160; height = 10; top = 16; left = 10; id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v3.0.6'; tag = 'Subtitle'; font = (Get-UIFont 'Segoe UI' 6 'Italic') }
+	$p = @{ type = 'Label'; width = 160; height = 10; top = 16; left = 10; id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v3.0.7'; tag = 'Subtitle'; font = (Get-UIFont 'Segoe UI' 6 'Italic') }
 	$copyrightLabelForm = SetUIElement @p
 
 	$p = @{ type = 'Button'; width = 30; height = 24; top = 3; left = 327; id = 'ThemeToggle'; text = [char]0x25D0; fs = 'Flat'; tag = 'HeaderButton'; font = (Get-UIFont 'Segoe UI' 20 'Bold'); tooltip = "Theme Manager`nOpen theme selector and custom theme editor."; noCustomPaint = $true }
@@ -5719,6 +5759,10 @@ function RegisterUIEventHandlers
 		}
 		CopyNeuz                     = @{ 
 			Click = {
+				# The selection is read before the confirm window opens: what the
+				# copy covers is decided here, not after a modal dialog has come and
+				# gone over the list.
+				$selectedRows = @($global:DashboardConfig.UI.ProfileGrid.SelectedRows)
 				$confirm = Show-DarkMessageBox "Do you want to copy the complete 'bin32' and 'bin64' folders of your main client to the profiles selected in the list above (all profiles if none is selected)?`nProfiles that were not created through junctions or have a different game folder might break.`n`nFiles that cannot be overwritten are skipped and reported - the copy continues.`n`nThis action is only working if you patched your Main Launcher folder first!`nProcced?" 'Confirm Folder Copy' 'YesNo' 'Warning'
 
 				if ($confirm -eq 'Yes')
@@ -5751,7 +5795,7 @@ function RegisterUIEventHandlers
 					}
 
 					$targets = @()
-					foreach ($gridRow in $global:DashboardConfig.UI.ProfileGrid.SelectedRows)
+					foreach ($gridRow in $selectedRows)
 					{
 						if ($null -eq $gridRow.Cells[0].Value -or $null -eq $gridRow.Cells[1].Value) { continue }
 						$targets += [pscustomobject]@{ Name = $gridRow.Cells[0].Value.ToString(); Path = $gridRow.Cells[1].Value.ToString() }
@@ -5790,6 +5834,13 @@ function RegisterUIEventHandlers
 					{
 						$missingPreview = ($copyResult.MissingFolders | Select-Object -First 5) -join "`n"
 						$summary += "`n`nSkipped profiles:`n$missingPreview"
+					}
+
+					if ($copyResult.NotSynced.Count -gt 0)
+					{
+						$stalePreview = ($copyResult.NotSynced | Select-Object -First 8) -join "`n"
+						if ($copyResult.NotSynced.Count -gt 8) { $stalePreview += "`n... and $($copyResult.NotSynced.Count - 8) more" }
+						Show-DarkMessageBox ("These files are still not identical to the main client after the copy:`n`n$stalePreview`n`nClose the client that uses them and run Copy Neuz.exe again.") 'Copy did not sync everything' 'OK' 'Error'
 					}
 
 					if ($copyResult.Skipped.Count -gt 0)

@@ -386,6 +386,7 @@ function Get-MarketCatalog
         try { $script:MarketIconMap = $null } catch { }
         try { $script:MarketIconMapPartial = $null } catch { }
         try { $script:MarketNamesCache = $null } catch { }
+        try { $script:MarketDeAlias = $null } catch { }
         $script:MarketCatalog = $null
     }
 
@@ -409,6 +410,67 @@ function Get-MarketCatalog
     $stamp = Get-MarketCatalogStamp -Path $path
     $cat.Version = [int]$stamp.Version
     $cat.Updated = [string]$stamp.Updated
+
+    # German item names ship inside the catalog ("names_de": English name ->
+    # German name). They are search aliases only: a German query resolves to
+    # the English item, so the box, the journal and every lookup keep working
+    # with one canonical name. Read straight from the file, once per session,
+    # so the compiled index cache keeps its own format.
+    $hasAlias = $false
+    try { $hasAlias = ($null -ne $script:MarketDeAlias) } catch { $hasAlias = $false }
+    if (-not $hasAlias)
+    {
+        $alias = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
+        try
+        {
+            $raw = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)
+            $mark = $raw.LastIndexOf('"names_de"', [System.StringComparison]::Ordinal)
+            if ($mark -ge 0)
+            {
+                $open = $raw.IndexOf('{', $mark)
+                if ($open -ge 0)
+                {
+                    # walk the block so a brace inside a name cannot end it
+                    $depth = 0
+                    $inStr = $false
+                    $esc = $false
+                    $close = -1
+                    for ($ci = $open; $ci -lt $raw.Length; $ci++)
+                    {
+                        $ch = $raw[$ci]
+                        if ($inStr)
+                        {
+                            if ($esc) { $esc = $false }
+                            elseif ($ch -eq '\') { $esc = $true }
+                            elseif ($ch -eq '"') { $inStr = $false }
+                            continue
+                        }
+                        if ($ch -eq '"') { $inStr = $true; continue }
+                        if ($ch -eq '{') { $depth++ }
+                        elseif ($ch -eq '}')
+                        {
+                            $depth--
+                            if ($depth -eq 0) { $close = $ci; break }
+                        }
+                    }
+                    if ($close -gt $open)
+                    {
+                        $blk = $raw.Substring($open, $close - $open + 1) | ConvertFrom-Json
+                        foreach ($p in $blk.PSObject.Properties)
+                        {
+                            $ger = ([string]$p.Value).Trim()
+                            $eng = ([string]$p.Name).Trim()
+                            if ($ger -eq '' -or $eng -eq '') { continue }
+                            $key = $ger.ToLowerInvariant()
+                            if (-not $alias.ContainsKey($key)) { $alias[$key] = $eng.ToLowerInvariant() }
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+        $script:MarketDeAlias = $alias
+    }
 
     $idx = Read-MarketCatalogIndex -Path (Get-MarketCatalogIndexPath) -Version $cat.Version -Updated $cat.Updated
     if ($null -ne $idx)
@@ -1697,7 +1759,80 @@ function Get-MarketSuggestions
         if ($full) { $hits.RemoveAt($hits.Count - 1) }
         $hits.Insert($p, [pscustomobject]@{ Name = $n; Score = $s; Len = $len })
     }
+
+    # German names are search aliases: a query that matches a German name
+    # brings back the English item, which stays the canonical name everywhere.
+    # English hits keep their ranking; an alias only wins when it scores
+    # higher, so typing German still surfaces the English matches first.
+    $aliasMap = $null
+    try { $aliasMap = $script:MarketDeAlias } catch { $aliasMap = $null }
+    if ($null -ne $aliasMap -and $aliasMap.Count -gt 0)
+    {
+        $have = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($h in $hits) { [void]$have.Add([string]$h.Name) }
+        $extra = [System.Collections.Generic.List[object]]::new()
+        foreach ($kv in $aliasMap.GetEnumerator())
+        {
+            $tl = [string]$kv.Key
+            $enKey = [string]$kv.Value
+            if ($tl -eq '' -or $enKey -eq '' -or $have.Contains($enKey)) { continue }
+            $s = -1
+            if ($tl -ceq $ql)
+            {
+                $s = 999000
+            }
+            else
+            {
+                $idx = $tl.IndexOf($ql, [System.StringComparison]::Ordinal)
+                if ($idx -ge 0)
+                {
+                    $s = 10000 - $idx
+                    if ($idx -eq 0) { $s += 5000 }
+                    elseif ($tl[$idx - 1] -eq ' ' -or $tl[$idx - 1] -eq '-') { $s += 2500 }
+                    $pen = ($tl.Length - $qlen) * 5
+                    if ($pen -gt 500) { $pen = 500 }
+                    $s += (500 - $pen)
+                }
+            }
+            if ($s -lt 0) { continue }
+            # resolve the item's own spelling - the alias map is lowercased
+            $en = $enKey
+            $cref = $null
+            try { $cref = $c.Catalog } catch { $cref = $null }
+            if ($null -ne $cref -and $null -ne $cref.ByName)
+            {
+                $rec = $null
+                if ($cref.ByName.TryGetValue($enKey, [ref]$rec) -and $null -ne $rec) { $en = [string]$rec.name }
+            }
+            if ($en -eq '') { continue }
+            [void]$extra.Add([pscustomobject]@{ Name = $en; Score = $s; Len = $en.Length })
+        }
+        if ($extra.Count -gt 0)
+        {
+            $merged = [System.Collections.Generic.List[object]]::new()
+            foreach ($h in $hits) { [void]$merged.Add($h) }
+            foreach ($h in $extra)
+            {
+                $dup = $false
+                foreach ($m in $merged)
+                {
+                    if ([string]::Equals([string]$m.Name, [string]$h.Name, [System.StringComparison]::OrdinalIgnoreCase)) { $dup = $true; break }
+                }
+                if (-not $dup) { [void]$merged.Add($h) }
+            }
+            $ranked = @($merged | Sort-Object -Property Score -Descending)
+            $hits.Clear()
+            $added = 0
+            foreach ($h in $ranked)
+            {
+                if ($added -ge $Limit) { break }
+                [void]$hits.Add($h)
+                $added++
+            }
+        }
+    }
     if ($hits.Count -eq 0) { return ,@() }
+
 
     $out = @()
     foreach ($h in $hits) { $out += [string]$h.Name }

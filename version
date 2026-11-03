@@ -1,16 +1,15 @@
 Author: Immortal / Divine
-Version: 3.0.6
+Version: 3.0.7
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 [Changelogs]
    - Added:
 
-	- Trades and Exchanges for NPCs in maps
+	- Added icons and new pet items in the market
 
    - Fixed:
 
-	- Multiple bug fixes in all areas
-	- Ftool/Macro loading/saving fixed
+	- 
 
 
    Dont forget to request your Access Code in Discord for the Worldboss Feature!
