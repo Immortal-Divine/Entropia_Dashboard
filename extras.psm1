@@ -649,8 +649,6 @@ function Start-ChestOpener {
     if ($UI.StartChestBtn) { $UI.StartChestBtn.Enabled = $false }
     if ($UI.StopChestBtn)  { $UI.StopChestBtn.Enabled  = $true }
 
-    # A completed worker is not disposed automatically; release the previous
-    # runspace before starting a new one so a paused/completed run cannot leak.
     if ($script:PowerShellInstance) {
         try { $script:PowerShellInstance.Stop() } catch { }
         try { $script:PowerShellInstance.Dispose() } catch { }

@@ -393,11 +393,6 @@ function New-AtlasDownloadClient
 	param([int]$Threads = 12)
 	try { Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue } catch { }
 	if ($Threads -lt 1) { $Threads = 12 }
-	# A fresh connection per picture was the whole cost of an atlas download:
-	# every 10 KB image paid for its own TLS handshake.  Measured against the
-	# icon tree, one connection per file costs ~270 ms and a kept-alive one
-	# ~17 ms, and there are sixteen thousand pictures.  So the handler keeps
-	# connections open and the pool is sized to the number of files in flight.
 	try
 	{
 		if ([System.Net.ServicePointManager]::DefaultConnectionLimit -lt $Threads)
@@ -998,9 +993,6 @@ function Sync-AtlasAssets
 		$offer = [bool]($got -and $got -ne $dataWant)
 		if ($offer)
 		{
-			# A manifest older than the data on disk describes an older build.
-			# Do not offer to replace newer local data with it: the data that
-			# ships beside this module can be newer than the published manifest.
 			$genUtc = [datetime]::MinValue
 			$genRaw = $manifest.generated
 			try

@@ -6,11 +6,26 @@ $global:LaunchCancellation = [hashtable]::Synchronized(@{
 		IsCancelled = $false
 	})
 
+$global:LaunchResources = [hashtable]::Synchronized(@{})
+
 $script:LastLaunchToastTick = 0
 
 #endregion
 
 #region Launch Management Functions
+
+function New-LaunchBootstrapState
+{
+	param([bool]$Ready = $false)
+
+	[hashtable]::Synchronized(@{
+		Ready      = $Ready
+		Owner      = $null
+		Gate       = [System.Threading.SemaphoreSlim]::new(1, 1)
+		LastError  = $null
+		CreatedAt  = [DateTime]::Now
+	})
+}
 
 function StartClientLaunch
 {
@@ -45,6 +60,8 @@ function StartClientLaunch
 		return
 	}
 
+	$wasLaunchActive = [bool]$global:DashboardConfig.State.LaunchActive
+
 	if ($global:DashboardConfig.State.LaunchActive -and -not $FromSequence)
 	{
 		Show-DarkMessageBox 'Launch operation already in progress' 'Launch' 'Ok' 'Information'
@@ -68,6 +85,17 @@ function StartClientLaunch
 
 	$neuzName = $settingsDict['ProcessName']['ProcessName']
 	$launcherPath = $settingsDict['LauncherPath']['LauncherPath']
+
+	if (-not $wasLaunchActive -or -not $global:DashboardConfig.State.ContainsKey('LaunchBootstrap') -or $null -eq $global:DashboardConfig.State['LaunchBootstrap'])
+	{
+		$neuzRunning = $false
+		if (-not [string]::IsNullOrWhiteSpace($neuzName))
+		{
+			$neuzRunning = @(Get-Process -Name $neuzName -ErrorAction SilentlyContinue).Count -gt 0
+		}
+		$global:DashboardConfig.State['LaunchBootstrap'] = New-LaunchBootstrapState -Ready $neuzRunning
+		Write-Verbose "LAUNCH: Bootstrap state initialized (Ready: $neuzRunning)."
+	}
 
 	$profileToUse = 'Default'
 
@@ -113,7 +141,7 @@ function StartClientLaunch
 	if ([string]::IsNullOrEmpty($neuzName) -or [string]::IsNullOrEmpty($launcherPath) -or -not (Test-Path $launcherPath))
 	{
 		Write-Verbose 'LAUNCH: Invalid launch settings'
-		$global:DashboardConfig.State.LaunchActive = $false
+		if ($global:LaunchResources.Count -eq 0) { $global:DashboardConfig.State.LaunchActive = $false }
 		return
 	}
 
@@ -123,6 +151,15 @@ function StartClientLaunch
 		if (-not ([int]::TryParse($settingsDict['MaxClients']['MaxClients'], [ref]$maxClients)))
 		{
 			$maxClients = 1
+		}
+	}
+
+	$maxSimultaneousStarts = 0
+	if ($settingsDict['Options'] -and $settingsDict['Options'].Contains('MaxTotalClients') -and -not [string]::IsNullOrWhiteSpace($settingsDict['Options']['MaxTotalClients']))
+	{
+		if (-not ([int]::TryParse($settingsDict['Options']['MaxTotalClients'], [ref]$maxSimultaneousStarts)) -or $maxSimultaneousStarts -lt 0)
+		{
+			$maxSimultaneousStarts = 0
 		}
 	}
 
@@ -140,7 +177,6 @@ function StartClientLaunch
 	}
 	
 	$clientsToLaunch = 0
-	$profileClientCount = 0
 
 	if ($ClientAddCount -gt 0)
 	{
@@ -154,19 +190,13 @@ function StartClientLaunch
 	}
 	else
 	{
-		if (Test-DashboardCommand 'GetProcessProfile')
-		{
-			$allClients = Get-Process -Name $neuzName -ErrorAction SilentlyContinue -Verbose:$False
-			foreach ($client in $allClients)
-			{
-				$clientProfile = GetProcessProfile -Process $client
-				if (([string]::IsNullOrEmpty($clientProfile) -and $profileToUse -eq 'Default') -or $clientProfile -eq $profileToUse)
-				{
-					$profileClientCount++
-				}
-			}
-		}
-		$clientsToLaunch = [Math]::Max(0, $maxClients - $profileClientCount)
+		$clientsToLaunch = [Math]::Max(0, $maxClients)
+	}
+
+	if (-not $FromSequence -and $maxSimultaneousStarts -gt 0 -and $clientsToLaunch -gt $maxSimultaneousStarts)
+	{
+		Write-Verbose "LAUNCH: Capping simultaneous starts from $clientsToLaunch to $maxSimultaneousStarts."
+		$clientsToLaunch = $maxSimultaneousStarts
 	}
 
 	$launcherTimeoutSeconds = 60
@@ -177,14 +207,14 @@ function StartClientLaunch
 
 	if ($clientsToLaunch -le 0 -and -not $SavedLaunchLoginConfig)
 	{
-		Write-Verbose "LAUNCH: No clients to launch for profile '$profileToUse'. (Max: $maxClients, Current: $profileClientCount)"
-		$global:DashboardConfig.State.LaunchActive = $false
+		Write-Verbose "LAUNCH: No clients to launch for profile '$profileToUse'. (Max new: $maxClients)"
+		if ($global:LaunchResources.Count -eq 0) { $global:DashboardConfig.State.LaunchActive = $false }
 		return
 	}
 	
 	$varsToInject = @{
-		'LaunchCancellation' = $global:LaunchCancellation
-		'DashboardConfig'    = $global:DashboardConfig
+		'LaunchCancellation'   = $global:LaunchCancellation
+		'DashboardConfig'      = $global:DashboardConfig
 	}
     
 	$assembliesToAdd = [System.Collections.Generic.HashSet[string]]::new()
@@ -236,11 +266,13 @@ function StartClientLaunch
 	catch
 	{
 		Write-Verbose "LAUNCH: Error creating runspace: $_"
-		$global:DashboardConfig.State.LaunchActive = $false
+		if ($global:LaunchResources.Count -eq 0) { $global:DashboardConfig.State.LaunchActive = $false }
 		return
 	}
 	
-	$global:LaunchResources = @{
+	$operationId = [Guid]::NewGuid().ToString('N')
+	$launchResource = @{
+		OperationId         = $operationId
 		PowerShellInstance  = $null
 		Runspace            = $localRunspace
 		EventSubscriptionId = $null
@@ -248,7 +280,10 @@ function StartClientLaunch
 		InfoSubscription    = $null
 		AsyncResult         = $null
 		StartTime           = [DateTime]::Now
+		RequestedClients    = $clientsToLaunch
+		ProfileName         = $profileToUse
 	}
+	$global:LaunchResources[$operationId] = $launchResource
 
 	ShowToast -Title 'Launch Process' -Message 'Starting Launch Process...' -Type 'Info' -Key 9998 -TimeoutSeconds 0
 
@@ -270,7 +305,8 @@ function StartClientLaunch
 			$SetupName,
 			$SequenceRemainingCount,
 			$ProfileName,
-			$LauncherTimeoutSeconds
+			$LauncherTimeoutSeconds,
+			$OperationId
 		)
 
 		function CheckCancel
@@ -310,6 +346,7 @@ function StartClientLaunch
 		try
 		{
 			CheckCancel
+
 			Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 			$InformationPreference = 'SilentlyContinue'
 
@@ -338,13 +375,31 @@ function StartClientLaunch
 			$launcherDir = [System.IO.Path]::GetDirectoryName($LauncherPath)
 			$launcherName = [System.IO.Path]::GetFileNameWithoutExtension($LauncherPath)
 
+			$neuzExePath = $null
+			$neuzWorkingDir = $null
+			foreach ($bits in @('bin64', 'bin32'))
+			{
+				$candidate = Join-Path $launcherDir "$bits\neuz.exe"
+				if (Test-Path -LiteralPath $candidate -PathType Leaf)
+				{
+					$neuzExePath = $candidate
+					$neuzWorkingDir = Split-Path -Parent $candidate
+					break
+				}
+			}
+
+			$bootstrap = $null
+			try { $bootstrap = $DashboardConfig.State['LaunchBootstrap'] } catch {}
+			$isBootstrapMode = ($neuzExePath -and $null -ne $bootstrap)
+			if ($isBootstrapMode) { Write-Verbose 'LAUNCH: Direct-start bootstrap is available.' }
+
 			Write-Verbose 'LAUNCH: Checking clients...'
 			$currentClients = @(Get-Process -Name $NeuzName -ErrorAction SilentlyContinue)
 			$pCount = $currentClients.Count
 			
 			$isFreshLaunch = ($pCount -eq 0)
 
-			if ($isFreshLaunch) {
+			if ($isFreshLaunch -and -not $isBootstrapMode) {
 				Write-Verbose "LAUNCH: No clients detected. Starting Main Launcher for patching..."
 				ReportLaunchProgress -Action "Patching Main Client..." -Step 0 -TotalSteps $totalSteps
 				
@@ -421,6 +476,76 @@ function StartClientLaunch
 			}
 			$currentClients = $null
 
+			$isBootstrapOwner = $false
+			$directStartEnabled = $false
+
+			if ($isBootstrapMode)
+			{
+				if ($bootstrap.Ready)
+				{
+					$directStartEnabled = $true
+					Write-Verbose 'LAUNCH: A client is already running. Starting directly with neuz.exe.'
+				}
+				else
+				{
+					$claimed = $false
+					if ($bootstrap.Gate.Wait(0))
+					{
+						try
+						{
+							if (-not $bootstrap.Ready -and [string]::IsNullOrEmpty([string]$bootstrap.Owner))
+							{
+								$bootstrap.Owner = [string]$OperationId
+								$claimed = $true
+							}
+						}
+						finally { $bootstrap.Gate.Release() | Out-Null }
+					}
+
+					if ($claimed)
+					{
+						$isBootstrapOwner = $true
+						Write-Verbose 'LAUNCH: This operation owns the single Launcher bootstrap.'
+					}
+					else
+					{
+						$waitStart = [DateTime]::Now
+						$waitLimit = [Math]::Max(($LauncherTimeoutSeconds * 3), 120)
+						Write-Verbose 'LAUNCH: Waiting for the bootstrap client to start...'
+						while (-not $bootstrap.Ready)
+						{
+							CheckCancel
+							if ([string]::IsNullOrEmpty([string]$bootstrap.Owner))
+							{
+								if ($bootstrap.Gate.Wait(0))
+								{
+									try
+									{
+										if (-not $bootstrap.Ready -and [string]::IsNullOrEmpty([string]$bootstrap.Owner))
+										{
+											$bootstrap.Owner = [string]$OperationId
+											$isBootstrapOwner = $true
+										}
+									}
+									finally { $bootstrap.Gate.Release() | Out-Null }
+								}
+							}
+							if ($isBootstrapOwner) { break }
+							if (([DateTime]::Now - $waitStart).TotalSeconds -gt $waitLimit)
+							{
+								throw "Timed out waiting for the bootstrap Launcher (Profile: $ProfileName)."
+							}
+							SleepWithCancel -Milliseconds 500
+						}
+						if (-not $isBootstrapOwner)
+						{
+							$directStartEnabled = $true
+							Write-Verbose 'LAUNCH: Bootstrap client is ready. Starting directly with neuz.exe.'
+						}
+					}
+				}
+			}
+
 			$launchTasks = New-Object System.Collections.Generic.LinkedList[PSObject]
 			1..$ClientsToLaunch | ForEach-Object { $launchTasks.AddLast([PSCustomObject]@{ RetryCount = 0; Id = $_ }) }
 
@@ -452,6 +577,95 @@ function StartClientLaunch
 
 				ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Starting..." -Step $currentStep -TotalSteps $totalSteps
 
+				if ($isBootstrapMode -and $bootstrap -and $bootstrap.Ready)
+				{
+					$directStartEnabled = $true
+					$isBootstrapOwner = $false
+				}
+
+				if ($directStartEnabled)
+				{
+					$currentStep++
+					$clientsLeftInBatch = $launchTasks.Count + 1
+					$totalLeft = $SequenceRemainingCount + $clientsLeftInBatch
+					$prefix = ""
+					if (-not [string]::IsNullOrEmpty($SetupName)) { $prefix = "Setup: $SetupName [$totalLeft Left] | " }
+					$attemptDisplay = $clientsLaunchedCount + 1
+					ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Starting neuz.exe directly..." -Step $currentStep -TotalSteps $totalSteps
+
+					$newClientPID = 0
+					$windowReady = $false
+					$directProcess = $null
+					try
+					{
+						$directProcess = Start-Process -FilePath $neuzExePath -WorkingDirectory $neuzWorkingDir -ArgumentList 'sunkist' -PassThru -WindowStyle Normal
+						if ($directProcess)
+						{
+							$newClientPID = $directProcess.Id
+							[void]$existingPIDs.Add($newClientPID)
+							Write-Verbose "LAUNCH: Direct neuz PID: $newClientPID"
+						}
+					}
+					catch { Write-Verbose "LAUNCH: Direct start failed: $_" }
+
+					if ($newClientPID -gt 0)
+					{
+						$currentStep++
+						ReportLaunchProgress -Action "${prefix}Client $attemptDisplay/$ClientsToLaunch Waiting for Window (Timeout: ${LauncherTimeoutSeconds}s)..." -Step $currentStep -TotalSteps $totalSteps
+						$directStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+						while (-not $windowReady -and $directStopwatch.Elapsed.TotalSeconds -lt $LauncherTimeoutSeconds)
+						{
+							CheckCancel
+							$tempClient = $null
+							try
+							{
+								$tempClient = Get-Process -Id $newClientPID -ErrorAction SilentlyContinue
+								if ($tempClient -and $tempClient.Responding -and $tempClient.MainWindowHandle -ne [IntPtr]::Zero)
+								{
+									$windowReady = $true
+									try { [Custom.Native]::SendMessage($tempClient.MainWindowHandle, 0x0112, 0xF020, 0) } catch {}
+									try { [Custom.Native]::EmptyWorkingSet($tempClient.Handle) } catch {}
+								}
+							}
+							catch {}
+							if ($tempClient) { $tempClient.Dispose() }
+							if (-not $windowReady) { SleepWithCancel -Milliseconds 500 }
+						}
+					}
+
+					if ($windowReady)
+					{
+						$clientsLaunchedCount++
+					}
+					else
+					{
+						if ($newClientPID -gt 0)
+						{
+							try { Stop-Process -Id $newClientPID -Force -ErrorAction SilentlyContinue } catch {}
+						}
+						$task.RetryCount++
+						if ($task.RetryCount -eq 1)
+						{
+							Write-Verbose 'LAUNCH: Retrying direct client immediately (Attempt 2)'
+							$launchTasks.AddFirst($task)
+						}
+						elseif ($task.RetryCount -eq 2)
+						{
+							Write-Verbose 'LAUNCH: Retrying direct client at end of batch (Attempt 3)'
+							$launchTasks.AddLast($task)
+						}
+						else
+						{
+							Write-Verbose 'LAUNCH: Direct client failed 3 times. Skipping.'
+						}
+					}
+
+					if ($directProcess) { try { $directProcess.Dispose() } catch {} }
+					SleepWithCancel -Milliseconds 1000
+					continue
+				}
+
+				$launcherDirPrefix = $launcherDir.TrimEnd('\') + '\'
 				$GetRelevantLaunchers = {
 					$candidates = @(Get-Process -Name $launcherName -ErrorAction SilentlyContinue)
 					if ($NeuzName -and $NeuzName -ne $launcherName) {
@@ -460,7 +674,12 @@ function StartClientLaunch
 					if ($candidates.Count -eq 0) { return @() }
 					return $candidates | Where-Object { 
 						if ($existingPIDs.Contains($_.Id)) { return $false }
-						if ($_.ProcessName -eq $NeuzName) { return $true }
+						if ($_.ProcessName -eq $NeuzName) {
+							try {
+								$clientExe = $_.MainModule.FileName
+								return ($clientExe -and $clientExe.StartsWith($launcherDirPrefix, [System.StringComparison]::OrdinalIgnoreCase))
+							} catch { return $false }
+						}
 						if ($_.ProcessName -eq $launcherName) {
 							try {
 								return ($_.MainModule.FileName -eq $LauncherPath)
@@ -776,6 +995,12 @@ function StartClientLaunch
 								$clientStarted = $true
 								[void]$existingPIDs.Add($newClientPID)
 								Write-Verbose "LAUNCH: Client started PID: $newClientPID"
+								if ($isBootstrapMode -and $bootstrap -and -not $bootstrap.Ready)
+								{
+									$bootstrap.Ready = $true
+									$bootstrap.Owner = $null
+									Write-Verbose 'LAUNCH: Bootstrap client started. Direct neuz startup unlocked.'
+								}
 							}
 						}
 						catch
@@ -786,6 +1011,12 @@ function StartClientLaunch
 								$clientStarted = $true
 								[void]$existingPIDs.Add($newClientPID)
 								Write-Verbose "LAUNCH: Using PID: $newClientPID (fallback)"
+								if ($isBootstrapMode -and $bootstrap -and -not $bootstrap.Ready)
+								{
+									$bootstrap.Ready = $true
+									$bootstrap.Owner = $null
+									Write-Verbose 'LAUNCH: Bootstrap client started. Direct neuz startup unlocked.'
+								}
 							}
 						}
 
@@ -909,19 +1140,35 @@ function StartClientLaunch
 
 		$simpleEventAction = {
 			param($src, $e)
+
+			$opId = $null
+			try { if ($e -and $e.MessageData) { $opId = [string]$e.MessageData } } catch {}
+			if (-not $opId) {
+				try { if ($event -and $event.MessageData) { $opId = [string]$event.MessageData } } catch {}
+			}
+			if (-not $opId) {
+				$sid = $null
+				try { $sid = $event.SourceIdentifier } catch {}
+				if ($sid -and $global:LaunchResources) {
+					foreach ($res in @($global:LaunchResources.Values)) {
+						if ($res.EventSubscriptionId -eq $sid) { $opId = [string]$res.OperationId; break }
+					}
+				}
+			}
+
 			$state = $e.InvocationStateInfo.State
 			if ($state -eq 'Completed')
 			{
-				if (Test-DashboardCommand 'StopClientLaunch')
+				if ((Test-DashboardCommand 'StopClientLaunch') -and $opId)
 				{
-					StopClientLaunch -StepCompleted
+					StopClientLaunch -StepCompleted -OperationId $opId
 				}
 			}
 			elseif ($state -eq 'Failed' -or $state -eq 'Stopped')
 			{
-				if (Test-DashboardCommand 'StopClientLaunch')
+				if ((Test-DashboardCommand 'StopClientLaunch') -and $opId)
 				{
-					StopClientLaunch
+					StopClientLaunch -Failed -OperationId $opId
 				}
 			}
 		}
@@ -931,50 +1178,56 @@ function StartClientLaunch
 			-RunspacePool $localRunspace `
 			-ScriptBlock $launchScript `
 			-AsJob `
-			-ArgumentList $settingsDict, $launcherPath, $neuzName, $maxClients, $clientsToLaunch, $global:DashboardConfig.Paths.Ini, $global:LaunchCancellation, $SetupName, $SequenceRemainingCount, $profileToUse, $launcherTimeoutSeconds
+			-ArgumentList $settingsDict, $launcherPath, $neuzName, $maxClients, $clientsToLaunch, $global:DashboardConfig.Paths.Ini, $global:LaunchCancellation, $SetupName, $SequenceRemainingCount, $profileToUse, $launcherTimeoutSeconds, $operationId
 
 		if (-not $res -or -not $res.PowerShell) { throw 'Failed to start launch background operation' }
 
 		$launchPS = $res.PowerShell
 
-		$global:LaunchResources.InfoSubscription = $null
+		$launchResource.InfoSubscription = $null
 
-		$eventSub = Register-ObjectEvent -InputObject $launchPS -EventName InvocationStateChanged -SourceIdentifier $eventName -Action $simpleEventAction
+		$eventSub = Register-ObjectEvent -InputObject $launchPS -EventName InvocationStateChanged -SourceIdentifier $eventName -MessageData $operationId -Action $simpleEventAction
 
 		if ($null -eq $eventSub) { throw 'Failed to register event subscriber' }
 
-		$global:LaunchResources.EventSubscriptionId = $eventName
-		$global:LaunchResources.EventSubscriber = $eventSub
-		$global:LaunchResources.PowerShellInstance = $launchPS
+		$launchResource.EventSubscriptionId = $eventName
+		$launchResource.EventSubscriber = $eventSub
+		$launchResource.PowerShellInstance = $launchPS
 
-		$safetyTimer = New-Object System.Timers.Timer
-		$safetyTimer.Interval = 600000
-		$safetyTimer.AutoReset = $false
+		if (-not $global:DashboardConfig.Resources.Timers.Contains('launchSafetyTimer'))
+		{
+			$safetyTimer = New-Object System.Timers.Timer
+			$safetyTimer.Interval = 600000
+			$safetyTimer.AutoReset = $false
 
-		$safetyTimer.Add_Elapsed({
-				Write-Verbose 'LAUNCH: Safety timer elapsed'
-				if (Test-DashboardCommand 'StopClientLaunch') { StopClientLaunch }
+			$safetyTimer.Add_Elapsed({
+					Write-Verbose 'LAUNCH: Safety timer elapsed'
+					if (Test-DashboardCommand 'StopClientLaunch') { StopClientLaunch }
+				})
+
+			$safetyTimer.Start()
+			$global:DashboardConfig.Resources.Timers['launchSafetyTimer'] = $safetyTimer
+		}
+
+		if (-not $global:DashboardConfig.Resources.Timers.Contains('launchUITimer'))
+		{
+			$uiUpdateTimer = New-Object System.Windows.Forms.Timer
+			$uiUpdateTimer.Interval = 100
+			$uiUpdateTimer.Add_Tick({
+				try {
+					$status = $global:DashboardConfig.State.LaunchStatus
+					if ($status -and $status.LastUpdateTick -gt $script:LastLaunchToastTick)
+					{
+						$script:LastLaunchToastTick = $status.LastUpdateTick
+						ShowToast -Title 'Launch Progress' -Message $status.Text -Type 'Info' -Key 9998 -TimeoutSeconds 0 -Progress $status.Percent
+					}
+				} catch {}
 			})
+			$uiUpdateTimer.Start()
+			$global:DashboardConfig.Resources.Timers['launchUITimer'] = $uiUpdateTimer
+		}
 
-		$safetyTimer.Start()
-		$global:DashboardConfig.Resources.Timers['launchSafetyTimer'] = $safetyTimer
-
-		$uiUpdateTimer = New-Object System.Windows.Forms.Timer
-		$uiUpdateTimer.Interval = 100
-		$uiUpdateTimer.Add_Tick({
-			try {
-				$status = $global:DashboardConfig.State.LaunchStatus
-				if ($status -and $status.LastUpdateTick -gt $script:LastLaunchToastTick)
-				{
-					$script:LastLaunchToastTick = $status.LastUpdateTick
-					ShowToast -Title 'Launch Progress' -Message $status.Text -Type 'Info' -Key 9998 -TimeoutSeconds 0 -Progress $status.Percent
-				}
-			} catch {}
-		})
-		$uiUpdateTimer.Start()
-		$global:DashboardConfig.Resources.Timers['launchUITimer'] = $uiUpdateTimer
-
-		$global:LaunchResources.AsyncResult = $res.AsyncResult
+		$launchResource.AsyncResult = $res.AsyncResult
 
 		if ($global:DashboardConfig.State.LaunchActive)
 		{
@@ -987,7 +1240,14 @@ function StartClientLaunch
 	catch
 	{
 		Write-Verbose "LAUNCH: Error in launch setup: $_"
-		StopClientLaunch
+		if ($operationId -and $global:LaunchResources.ContainsKey($operationId))
+		{
+			StopClientLaunch -OperationId $operationId
+		}
+		else
+		{
+			StopClientLaunch
+		}
 	}
 }
 
@@ -1022,6 +1282,23 @@ function InvokeSavedLaunchSequence
 	$global:LaunchCancellation.IsCancelled = $false
 	$global:DashboardConfig.State.LaunchActive = $true
 	$global:DashboardConfig.State.SequenceActive = $true
+
+	$sequenceNeuzName = 'neuz'
+	try
+	{
+		if ($global:DashboardConfig.Config['ProcessName'] -and $global:DashboardConfig.Config['ProcessName']['ProcessName'])
+		{
+			$sequenceNeuzName = [string]$global:DashboardConfig.Config['ProcessName']['ProcessName']
+		}
+	}
+	catch {}
+	$sequenceNeuzRunning = $false
+	if (-not [string]::IsNullOrWhiteSpace($sequenceNeuzName))
+	{
+		$sequenceNeuzRunning = @(Get-Process -Name $sequenceNeuzName -ErrorAction SilentlyContinue).Count -gt 0
+	}
+	$global:DashboardConfig.State['LaunchBootstrap'] = New-LaunchBootstrapState -Ready $sequenceNeuzRunning
+	Write-Verbose "LAUNCH SEQUENCE: Bootstrap launcher required: $(-not $sequenceNeuzRunning)"
 
 	
 	$requirements = [ordered]@{}
@@ -1143,30 +1420,54 @@ function InvokeSavedLaunchSequence
 				$this.Stop(); $this.Dispose()
 				return
 			}
-			if ($global:LaunchResources) { return }
+			$maxConcurrentClients = 0
+			if ($global:DashboardConfig.Config['Options'] -and $global:DashboardConfig.Config['Options'].Contains('MaxTotalClients'))
+			{
+				$null = [int]::TryParse([string]$global:DashboardConfig.Config['Options']['MaxTotalClients'], [ref]$maxConcurrentClients)
+			}
+			if ($maxConcurrentClients -le 0) { $maxConcurrentClients = [int]::MaxValue }
 
 			$queue = $global:DashboardConfig.Resources['LaunchQueue']
 			$idx = $global:DashboardConfig.Resources['LaunchQueueIndex']
 
-			if ($idx -lt $queue.Count)
+			$startedClients = 0
+			for ($i = 0; $i -lt $idx -and $i -lt $queue.Count; $i++) { $startedClients += [int]$queue[$i].Count }
+			$reservedClients = $startedClients
+
+			while ($idx -lt $queue.Count)
 			{
 				$item = $queue[$idx]
-				$global:DashboardConfig.Resources['LaunchQueueIndex'] = $idx + 1
+				$itemCount = [int]$item.Count
+
+				$profileBusy = $false
+				foreach ($activeResource in @($global:LaunchResources.Values))
+				{
+					if ($activeResource.ProfileName -eq $item.Profile) { $profileBusy = $true; break }
+				}
+				if ($profileBusy) { break }
+
+				if (($reservedClients + $itemCount) -gt $maxConcurrentClients -and $reservedClients -gt 0) { break }
 
 				$remainingInSeq = 0
 				for ($i = $idx + 1; $i -lt $queue.Count; $i++) { $remainingInSeq += $queue[$i].Count }
 				$sName = $global:DashboardConfig.Resources['CurrentLaunchSetupName']
 
-				if ($item.Profile -eq 'Default')
-				{
-					StartClientLaunch -ClientAddCount $item.Count -FromSequence -SetupName $sName -SequenceRemainingCount $remainingInSeq
-				}
-				else
-				{
-					StartClientLaunch -ProfileNameOverride $item.Profile -ClientAddCount $item.Count -FromSequence -SetupName $sName -SequenceRemainingCount $remainingInSeq
-				}
+				StartClientLaunch -ProfileNameOverride $item.Profile -ClientAddCount $itemCount -FromSequence -SetupName $sName -SequenceRemainingCount $remainingInSeq
+
+				$reservedClients += $itemCount
+				$idx++
 			}
-			else
+
+			$global:DashboardConfig.Resources['LaunchQueueIndex'] = $idx
+
+			if ($idx -lt $queue.Count -and $global:LaunchResources.Count -eq 0)
+			{
+				Write-Verbose "LAUNCH SEQUENCE: Client limit reached; skipping $($queue.Count - $idx) remaining profile batch(es)."
+				$idx = $queue.Count
+				$global:DashboardConfig.Resources['LaunchQueueIndex'] = $idx
+			}
+
+			if ($idx -ge $queue.Count -and $global:LaunchResources.Count -eq 0)
 			{
 				$this.Stop(); $this.Dispose()
 				$global:DashboardConfig.Resources.Timers.Remove('SequenceTimer')
@@ -1389,6 +1690,22 @@ function InvokeSavedLaunchSequence
 							$global:DashboardConfig.State.LaunchActive = $false
 							$global:DashboardConfig.State.SequenceActive = $false
 						}
+
+						foreach ($timerName in @('launchSafetyTimer', 'launchUITimer'))
+						{
+							if ($global:DashboardConfig.Resources.Timers.Contains($timerName))
+							{
+								try
+								{
+									$timer = $global:DashboardConfig.Resources.Timers[$timerName]
+									$timer.Stop()
+									$timer.Dispose()
+									$global:DashboardConfig.Resources.Timers.Remove($timerName)
+								}
+								catch {}
+							}
+						}
+						CloseToast -Key 9998
 					})
 				$global:DashboardConfig.Resources.Timers['LoginWaitTimer'] = $loginWaitTimer
 				$loginWaitTimer.Start()
@@ -1401,26 +1718,30 @@ function InvokeSavedLaunchSequence
 function StopClientLaunch
 {
 	[CmdletBinding()]
-	param([switch]$StepCompleted, [switch]$Sync)
+	param(
+		[switch]$StepCompleted,
+		[switch]$Failed,
+		[string]$OperationId,
+		[switch]$Sync
+	)
+
+	$isCancel = -not ($StepCompleted -or $Failed)
 
 	if ($StepCompleted)
 	{
 		Write-Verbose 'LAUNCH: Cleaning up completed launch step...'
 	}
- else
+	elseif ($Failed)
+	{
+		Write-Verbose 'LAUNCH: Cleaning up failed launch operation...'
+	}
+	else
 	{
 		Write-Verbose 'LAUNCH: Cancelling all launch operations...'
 		$global:LaunchCancellation.IsCancelled = $true
 	}
 
-	if (-not ($StepCompleted -and $global:DashboardConfig.State.SequenceActive))
-	{
-		$global:DashboardConfig.State.LaunchActive = $false
-		$global:DashboardConfig.State.SequenceActive = $false
-	}
-
-	
-	if (-not $StepCompleted)
+	if ($isCancel)
 	{
 		try
 		{
@@ -1449,55 +1770,53 @@ function StopClientLaunch
 
 	if ($null -eq $global:LaunchResources)
 	{
-		
-		if ($global:DashboardConfig.UI.Launch)
-		{
-			$global:DashboardConfig.UI.Launch.FlatStyle = 'Flat'
-			$global:DashboardConfig.UI.Launch.Text = 'Launch ' + [char]0x25BE
-		}
-		return
+		$global:LaunchResources = [hashtable]::Synchronized(@{})
 	}
 
-	try
+	$resourcesToClean = @()
+	if (-not [string]::IsNullOrWhiteSpace($OperationId))
 	{
-		
-		if ($null -ne $global:LaunchResources.EventSubscriptionId)
+		if ($global:LaunchResources.ContainsKey($OperationId))
 		{
-			try { Unregister-Event -SourceIdentifier $global:LaunchResources.EventSubscriptionId -Force -ErrorAction SilentlyContinue } catch {}
+			$resourcesToClean = @($global:LaunchResources[$OperationId])
+			$global:LaunchResources.Remove($OperationId) | Out-Null
 		}
-		if ($null -ne $global:LaunchResources.EventSubscriber)
-		{
-			try { Unregister-Event -SubscriptionId $global:LaunchResources.EventSubscriber.Id -ErrorAction SilentlyContinue } catch {}
-		}
-		if ($null -ne $global:LaunchResources.InfoSubscription)
-		{
-			try { Unregister-Event -SubscriptionId $global:LaunchResources.InfoSubscription.Id -ErrorAction SilentlyContinue } catch {}
-		}
+	}
+	else
+	{
+		$resourcesToClean = @($global:LaunchResources.Values)
+		$global:LaunchResources.Clear()
+	}
 
-		
-		$psInstance = $global:LaunchResources.PowerShellInstance
-		$null = $runspace; $runspace = $global:LaunchResources.Runspace
-		$asyncResult = $global:LaunchResources.AsyncResult
-
-		if ($asyncResult -and -not $asyncResult.IsCompleted)
+	foreach ($resource in $resourcesToClean)
+	{
+		if ($null -ne $resource.EventSubscriptionId)
 		{
-			
-			$completedGracefully = $asyncResult.AsyncWaitHandle.WaitOne(5000)
-			if (-not $completedGracefully -and $psInstance)
+			try { Unregister-Event -SourceIdentifier $resource.EventSubscriptionId -Force -ErrorAction SilentlyContinue } catch {}
+		}
+		if ($null -ne $resource.EventSubscriber)
+		{
+			try { Unregister-Event -SubscriptionId $resource.EventSubscriber.Id -ErrorAction SilentlyContinue } catch {}
+		}
+		if ($null -ne $resource.InfoSubscription)
+		{
+			try { Unregister-Event -SubscriptionId $resource.InfoSubscription.Id -ErrorAction SilentlyContinue } catch {}
+		}
+	}
+
+	$cleanupAction = {
+		param($items)
+		foreach ($item in $items)
+		{
+			try
 			{
-				Write-Verbose 'LAUNCH: Graceful cancellation timed out. Forcing stop.'
-				if ($psInstance.InvocationStateInfo.State -eq 'Running')
+				$ps = $item.PowerShellInstance
+				$rs = $item.Runspace
+				$ar = $item.AsyncResult
+				if ($ar -and -not $ar.IsCompleted)
 				{
-					try { $psInstance.Stop() } catch {}
+					try { $null = $ar.AsyncWaitHandle.WaitOne(5000) } catch {}
 				}
-			}
-		}
-		$localRes = $global:LaunchResources.Clone()
-
-        $cleanupAction = {
-            try
-			{
-				$ps = $localRes.PowerShellInstance; $rs = $localRes.Runspace; $ar = $localRes.AsyncResult
 				if ($ps)
 				{
 					try { if ($ps.InvocationStateInfo.State -eq 'Running') { $ps.Stop() } } catch {}
@@ -1505,57 +1824,61 @@ function StopClientLaunch
 					try { $ps.Dispose() } catch {}
 				}
 				if ($rs) { try { $rs.Dispose() } catch {} }
-			} catch {}
-        }
-
-        if ($Sync) {
-            & $cleanupAction
-        } else {
-		    [System.Threading.Tasks.Task]::Run([Action]$cleanupAction) | Out-Null
-        }
-
-		if ($global:DashboardConfig.Resources.Timers.Contains('launchSafetyTimer'))
-		{
-			try
-			{
-				$global:DashboardConfig.Resources.Timers['launchSafetyTimer'].Stop()
-				$global:DashboardConfig.Resources.Timers['launchSafetyTimer'].Dispose()
-				$global:DashboardConfig.Resources.Timers.Remove('launchSafetyTimer')
 			}
 			catch {}
 		}
-		if ($global:DashboardConfig.Resources.Timers.Contains('launchUITimer'))
-		{
-			try
-			{
-				$global:DashboardConfig.Resources.Timers['launchUITimer'].Stop()
-				$global:DashboardConfig.Resources.Timers['launchUITimer'].Dispose()
-				$global:DashboardConfig.Resources.Timers.Remove('launchUITimer')
-			}
-			catch {}
-		}
+	}
 
-		$global:LaunchResources = $null
+	if ($Sync)
+	{
+		& $cleanupAction $resourcesToClean
+	}
+	else
+	{
+		$cleanupItems = $resourcesToClean
+		[System.Threading.Tasks.Task]::Run([Action]{ & $cleanupAction $cleanupItems }) | Out-Null
+	}
+
+	$remaining = 0
+	if ($global:LaunchResources) { $remaining = $global:LaunchResources.Count }
+
+	if ($isCancel)
+	{
+		$global:DashboardConfig.State.LaunchActive = $false
+		$global:DashboardConfig.State.SequenceActive = $false
+	}
+	elseif ($remaining -eq 0 -and -not $global:DashboardConfig.State.SequenceActive)
+	{
+		$global:DashboardConfig.State.LaunchActive = $false
+	}
+
+	if (($isCancel -or $remaining -eq 0) -and -not $global:DashboardConfig.State.SequenceActive)
+	{
+		foreach ($timerName in @('launchSafetyTimer', 'launchUITimer'))
+		{
+			if ($global:DashboardConfig.Resources.Timers.Contains($timerName))
+			{
+				try
+				{
+					$timer = $global:DashboardConfig.Resources.Timers[$timerName]
+					$timer.Stop()
+					$timer.Dispose()
+					$global:DashboardConfig.Resources.Timers.Remove($timerName)
+				}
+				catch {}
+			}
+		}
 
 		CloseToast -Key 9998
 
-
-		Write-Verbose 'LAUNCH: Launch resource cleanup completed'
-	}
-	catch
-	{
-		Write-Verbose "LAUNCH: Error during launch cleanup: $_"
-	}
-	finally
-	{
-		
-		$global:DashboardConfig.State.LaunchActive = $false
 		if ($global:DashboardConfig.UI.Launch)
 		{
 			$global:DashboardConfig.UI.Launch.FlatStyle = 'Flat'
 			$global:DashboardConfig.UI.Launch.Text = 'Launch ' + [char]0x25BE
 		}
 	}
+
+	Write-Verbose 'LAUNCH: Launch resource cleanup completed'
 }
 
 #endregion

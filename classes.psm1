@@ -2915,6 +2915,162 @@ namespace Custom
 			catch { return false; }
 		}
 	}
+
+    public static class LogClaimLedger
+    {
+        public sealed class Claim
+        {
+            public string Marker;
+            public int Remaining;
+            public bool Cancelled;
+            public readonly ManualResetEventSlim Done = new ManualResetEventSlim(false);
+        }
+
+        private sealed class LogState
+        {
+            public int ProcessedLines;
+            public readonly Dictionary<string, Queue<Claim>> Pending = new Dictionary<string, Queue<Claim>>(StringComparer.Ordinal);
+        }
+
+        private static readonly object Sync = new object();
+        private static readonly Dictionary<string, LogState> Logs = new Dictionary<string, LogState>(StringComparer.OrdinalIgnoreCase);
+
+        private static LogState GetState(string path)
+        {
+            LogState state;
+            if (!Logs.TryGetValue(path, out state))
+            {
+                state = new LogState();
+                var existing = ReadAllText(path);
+                state.ProcessedLines = existing == null ? 0 : CountCompleteLines(existing);
+                Logs[path] = state;
+            }
+            return state;
+        }
+
+        private static string ReadAllText(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return string.Empty;
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+                {
+                    return reader.ReadToEnd();
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static int CountCompleteLines(string text)
+        {
+            int count = 0;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (text[i] == '\n') count++;
+            }
+            return count;
+        }
+
+        public static Claim Register(string path, string marker, int required)
+        {
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(marker)) return null;
+            lock (Sync)
+            {
+                var state = GetState(path);
+                Queue<Claim> queue;
+                if (!state.Pending.TryGetValue(marker, out queue))
+                {
+                    queue = new Queue<Claim>();
+                    state.Pending[marker] = queue;
+                }
+                var claim = new Claim { Marker = marker, Remaining = Math.Max(1, required) };
+                queue.Enqueue(claim);
+                return claim;
+            }
+        }
+
+        public static bool IsDone(Claim claim)
+        {
+            return claim != null && claim.Done.IsSet;
+        }
+
+        public static void Cancel(Claim claim)
+        {
+            if (claim == null) return;
+            lock (Sync)
+            {
+                claim.Cancelled = true;
+                claim.Done.Set();
+                foreach (var entry in Logs)
+                {
+                    Queue<Claim> queue;
+                    if (!entry.Value.Pending.TryGetValue(claim.Marker, out queue) || queue.Count == 0) continue;
+                    if (!queue.Contains(claim)) continue;
+                    var rebuilt = new Queue<Claim>(queue.Count);
+                    while (queue.Count > 0)
+                    {
+                        var item = queue.Dequeue();
+                        if (!ReferenceEquals(item, claim)) rebuilt.Enqueue(item);
+                    }
+                    entry.Value.Pending[claim.Marker] = rebuilt;
+                }
+            }
+        }
+
+        public static void Poll(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            lock (Sync)
+            {
+                var state = GetState(path);
+                var text = ReadAllText(path);
+                if (text == null) return;
+                int complete = CountCompleteLines(text);
+                if (complete < state.ProcessedLines) state.ProcessedLines = 0;
+                if (complete <= state.ProcessedLines) return;
+
+                var lines = text.Split('\n');
+                for (int i = state.ProcessedLines; i < complete && i < lines.Length; i++)
+                {
+                    var line = lines[i];
+                    foreach (var marker in new List<string>(state.Pending.Keys))
+                    {
+                        if (line.IndexOf(marker, StringComparison.Ordinal) >= 0)
+                        {
+                            Dispatch(state, marker);
+                        }
+                    }
+                }
+                state.ProcessedLines = complete;
+            }
+        }
+
+        private static void Dispatch(LogState state, string marker)
+        {
+            Queue<Claim> queue;
+            if (!state.Pending.TryGetValue(marker, out queue)) return;
+            while (queue.Count > 0)
+            {
+                var claim = queue.Peek();
+                if (claim.Cancelled || claim.Done.IsSet)
+                {
+                    queue.Dequeue();
+                    continue;
+                }
+                claim.Remaining--;
+                if (claim.Remaining <= 0)
+                {
+                    queue.Dequeue();
+                    claim.Done.Set();
+                }
+                return;
+            }
+        }
+    }
 }
 "@ 
 #endregion

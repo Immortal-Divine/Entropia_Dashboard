@@ -411,11 +411,6 @@ function Get-MarketCatalog
     $cat.Version = [int]$stamp.Version
     $cat.Updated = [string]$stamp.Updated
 
-    # German item names ship inside the catalog ("names_de": English name ->
-    # German name). They are search aliases only: a German query resolves to
-    # the English item, so the box, the journal and every lookup keep working
-    # with one canonical name. Read straight from the file, once per session,
-    # so the compiled index cache keeps its own format.
     $hasAlias = $false
     try { $hasAlias = ($null -ne $script:MarketDeAlias) } catch { $hasAlias = $false }
     if (-not $hasAlias)
@@ -430,7 +425,6 @@ function Get-MarketCatalog
                 $open = $raw.IndexOf('{', $mark)
                 if ($open -ge 0)
                 {
-                    # walk the block so a brace inside a name cannot end it
                     $depth = 0
                     $inStr = $false
                     $esc = $false
@@ -549,9 +543,6 @@ function Get-MarketIconBaseRoot
     $key = "$probe".ToLowerInvariant()
     if ($cache.ContainsKey($key)) { return [string]$cache[$key] }
 
-    # Every picture now lives in the atlas icon tree. The atlas root comes
-    # first; the legacy market folders stay as a fallback for a catalog that
-    # was installed before the two sets were merged.
     $candidates = [System.Collections.Generic.List[string]]::new()
     if ($null -ne (Get-Command -Name 'Get-AtlasAssetRoot' -CommandType Function -ErrorAction SilentlyContinue))
     {
@@ -769,8 +760,6 @@ function Get-MarketManifest
     $script:MarketManifestTried = Get-Date
     $script:MarketManifest = $null
 
-    # The atlas manifest is the one installed copy: it names the map data,
-    # the market catalog and every picture either side uses.
     if ($null -ne (Get-Command -Name 'Get-AtlasManifest' -CommandType Function -ErrorAction SilentlyContinue))
     {
         try
@@ -1042,8 +1031,6 @@ function Sync-MarketAssets
         }
     }
 
-    # Pictures are part of the atlas now: one manifest, one icon tree, and
-    # one download check shared by the map and the market.
     if ($null -ne (Get-Command -Name 'Sync-AtlasIcons' -CommandType Function -ErrorAction SilentlyContinue))
     {
         try
@@ -1760,10 +1747,6 @@ function Get-MarketSuggestions
         $hits.Insert($p, [pscustomobject]@{ Name = $n; Score = $s; Len = $len })
     }
 
-    # German names are search aliases: a query that matches a German name
-    # brings back the English item, which stays the canonical name everywhere.
-    # English hits keep their ranking; an alias only wins when it scores
-    # higher, so typing German still surfaces the English matches first.
     $aliasMap = $null
     try { $aliasMap = $script:MarketDeAlias } catch { $aliasMap = $null }
     if ($null -ne $aliasMap -and $aliasMap.Count -gt 0)
@@ -1795,7 +1778,6 @@ function Get-MarketSuggestions
                 }
             }
             if ($s -lt 0) { continue }
-            # resolve the item's own spelling - the alias map is lowercased
             $en = $enKey
             $cref = $null
             try { $cref = $c.Catalog } catch { $cref = $null }

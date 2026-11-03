@@ -1,16 +1,23 @@
 Author: Immortal / Divine
-Version: 3.0.7
+Version: 3.1
 Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypassed 32-bit PowerShell execution.
 
 [Changelogs]
    - Added:
 
-	- Added icons and new pet items in the market
+	- Increase the speed of launch and login dramatically.
+	- Launch and login can now handle multiple clients at the same time.
+	- New Max Total Clients option caps new clients per launch; blank or 0 means unlimited.
+	- Settings -> Launch is split into Saved Setups and Launch Options, with Max Clients moved there.
 
    - Fixed:
 
-	- "Copy Neuz.exe" sometimes not fixing the stale neuz.exe from profiles
-	- Slow downloadspeed of market/map icons
+	- Logins only restore minimized windows instead of forcing every client to the foreground.
+	- A finished login no longer tears down the runspace and timers the other logins are still using.
+	- Launch safety and progress timers are created once and reused instead of stacking up.
+	- Shutdown stops and disposes every running login job, not just the last one.
+	- Launch starts the rest of the clients straight from neuz.exe once one client is already running.
+
 
 
    Dont forget to request your Access Code in Discord for the Worldboss Feature!

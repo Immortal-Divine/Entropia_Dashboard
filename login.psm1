@@ -6,6 +6,10 @@ $global:LoginCancellation = [hashtable]::Synchronized(@{
 		IsCancelled         = $false
 		ScriptInitiatedMove = $false
 	})
+
+if (-not $global:LoginInputGate) { $global:LoginInputGate = [System.Threading.SemaphoreSlim]::new(1, 1) }
+if (-not $global:LoginLauncherGate) { $global:LoginLauncherGate = [System.Threading.SemaphoreSlim]::new(1, 1) }
+if (-not $global:LoginJobs) { $global:LoginJobs = [hashtable]::Synchronized(@{}) }
 $TOTAL_STEPS_PER_CLIENT = 15
 $script:LastLoginToastTick = 0
 
@@ -281,7 +285,6 @@ function LoginSelectedRow
 		}
 	}
 
-	if ($global:DashboardConfig.State['LoginActive']) { return }
 	$global:DashboardConfig.State['LoginActive'] = $true
 
 	try 
@@ -309,7 +312,7 @@ function LoginSelectedRow
 		}
 		else
 		{
-			$global:DashboardConfig.State['LoginActive'] = $false
+			if ($global:LoginJobs.Count -eq 0) { $global:DashboardConfig.State['LoginActive'] = $false }
 			return
 		}
 
@@ -401,8 +404,11 @@ function LoginSelectedRow
 		$global:DashboardConfig.UI.LoginButton.BackColor = Get-Theme 'ButtonBg'
 		$global:DashboardConfig.UI.LoginButton.Text = 'Running...'
 
-		$global:LoginCancellation.IsCancelled = $false
-		$global:LoginCancellation.ScriptInitiatedMove = $false
+		if ($global:LoginJobs.Count -eq 0)
+		{
+			$global:LoginCancellation.IsCancelled = $false
+			$global:LoginCancellation.ScriptInitiatedMove = $false
+		}
 		$global:LoginResources['IsStopping'] = $false
 
 		$hookCallback = [Custom.MouseHookManager+HookProc] {
@@ -412,15 +418,29 @@ function LoginSelectedRow
 				if (-not $global:LoginCancellation.ScriptInitiatedMove)
 				{
 					
-					if ($global:LoginResources -and $global:LoginResources.PowerShellInstance -and -not $global:LoginResources['IsStopping'])
+					if ($global:LoginJobs -and -not $global:LoginResources['IsStopping'])
 					{
-						$psInstance = $global:LoginResources.PowerShellInstance
-						if ($psInstance.InvocationStateInfo.State -eq 'Running')
+						$runningPipelines = $false
+						$hookJobs = @()
+						try
 						{
-							Write-Verbose 'LOGIN: Mouse movement detected, stopping login pipeline.'
+							[System.Threading.Monitor]::Enter($global:LoginJobs.SyncRoot)
+							try { $hookJobs = @($global:LoginJobs.Values) } finally { [System.Threading.Monitor]::Exit($global:LoginJobs.SyncRoot) }
+						}
+						catch {}
+						foreach ($loginJob in $hookJobs)
+						{
+							$psInstance = $loginJob.PowerShell
+							if ($psInstance -and $psInstance.InvocationStateInfo.State -eq 'Running')
+							{
+								$runningPipelines = $true
+								try { $psInstance.Stop() } catch {}
+							}
+						}
+						if ($runningPipelines)
+						{
+							Write-Verbose 'LOGIN: Mouse movement detected, stopping login pipelines.'
 							$global:LoginCancellation.IsCancelled = $true
-							
-							$psInstance.Stop()
 						}
 					}
 				}
@@ -447,6 +467,8 @@ function LoginSelectedRow
 			'TOTAL_STEPS_PER_CLIENT' = $TOTAL_STEPS_PER_CLIENT
 			'CancellationContext'    = $global:LoginCancellation
 			'LoginResources'         = $global:LoginResources
+			'LoginInputGate'         = $global:LoginInputGate
+			'LoginLauncherGate'      = $global:LoginLauncherGate
 		}
 
 		$assembliesToAdd = [System.Collections.Generic.HashSet[string]]::new()
@@ -486,28 +508,35 @@ function LoginSelectedRow
 		}
 
 		
-		$localRunspace = NewManagedRunspace `
-			-Name 'LoginRunspace' `
-			-MinRunspaces 1 `
-			-MaxRunspaces 1 `
-			-SessionVariables $varsToInject `
-			-Assemblies ($assembliesToAdd | Select-Object -Unique)
+		$localRunspace = $global:LoginResources.Runspace
+		if ($null -eq $localRunspace -or $localRunspace.IsClosed)
+		{
+			$localRunspace = NewManagedRunspace `
+				-Name 'LoginRunspacePool' `
+				-MinRunspaces 1 `
+				-MaxRunspaces 10 `
+				-SessionVariables $varsToInject `
+				-Assemblies ($assembliesToAdd | Select-Object -Unique)
 
-		
-		$global:LoginResources = @{
-			PowerShellInstance   = $null
-			Runspace             = $localRunspace
-			EventSubscriptionId  = $null
-			EventSubscriber      = $null
-			ProgressSubscription = $null
-			AsyncResult          = $null
-			IsStopping           = $false
-			IsMouseHookActive    = $global:LoginResources.IsMouseHookActive
+			$global:LoginResources = @{
+				PowerShellInstance   = $null
+				Runspace             = $localRunspace
+				EventSubscriptionId  = $null
+				EventSubscriber      = $null
+				ProgressSubscription = $null
+				AsyncResult          = $null
+				IsStopping           = $false
+				IsMouseHookActive    = $global:LoginResources.IsMouseHookActive
+			}
+		}
+		else
+		{
+			$global:LoginResources['Runspace'] = $localRunspace
 		}
 
 		
 		$loginScript = {
-			param($Jobs, $TotalStepsPerClient, $GlobalOptions, $LoginConfig, $CancellationContext, $State)
+			param($Jobs, $TotalStepsPerClient, $GlobalOptions, $LoginConfig, $CancellationContext, $State, $JobId, $JobPidSet, $JobEntry)
 			$LoginTasks = $Jobs
 
 			if (-not $TotalStepsPerClient -or $TotalStepsPerClient -eq 0) { $TotalStepsPerClient = 15 }
@@ -524,6 +553,80 @@ function LoginSelectedRow
 			function CheckCancel
 			{
 				if ($CancellationContext.IsCancelled) { throw 'LoginCancelled' }
+			}
+
+			function Wait-Gate
+			{
+				param([System.Threading.SemaphoreSlim]$Gate)
+				while (-not $Gate.Wait(100))
+				{
+					CheckCancel
+				}
+			}
+
+			function Enter-InputGate
+			{
+				if ($global:LoginInputGateHeld) { return $false }
+				Wait-Gate -Gate $global:LoginInputGate
+				$global:LoginInputGateHeld = $true
+				return $true
+			}
+
+			function Exit-InputGate
+			{
+				param([bool]$Acquired)
+				if (-not $Acquired) { return }
+				$global:LoginInputGateHeld = $false
+				try { [void]$global:LoginInputGate.Release() } catch {}
+			}
+
+			function Register-LogClaim
+			{
+				param([string]$LogPath, [string]$Marker, [int]$Required = 1)
+				if ([string]::IsNullOrWhiteSpace($LogPath) -or [string]::IsNullOrWhiteSpace($Marker)) { return $null }
+				try { return [Custom.LogClaimLedger]::Register($LogPath, $Marker, $Required) } catch { return $null }
+			}
+
+			function Wait-LogClaim
+			{
+				param($Claim, [string]$LogPath, [int]$TimeoutSeconds)
+				if ($null -eq $Claim) { return $false }
+				if ($TimeoutSeconds -le 0) { $TimeoutSeconds = 60 }
+				$waitSw = [System.Diagnostics.Stopwatch]::StartNew()
+				try
+				{
+					while ($waitSw.Elapsed.TotalSeconds -lt $TimeoutSeconds)
+					{
+						CheckCancel
+						try { [Custom.LogClaimLedger]::Poll($LogPath) } catch {}
+						if ([Custom.LogClaimLedger]::IsDone($Claim)) { return $true }
+						SleepWithCancel -Milliseconds 100
+					}
+					return $false
+				}
+				finally
+				{
+					if (-not [Custom.LogClaimLedger]::IsDone($Claim)) { try { [Custom.LogClaimLedger]::Cancel($Claim) } catch {} }
+				}
+			}
+
+			function Invoke-LoggedKeyPress
+			{
+				param([int]$VirtualKeyCode, [string]$LogPath, [string]$Marker, [int]$Required = 1)
+				$gateAcquired = Enter-InputGate
+				$claim = $null
+				try
+				{
+					$claim = Register-LogClaim -LogPath $LogPath -Marker $Marker -Required $Required
+					$null = Invoke-KeyPress -VirtualKeyCode $VirtualKeyCode
+				}
+				catch
+				{
+					if ($null -ne $claim) { try { [Custom.LogClaimLedger]::Cancel($claim) } catch {} }
+					throw
+				}
+				finally { Exit-InputGate $gateAcquired }
+				return $claim
 			}
 
 			function SleepWithCancel
@@ -578,7 +681,7 @@ function LoginSelectedRow
 				catch {}
 			}
 
-			function EnsureWindowState
+			function EnsureWindowStateCore
 			{
 				$hWnd = $Global:CurrentActiveWindowHandle
 				if ($hWnd -eq [IntPtr]::Zero) { return }
@@ -626,35 +729,69 @@ function LoginSelectedRow
 				}
 			}
 
-			function Invoke-MouseClick
+			function RestoreWindowForInput
 			{
-				param([int]$X, [int]$Y)
+				$hWnd = $Global:CurrentActiveWindowHandle
+				if ($hWnd -eq [IntPtr]::Zero) { return }
+
+				SetWindowToolStyle -hWnd $hWnd -Hide $false
+				try
+				{
+					if ([Custom.Native]::IsWindowMinimized($hWnd))
+					{
+						[void][Custom.Native]::ShowWindow($hWnd, 4)
+						SleepWithCancel -Milliseconds 60
+					}
+				}
+				catch {}
+			}
+
+			function Invoke-MouseClickCore
+			{
+				param([int]$X, [int]$Y, [switch]$DoubleClick)
 				CheckCancel; EnsureWindowResponsive; CheckCancel
                 
-				EnsureWindowState
+				$hWnd = $Global:CurrentActiveWindowHandle
+				if ($hWnd -eq [IntPtr]::Zero) { $hWnd = [Custom.Native]::GetForegroundWindow() }
+
+				RestoreWindowForInput
+
+				$pt = New-Object Custom.Win32Point
+				$pt.X = $X; $pt.Y = $Y
+				[void][Custom.Win32MouseUtils]::ScreenToClient($hWnd, [ref]$pt)
+				$lParam = [Custom.Win32MouseUtils]::MakeLParam($pt.X, $pt.Y).ToInt32()
 
 				$CancellationContext.ScriptInitiatedMove = $true
 				try
 				{
-					[Custom.Native]::SetCursorPos($X, $Y); Start-Sleep -Milliseconds 20
-					[Custom.Native]::SetCursorPos($X, $Y); Start-Sleep -Milliseconds 30
-					$MOUSEEVENTF_LEFTDOWN = 0x0002; $MOUSEEVENTF_LEFTUP = 0x0004
-					[Custom.Native]::mouse_event($MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); Start-Sleep -Milliseconds 50
-					[Custom.Native]::mouse_event($MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); Start-Sleep -Milliseconds 50
+					[void][Custom.Native]::SetCursorPos(($X - 3), ($Y - 3)); Start-Sleep -Milliseconds 20
+					[void][Custom.Native]::SetCursorPos($X, $Y); Start-Sleep -Milliseconds 30
+
+					$WM_MOUSEMOVE = 0x0200; $WM_LBUTTONDOWN = 0x0201; $WM_LBUTTONUP = 0x0202; $WM_LBUTTONDBLCLK = 0x0203
+					[Custom.Ftool]::fnPostMessage($hWnd, $WM_MOUSEMOVE, 0, $lParam); Start-Sleep -Milliseconds 15
+					[Custom.Ftool]::fnPostMessage($hWnd, $WM_LBUTTONDOWN, 1, $lParam); Start-Sleep -Milliseconds 25
+					[Custom.Ftool]::fnPostMessage($hWnd, $WM_LBUTTONUP, 0, $lParam)
+					if ($DoubleClick)
+					{
+						Start-Sleep -Milliseconds 25
+						[Custom.Ftool]::fnPostMessage($hWnd, $WM_LBUTTONDBLCLK, 1, $lParam); Start-Sleep -Milliseconds 25
+						[Custom.Ftool]::fnPostMessage($hWnd, $WM_LBUTTONUP, 0, $lParam)
+					}
+
+					Start-Sleep -Milliseconds 100
 				}
 				catch { Write-Verbose "Mouse click failed: $_" } finally
 				{ 
-					Start-Sleep -Milliseconds 50; $CancellationContext.ScriptInitiatedMove = $false; CheckCancel 
-					EnsureWindowState
+					$CancellationContext.ScriptInitiatedMove = $false; CheckCancel
 				}
 			}
 
-			function Invoke-KeyPress
+			function Invoke-KeyPressCore
 			{
 				param([int]$VirtualKeyCode)
 				CheckCancel; EnsureWindowResponsive; CheckCancel
                 
-				EnsureWindowState
+				RestoreWindowForInput
 
 				try
 				{
@@ -664,8 +801,40 @@ function LoginSelectedRow
 					[Custom.Ftool]::fnPostMessage($hWnd, 0x0101, $VirtualKeyCode, 0); SleepWithCancel -Milliseconds 25
 				}
 				catch { if ($_.Exception.Message -eq 'LoginCancelled') { throw }; throw "KeyPress Failed: $($_.Exception.Message)" }
-                
-				EnsureWindowState
+			}
+
+			function EnsureWindowState
+			{
+				$gateAcquired = Enter-InputGate
+				try { EnsureWindowStateCore }
+				finally { Exit-InputGate $gateAcquired }
+			}
+
+			function Invoke-MouseClick
+			{
+				param([int]$X, [int]$Y)
+				CheckCancel; EnsureWindowResponsive; CheckCancel
+				$gateAcquired = Enter-InputGate
+				try { Invoke-MouseClickCore -X $X -Y $Y }
+				finally { Exit-InputGate $gateAcquired }
+			}
+
+			function Invoke-MouseDoubleClick
+			{
+				param([int]$X, [int]$Y)
+				CheckCancel; EnsureWindowResponsive; CheckCancel
+				$gateAcquired = Enter-InputGate
+				try { Invoke-MouseClickCore -X $X -Y $Y -DoubleClick }
+				finally { Exit-InputGate $gateAcquired }
+			}
+
+			function Invoke-KeyPress
+			{
+				param([int]$VirtualKeyCode)
+				CheckCancel; EnsureWindowResponsive; CheckCancel
+				$gateAcquired = Enter-InputGate
+				try { Invoke-KeyPressCore -VirtualKeyCode $VirtualKeyCode }
+				finally { Exit-InputGate $gateAcquired }
 			}
 
 			function ParseCoordinates
@@ -792,11 +961,12 @@ function LoginSelectedRow
 				
 				$msg = "Profile: $ProfileName | Server ($ServerID) | Channel ($ChannelID)`nAccount: $accDisplay`n$Action"
 				Write-Verbose -Message $msg
-				if ($State -and $State.LoginStatus) {
-					$status = $State.LoginStatus
-					$status['Text'] = $msg
-					$status['Percent'] = $pct
-					$status['LastUpdateTick'] = [DateTime]::Now.Ticks
+				if ($JobEntry) {
+					$JobEntry['Status'] = $msg
+					$JobEntry['Percent'] = $pct
+					$JobEntry['LastUpdateTick'] = [DateTime]::Now.Ticks
+					$JobEntry['ProfileName'] = $ProfileName
+					$JobEntry['EntryNum'] = $EntryNum
 				}
 			}
 
@@ -831,7 +1001,10 @@ function LoginSelectedRow
 						$profileName = $job.ProfileName
 						$clientTitle = $job.ClientTitle
 
-						if ($processId -gt 0) { if ($State -and $State['ActiveLoginPids']) { [void]$State['ActiveLoginPids'].Add($processId) } }
+						if ($processId -gt 0) {
+							if ($JobPidSet) { [void]$JobPidSet.Add([int]$processId) }
+							if ($State -and $State['ActiveLoginPids']) { [void]$State['ActiveLoginPids'].Add($processId) }
+						}
 					
 						$logPath = $job.LogPath
 						$config = $job.Config
@@ -857,7 +1030,7 @@ function LoginSelectedRow
 						$Global:CurrentActiveWindowHandle = $workingHwnd
 						$currentStep++; ReportLoginProgress -Action 'Getting Client ready...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
 
-						EnsureWindowState; CheckCancel; EnsureWindowResponsive; CheckCancel; SleepWithCancel -Milliseconds 50
+						RestoreWindowForInput; CheckCancel; EnsureWindowResponsive; CheckCancel; SleepWithCancel -Milliseconds 50
 
 						$rect = New-Object Custom.Native+RECT
 						[Custom.Native]::GetWindowRect($workingHwnd, [ref]$rect)
@@ -879,15 +1052,15 @@ function LoginSelectedRow
 								CheckCancel; EnsureWindowResponsive; CheckCancel
 								Invoke-MouseClick -X ($scrollbaseX + 5) -Y ($scrollbaseY - 5); SleepWithCancel -Milliseconds 50
 								$targetY = $baseY + (($entryNumber - 6) * 18)
-								Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
-								Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
+								Invoke-MouseDoubleClick -X $baseX -Y $targetY; SleepWithCancel -Milliseconds 50
+								Invoke-MouseDoubleClick -X $baseX -Y $targetY
 							}
 							elseif ($entryNumber -ge 1 -and $entryNumber -le 5)
 							{
 								$targetY = $baseY + (($entryNumber - 1) * 18)
 								CheckCancel; EnsureWindowResponsive; CheckCancel
-								Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
-								Invoke-MouseClick -X $baseX -Y $targetY; Invoke-MouseClick -X $baseX -Y $targetY
+								Invoke-MouseDoubleClick -X $baseX -Y $targetY; SleepWithCancel -Milliseconds 50
+								Invoke-MouseDoubleClick -X $baseX -Y $targetY
 							}
 						}
 						else
@@ -908,8 +1081,8 @@ function LoginSelectedRow
 							}
 							elseif ($entryNumber -ge 11) { return }
 							CheckCancel; EnsureWindowResponsive; CheckCancel
-							Invoke-MouseClick -X $centerX -Y $adjustedY; Invoke-MouseClick -X $centerX -Y $adjustedY
-							Invoke-MouseClick -X $centerX -Y $adjustedY; Invoke-MouseClick -X $centerX -Y $adjustedY
+							Invoke-MouseDoubleClick -X $centerX -Y $adjustedY; SleepWithCancel -Milliseconds 50
+							Invoke-MouseDoubleClick -X $centerX -Y $adjustedY
 							SleepWithCancel -Milliseconds 50
 						}
 						SleepWithCancel -Milliseconds 50
@@ -922,8 +1095,7 @@ function LoginSelectedRow
 							if ($coords)
 							{
 								$currentStep++; ReportLoginProgress -Action "Selecting Server $serverID..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
-								Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
-								Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+								Invoke-MouseDoubleClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
 								SleepWithCancel -Milliseconds 50
 							}
 						}
@@ -936,17 +1108,16 @@ function LoginSelectedRow
 							if ($coords)
 							{
 								$currentStep++; ReportLoginProgress -Action "Selecting Channel $channelID..." -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
-								Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
-								Invoke-MouseClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
+								Invoke-MouseDoubleClick -X ($rect.Left + $coords.X) -Y ($rect.Top + $coords.Y)
 								SleepWithCancel -Milliseconds 50
 							}
 						}
 						SleepWithCancel -Milliseconds 50; CheckCancel; EnsureWindowResponsive; CheckCancel
 						$currentStep++; ReportLoginProgress -Action 'Entering Character Selection...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
-						Invoke-KeyPress -VirtualKeyCode 0x0D
+						$loginClaim = Invoke-LoggedKeyPress -VirtualKeyCode 0x0D -LogPath $logPath -Marker '6 - LOGIN_PLAYER_LIST' -Required 1
 
 						$currentStep++
-						$loginReady = Wait-ForLogEntry -LogPath $logPath -SearchStrings @('6 - LOGIN_PLAYER_LIST') -TimeoutSeconds 25
+						$loginReady = Wait-LogClaim -Claim $loginClaim -LogPath $logPath -TimeoutSeconds 25
 						if (-not $loginReady) { throw "CERT Login Timeout for Client $entryNumber" }
 						SleepWithCancel -Milliseconds 50; CheckCancel; EnsureWindowResponsive; CheckCancel
 					
@@ -989,13 +1160,15 @@ function LoginSelectedRow
 							}
 						}
 						CheckCancel; EnsureWindowResponsive; CheckCancel
-						Invoke-KeyPress -VirtualKeyCode 0x0D; SleepWithCancel -Milliseconds 50
+						$worldMarker = '13 - CACHE_ACK_JOIN'; $worldRequired = 3
+						if ($config['WorldLoadLogThreshold']) { $worldRequired = [int]$config['WorldLoadLogThreshold'] }
+						if ($config['WorldLoadLogEntry']) { $worldMarker = $config['WorldLoadLogEntry'] }
+						$worldClaim = Invoke-LoggedKeyPress -VirtualKeyCode 0x0D -LogPath $logPath -Marker $worldMarker -Required $worldRequired
+						SleepWithCancel -Milliseconds 50
 
-						$currentStep++
-						$cacheJoin = Wait-forLogEntry -LogPath $logPath -SearchStrings @('13 - CACHE_ACK_JOIN') -TimeoutSeconds 60
+						$currentStep++; ReportLoginProgress -Action 'Waiting for World Load...' -Step $currentStep -TotalSteps $totalGlobalSteps -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
+						$cacheJoin = Wait-LogClaim -Claim $worldClaim -LogPath $logPath -TimeoutSeconds 60
 						if (-not $cacheJoin) { throw "Main Login Timeout for Client $entryNumber" }
-
-						$currentStep++; Wait-UntilWorldLoaded -LogPath $logPath -Config $config -TotalSteps $totalGlobalSteps -CurrentStep $currentStep -ClientIdx $loginAttemptDisplay -ClientCount $totalClients -EntryNum $entryNumber -ProfileName $profileName -ServerID $serverID -ChannelID $channelID -ClientTitle $clientTitle
 						CheckCancel; EnsureWindowResponsive; CheckCancel
 					
 						$delay = if ($config['PostLoginDelay']) { [int]$config['PostLoginDelay'] } else { 1 }
@@ -1040,6 +1213,7 @@ function LoginSelectedRow
 
 						if ($task.RetryCount -le 2)
 						{
+							$relaunchGateAcquired = Enter-InputGate
 							try
 							{
 								Write-Verbose "LOGIN: Attempting to relaunch client (Attempt $($task.RetryCount + 1))..."
@@ -1137,6 +1311,7 @@ function LoginSelectedRow
 								}
 							}
 							catch { Write-Verbose "LOGIN: Relaunch failed: $_" }
+							finally { Exit-InputGate $relaunchGateAcquired }
 						}
 
 						if ($relaunchSuccess)
@@ -1183,71 +1358,121 @@ function LoginSelectedRow
 			param($s, $e)
 			$state = $e.InvocationStateInfo.State
 			$mainForm = $global:DashboardConfig.UI.MainForm
+			$completedJobId = $null
+			try { if ($event -and $event.MessageData) { $completedJobId = [string]$event.MessageData } } catch {}
+			if (-not $completedJobId) { try { if ($e -and $e.MessageData) { $completedJobId = [string]$e.MessageData } } catch {} }
 			if ($state -eq 'Failed') { Write-Verbose "LOGIN EXCEPTION: $($e.InvocationStateInfo.Reason)" }
 			if ($state -match 'Completed|Failed|Stopped')
 			{
 				if ($mainForm -and -not $mainForm.IsDisposed -and $mainForm.IsHandleCreated)
 				{
-					$mainForm.BeginInvoke([Action] { CleanUpLoginResources -globalLoginResourcesRef $global:DashboardConfig})
+					try
+					{
+						$cleanupDelegate = [Action[object]] { param($id) CleanUpLoginResources -JobId ([string]$id) }
+						$mainForm.BeginInvoke($cleanupDelegate, @([object]$completedJobId)) | Out-Null
+					}
+					catch { CleanUpLoginResources -JobId $completedJobId }
 				}
-				else { CleanUpLoginResources -globalLoginResourcesRef $global:DashboardConfig }
+				else { CleanUpLoginResources -JobId $completedJobId }
 			}
 		}
-		$eventName = 'LoginOp_' + [Guid]::NewGuid().ToString('N')
 
 		
-		$global:DashboardConfig.State.LoginStatus = [hashtable]::Synchronized(@{
-			Text = "Starting Login Process..."
-			Percent = 0
-			LastUpdateTick = [DateTime]::Now.Ticks
-		})
-
 		$stepsVal = if ($TOTAL_STEPS_PER_CLIENT) { $TOTAL_STEPS_PER_CLIENT } else { 15 }
 		$options = if ($global:DashboardConfig.Config) { $global:DashboardConfig.Config['Options'] } else { @{} }
 		$loginCfg = if ($global:DashboardConfig.Config) { $global:DashboardConfig.Config['LoginConfig'] } else { @{} }
 
-		$result = InvokeInManagedRunspace -RunspacePool $localRunspace -ScriptBlock $loginScript -AsJob -ArgumentList $loginTasks, $stepsVal, $options, $loginCfg, $global:LoginCancellation, $global:DashboardConfig.State
-
-		if ($result -and $result.PowerShell)
+		$startedJobs = 0
+		$localLoginJobIds = @()
+		foreach ($taskToStart in @($loginTasks))
 		{
+			$jobId = [Guid]::NewGuid().ToString('N')
+			$jobPidSet = [System.Collections.Generic.HashSet[int]]::new()
+			$jobEntry = [hashtable]::Synchronized(@{
+				JobId          = $jobId
+				PowerShell     = $null
+				AsyncResult    = $null
+				EventSubId     = $null
+				EventSub       = $null
+				PidSet         = $jobPidSet
+				JobData        = $taskToStart.JobData
+				Status         = 'Starting Login Process...'
+				Percent        = 0
+				LastUpdateTick = [DateTime]::Now.Ticks
+				StartTime      = [DateTime]::Now
+			})
+
+			$jobTasks = New-Object System.Collections.Generic.LinkedList[PSObject]
+			$jobTasks.AddLast($taskToStart)
+
+			$result = InvokeInManagedRunspace -RunspacePool $localRunspace -ScriptBlock $loginScript -AsJob -ArgumentList $jobTasks, $stepsVal, $options, $loginCfg, $global:LoginCancellation, $global:DashboardConfig.State, $jobId, $jobPidSet, $jobEntry
+			if (-not ($result -and $result.PowerShell)) { throw "Failed to start login background job for $($taskToStart.JobData.ProfileName)" }
+
 			$loginPS = $result.PowerShell
+			$jobEventName = 'LoginOp_' + $jobId
+			$eventSub = Register-ObjectEvent -InputObject $loginPS -EventName InvocationStateChanged -SourceIdentifier $jobEventName -MessageData $jobId -Action $completionEvent
 
-			$global:LoginResources['InfoSubscription'] = $null
+			$jobEntry['PowerShell'] = $loginPS
+			$jobEntry['AsyncResult'] = $result.AsyncResult
+			$jobEntry['EventSubId'] = $jobEventName
+			$jobEntry['EventSub'] = $eventSub
+			$global:LoginJobs[$jobId] = $jobEntry
+			$localLoginJobIds += $jobId
+			$startedJobs++
 
-			$eventSub = Register-ObjectEvent -InputObject $loginPS -EventName InvocationStateChanged -SourceIdentifier $eventName -Action $completionEvent
-			$global:LoginResources['EventSubscriptionId'] = $eventName
-			$global:LoginResources['EventSubscriber'] = $eventSub
+			Write-Verbose "LOGIN: Started simultaneous login job for $($taskToStart.JobData.ProfileName) ($($taskToStart.JobData.ClientTitle))."
 
-			$global:LoginResources['PowerShellInstance'] = $loginPS
-			$global:LoginResources['AsyncResult'] = $result.AsyncResult
+			if ($loginPS.InvocationStateInfo.State -match 'Completed|Failed|Stopped')
+			{
+				CleanUpLoginResources -JobId $jobId
+			}
+		}
 
+		if ($startedJobs -eq 0) { throw 'Failed to start login background jobs' }
+
+		if (-not $global:DashboardConfig.Resources.Timers.Contains('loginUITimer'))
+		{
 			$uiUpdateTimer = New-Object System.Windows.Forms.Timer
 			$uiUpdateTimer.Interval = 100
 			$uiUpdateTimer.Add_Tick({
 				try {
-					$status = $global:DashboardConfig.State.LoginStatus
-					if ($status -and $status.LastUpdateTick -gt $script:LastLoginToastTick)
+					$activeLogins = @()
+					[System.Threading.Monitor]::Enter($global:LoginJobs.SyncRoot)
+					try { $activeLogins = @($global:LoginJobs.Values) } finally { [System.Threading.Monitor]::Exit($global:LoginJobs.SyncRoot) }
+					if ($activeLogins.Count -gt 0)
 					{
-						$script:LastLoginToastTick = $status.LastUpdateTick
-						ShowToast -Title 'Login Progress' -Message $status.Text -Type 'Info' -Key 9999 -TimeoutSeconds 0 -Progress $status.Percent
+						$latest = $activeLogins | Sort-Object @{ Expression = { [long]$_.LastUpdateTick } } -Descending | Select-Object -First 1
+						$tick = [long]$latest.LastUpdateTick
+						if ($tick -gt $script:LastLoginToastTick)
+						{
+							$script:LastLoginToastTick = $tick
+							$percentSum = 0
+							foreach ($activeLogin in $activeLogins) { $percentSum += [int]$activeLogin.Percent }
+							$percentAvg = [int]($percentSum / [Math]::Max(1, $activeLogins.Count))
+							$headline = if ($activeLogins.Count -gt 1) { "Logging in $($activeLogins.Count) clients..." } else { 'Login Progress' }
+							ShowToast -Title 'Login Progress' -Message "$headline`n$($latest.Status)" -Type 'Info' -Key 9999 -TimeoutSeconds 0 -Progress $percentAvg
+						}
 					}
 				} catch {}
 			})
 			$uiUpdateTimer.Start()
 			$global:DashboardConfig.Resources.Timers['loginUITimer'] = $uiUpdateTimer
+		}
 
-			Write-Verbose 'LOGIN: Background process started.'
-		}
-		else
-		{
-			throw 'Failed to start login background job'
-		}
+		Write-Verbose 'LOGIN: Background processes started.'
 
 	}
  catch
 	{
 		Write-Verbose "LOGIN: Error starting login sequence: $_"
-		CleanUpLoginResources -globalLoginResourcesRef $global:DashboardConfig
+		if ($localLoginJobIds -and $localLoginJobIds.Count -gt 0)
+		{
+			CleanUpLoginResources -globalLoginResourcesRef $global:DashboardConfig -JobId $localLoginJobIds
+		}
+		elseif ($global:LoginJobs.Count -eq 0)
+		{
+			$global:DashboardConfig.State['LoginActive'] = $false
+		}
 	}
 }
 
@@ -1256,30 +1481,78 @@ function CleanUpLoginResources
 	[CmdletBinding()]
 	param(
 		[Parameter(Mandatory = $false)]
-		$globalLoginResourcesRef
+		$globalLoginResourcesRef,
+		[Parameter(Mandatory = $false)]
+		[string[]]$JobId,
+		[Parameter(Mandatory = $false)]
+		[switch]$All,
+		[Parameter(Mandatory = $false)]
+		[switch]$Sync
 	)
 
 	
-	if ($global:LoginResources['IsStopping'])
-	{ 
-		Write-Verbose 'LOGIN: CleanUpLoginResources called but already stopping.'
-		return 
-	}
-	$global:LoginResources['IsStopping'] = $true
+	if (-not $global:LoginJobs) { $global:LoginJobs = [hashtable]::Synchronized(@{}) }
 
-	Write-Verbose 'LOGIN: Cleaning up resources...' 
+	$jobIdsToClean = @()
+	if ($JobId -and $JobId.Count -gt 0) { $jobIdsToClean = @($JobId) }
+	else
+	{
+		try
+		{
+			$jobsLock = $global:LoginJobs.SyncRoot
+			[System.Threading.Monitor]::Enter($jobsLock)
+			try { $jobIdsToClean = @($global:LoginJobs.Keys) }
+			finally { [System.Threading.Monitor]::Exit($jobsLock) }
+		}
+		catch { $jobIdsToClean = @($global:LoginJobs.Keys) }
+	}
+
+	$jobSnapshots = @()
+	$gracedPids = @()
+	foreach ($cleanJobId in $jobIdsToClean)
+	{
+		$jobSnapshot = $null
+		try
+		{
+			$jobsLock = $global:LoginJobs.SyncRoot
+			[System.Threading.Monitor]::Enter($jobsLock)
+			try
+			{
+				if ($global:LoginJobs.ContainsKey($cleanJobId)) { $jobSnapshot = $global:LoginJobs[$cleanJobId] }
+				$global:LoginJobs.Remove($cleanJobId) | Out-Null
+			}
+			finally { [System.Threading.Monitor]::Exit($jobsLock) }
+		}
+		catch {}
+
+		if ($null -eq $jobSnapshot) { continue }
+		$jobSnapshots += $jobSnapshot
+		if ($jobSnapshot.PidSet) { $gracedPids += @($jobSnapshot.PidSet) }
+		elseif ($jobSnapshot.JobData -and $jobSnapshot.JobData.ProcessId -gt 0) { $gracedPids += [int]$jobSnapshot.JobData.ProcessId }
+	}
+
+	Write-Verbose "LOGIN: Cleaning up $($jobSnapshots.Count) finished login job(s); $($global:LoginJobs.Count) still running."
+
+	if ($global:LoginJobs.Count -gt 0)
+	{
+		Write-Verbose 'LOGIN: Other client logins are still running. Shared resources stay active.'
+		return
+	}
+
+	$global:LoginResources['IsStopping'] = $true
+	Write-Verbose 'LOGIN: Cleaning up resources...'
 
 	if (-not $globalLoginResourcesRef) { $globalLoginResourcesRef = $global:DashboardConfig }
 
 	
-	if ($global:DashboardConfig.State.ActiveLoginPids)
+	if (-not $global:DashboardConfig.State.LoginGracePids) { $global:DashboardConfig.State.LoginGracePids = [System.Collections.Hashtable]::Synchronized(@{}) }
+	foreach ($pidToGrace in @($gracedPids | Select-Object -Unique))
 	{
-		$pidsToGrace = @($global:DashboardConfig.State.ActiveLoginPids)
-		foreach ($pidToGrace in $pidsToGrace)
-		{
-			$global:DashboardConfig.State.LoginGracePids[$pidToGrace] = [DateTime]::Now.AddSeconds(120)
-		}
-		$global:DashboardConfig.State.ActiveLoginPids.Clear()
+		if ($null -eq $pidToGrace) { continue }
+		$pidValue = [int]$pidToGrace
+		if ($pidValue -le 0) { continue }
+		try { $global:DashboardConfig.State.LoginGracePids[$pidValue] = [DateTime]::Now.AddSeconds(120) } catch {}
+		if ($global:DashboardConfig.State.ActiveLoginPids) { try { [void]$global:DashboardConfig.State.ActiveLoginPids.Remove($pidValue) } catch {} }
 	}
 
 	
@@ -1360,12 +1633,18 @@ function CleanUpLoginResources
 
 	
 	$localRes = $global:LoginResources.Clone()
+	$localRes.JobSnapshots = $jobSnapshots
+	$localRes.EventSubscriptionId = @($jobSnapshots | ForEach-Object { $_.EventSubId } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
 
 	
 	if ($localRes.EventSubscriptionId)
 	{
-		Unregister-Event -SourceIdentifier $localRes.EventSubscriptionId -ErrorAction SilentlyContinue
-		Write-Verbose "LOGIN: Unregistered InvocationStateChanged event: $($localRes.EventSubscriptionId)" 
+		foreach ($subscriptionId in @($localRes.EventSubscriptionId))
+		{
+			if ([string]::IsNullOrWhiteSpace([string]$subscriptionId)) { continue }
+			Unregister-Event -SourceIdentifier ([string]$subscriptionId) -ErrorAction SilentlyContinue
+		}
+		Write-Verbose "LOGIN: Unregistered InvocationStateChanged event: $($localRes.EventSubscriptionId -join ', ')"
 	}
 	if ($localRes.InfoSubscription)
 	{
@@ -1373,19 +1652,27 @@ function CleanUpLoginResources
 		Write-Verbose "LOGIN: Unregistered Information.DataAdded event (ID: $($localRes.InfoSubscription.Id))" 
 	}
 
-	[System.Threading.Tasks.Task]::Run([Action]{
+	$disposeAction = {
 		try
 		{
-			$ps = $localRes.PowerShellInstance; $rs = $localRes.Runspace; $ar = $localRes.AsyncResult
-			if ($ps)
+			foreach ($snapshot in @($localRes.JobSnapshots))
 			{
-				try { if ($ps.InvocationStateInfo.State -eq 'Running') { $ps.Stop() } } catch {}
-				if ($ar) { try { $ps.EndInvoke($ar) } catch {} }
-				try { $ps.Dispose() } catch {}
+				if ($null -eq $snapshot) { continue }
+				$ps = $snapshot.PowerShell; $ar = $snapshot.AsyncResult
+				if ($ps)
+				{
+					try { if ($ps.InvocationStateInfo.State -eq 'Running') { $ps.Stop() } } catch {}
+					if ($ar) { try { $ps.EndInvoke($ar) } catch {} }
+					try { $ps.Dispose() } catch {}
+				}
 			}
+			$rs = $localRes.Runspace
 			if ($rs) { try { $rs.Dispose() } catch {} }
 		} catch {}
-	}) | Out-Null
+	}
+
+	if ($Sync) { & $disposeAction }
+	else { [System.Threading.Tasks.Task]::Run([Action]$disposeAction) | Out-Null }
 	
 	$global:LoginResources = @{
 		PowerShellInstance  = $null

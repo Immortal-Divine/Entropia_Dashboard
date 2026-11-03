@@ -2017,10 +2017,6 @@ function Copy-BinFoldersToProfiles
 					$srcHash = Get-BinFileHash -Path $srcFile.FullName
 					if (Test-Path -LiteralPath $dstFile)
 					{
-						# The bytes, not the size and the timestamp: Copy-Item stamps the
-						# destination with the source's timestamp, so after one copy the
-						# two numbers match for ever and a rerun called a stale neuz.exe
-						# "unchanged" instead of patching it.
 						$dstHash = Get-BinFileHash -Path $dstFile
 						if ($srcHash -and $dstHash -and $srcHash -eq $dstHash)
 						{
@@ -2033,8 +2029,6 @@ function Copy-BinFoldersToProfiles
 					$afterHash = Get-BinFileHash -Path $dstFile
 					if ($srcHash -and $afterHash -ne $srcHash)
 					{
-						# A client that is still running holds its own exe; the lock is
-						# usually gone a moment later, once the file is closed.
 						Start-Sleep -Milliseconds 250
 						try { Copy-Item -LiteralPath $srcFile.FullName -Destination $dstFile -Force -ErrorAction Stop } catch { }
 						$afterHash = Get-BinFileHash -Path $dstFile
@@ -2351,6 +2345,7 @@ function SyncUIToConfig
 		MigrateLegacyHideProfiles | Out-Null
 
 		$global:DashboardConfig.Config['Options']['LauncherTimeout'] = $UI.InputLauncherTimeout.Text
+		$global:DashboardConfig.Config['Options']['MaxTotalClients'] = $UI.InputMaxTotal.Text.Trim()
 		if (-not $global:DashboardConfig.Config.Contains('SelectedClients') -or $null -eq $global:DashboardConfig.Config['SelectedClients'])
 		{
 			$global:DashboardConfig.Config['SelectedClients'] = [ordered]@{}
@@ -2469,6 +2464,7 @@ function SyncConfigToUI
 		if ($global:DashboardConfig.Config.Contains('ProcessName') -and $global:DashboardConfig.Config['ProcessName'].Contains('ProcessName')) { $UI.InputProcess.Text = $global:DashboardConfig.Config['ProcessName']['ProcessName'] }
 		if ($global:DashboardConfig.Config.Contains('MaxClients') -and $global:DashboardConfig.Config['MaxClients'].Contains('MaxClients')) { $UI.InputMax.Text = $global:DashboardConfig.Config['MaxClients']['MaxClients'] }
 		if ($global:DashboardConfig.Config.Contains('Options') -and $global:DashboardConfig.Config['Options'].Contains('LauncherTimeout')) { $UI.InputLauncherTimeout.Text = $global:DashboardConfig.Config['Options']['LauncherTimeout'] } else { $UI.InputLauncherTimeout.Text = '60' }
+		if ($global:DashboardConfig.Config.Contains('Options') -and $global:DashboardConfig.Config['Options'].Contains('MaxTotalClients')) { $UI.InputMaxTotal.Text = $global:DashboardConfig.Config['Options']['MaxTotalClients'] } else { $UI.InputMaxTotal.Text = '' }
 		if ($global:DashboardConfig.Config.Contains('Paths') -and $global:DashboardConfig.Config['Paths'].Contains('JunctionTarget')) { $UI.InputJunction.Text = $global:DashboardConfig.Config['Paths']['JunctionTarget'] }
 
 		if ($global:DashboardConfig.Config.Contains('Login') -and $global:DashboardConfig.Config['Login'].Contains('NeverRestartingCollectorLogin')) { $UI.NeverRestartingCollectorLogin.Checked = ([int]$global:DashboardConfig.Config['Login']['NeverRestartingCollectorLogin']) -eq 1 }
@@ -2936,7 +2932,7 @@ function InitializeUI
 	$p = @{ type = 'Label'; width = 140; height = 12; top = 5; left = 10; id = 'TitleLabel'; text = 'Entropia Dashboard'; tag = 'Title'; font = (Get-UIFont 'Segoe UI' 8 'Bold') }
 	$titleLabelForm = SetUIElement @p
 
-	$p = @{ type = 'Label'; width = 160; height = 10; top = 16; left = 10; id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v3.0.7'; tag = 'Subtitle'; font = (Get-UIFont 'Segoe UI' 6 'Italic') }
+	$p = @{ type = 'Label'; width = 160; height = 10; top = 16; left = 10; id = 'CopyrightLabel'; text = [char]0x00A9 + ' Immortal / Divine 2026 - v3.1'; tag = 'Subtitle'; font = (Get-UIFont 'Segoe UI' 6 'Italic') }
 	$copyrightLabelForm = SetUIElement @p
 
 	$p = @{ type = 'Button'; width = 30; height = 24; top = 3; left = 327; id = 'ThemeToggle'; text = [char]0x25D0; fs = 'Flat'; tag = 'HeaderButton'; font = (Get-UIFont 'Segoe UI' 20 'Bold'); tooltip = "Theme Manager`nOpen theme selector and custom theme editor."; noCustomPaint = $true }
@@ -3076,9 +3072,9 @@ function InitializeUI
 	$p = @{ type = 'TextBox'; width = 230; height = 30; top = 126; left = 20; id = 'InputProcess'; text = ''; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Process Name`nThe name of the game process (usually 'neuz').`nUsed to detect running clients." }
 	$txtProcessName = SetUIElement @p
 
-	$p = @{ type = 'Label'; width = 230; height = 20; top = 171; left = 20; id = 'LabelMax'; text = 'Max Total Clients For Selection:'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Max Clients`nLimit the total number of clients the dashboard can launch for the default launcher or selected profile.`nPrevents accidental mass-launching." }
+	$p = @{ type = 'Label'; width = 230; height = 20; top = 88; left = 15; id = 'LabelMax'; text = 'Max New Clients For Selection:'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Max Clients`nCaps how many new clients a launch starts for the default launcher or selected profile.`nAlready-running clients do not count toward this limit.`nPrevents accidental mass-launching." }
 	$lblMaxClients = SetUIElement @p
-	$p = @{ type = 'TextBox'; width = 230; height = 30; top = 196; left = 20; id = 'InputMax'; text = ''; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Max Clients`nLimit the total number of clients the dashboard can launch for the default launcher or selected profile`nPrevents accidental mass-launching." }
+	$p = @{ type = 'TextBox'; width = 230; height = 30; top = 108; left = 15; id = 'InputMax'; text = ''; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Max Clients`nCaps how many new clients a launch starts for the default launcher or selected profile.`nAlready-running clients do not count toward this limit.`nPrevents accidental mass-launching." }
 	$txtMaxClients = SetUIElement @p
 
 	$p = @{ type = 'CheckBox'; width = 200; height = 20; top = 20; left = 0; id = 'AutoStartWithWindows'; text = 'Auto Start with Windows'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Auto Start`nEnable this to have the Entropia Dashboard start automatically when you log into Windows." }
@@ -3171,12 +3167,12 @@ function InitializeUI
 	$grpRequired = New-Object System.Windows.Forms.GroupBox
 	$grpRequired.Text = 'Required Settings'
 	$grpRequired.Location = New-Object System.Drawing.Point(0, 4)
-	$grpRequired.Size = New-Object System.Drawing.Size(256, 240)
+	$grpRequired.Size = New-Object System.Drawing.Size(256, 170)
 	$grpRequired.Font = Get-UIFont 'Segoe UI' 9
 
 	$grpPreferences = New-Object System.Windows.Forms.GroupBox
 	$grpPreferences.Text = 'Preferences'
-	$grpPreferences.Location = New-Object System.Drawing.Point(0, 250)
+	$grpPreferences.Location = New-Object System.Drawing.Point(0, 178)
 	$grpPreferences.Size = New-Object System.Drawing.Size(256, 94)
 	$grpPreferences.Font = Get-UIFont 'Segoe UI' 9
 
@@ -3192,7 +3188,7 @@ function InitializeUI
 	$grpClients.Size = New-Object System.Drawing.Size(596, 278)
 	$grpClients.Font = Get-UIFont 'Segoe UI' 9
 
-	$grpRequired.Controls.AddRange(@($lblLauncher, $txtLauncher, $btnBrowseLauncher, $lblProcessName, $txtProcessName, $lblMaxClients, $txtMaxClients))
+	$grpRequired.Controls.AddRange(@($lblLauncher, $txtLauncher, $btnBrowseLauncher, $lblProcessName, $txtProcessName))
 	$grpPreferences.Controls.AddRange(@($chkAutoStartWindows, $lblNotificationPosition, $ddlNotificationPosition))
 	$grpProfiles.Controls.AddRange(@($lblProfiles, $ProfileGrid, $btnAddProfile, $btnStartJunction, $btnRenameProfile, $btnRemoveProfile, $btnDeleteProfile, $lblJunction, $txtJunction, $btnBrowseJunction, $btnCopyNeuz))
 	$grpClients.Controls.AddRange(@($lblClients, $ClientGrid, $btnAddClient, $btnRenameClient, $btnRemoveClient, $chkHideProfiles))
@@ -3208,13 +3204,10 @@ function InitializeUI
 
 	#region Launch Settings
 
-	$p = @{ type = 'Label'; width = 300; height = 20; top = 8; left = 15; text = 'SAVED SETUPS'; tag = 'Section'; font = (Get-UIFont 'Segoe UI' 9 'Bold') }
-	$lblSetupsSection = SetUIElement @p
-
-	$p = @{ type = 'Label'; width = 565; height = 20; top = 33; left = 15; id = 'LabelSetups'; text = 'Select clients in the main list, then click Add to save them as a launch setup:'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Saved Setups`nList of pre-configured client launch groups." }
+	$p = @{ type = 'Label'; width = 565; height = 20; top = 22; left = 15; id = 'LabelSetups'; text = 'Select clients in the main list, then click Add to save them as a launch setup:'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Saved Setups`nList of pre-configured client launch groups." }
 	$lblSetups = SetUIElement @p
 
-	$p = @{ type = 'DataGridView'; width = 565; height = 320; top = 60; left = 15; id = 'SetupGrid'; text = ''; font = (Get-UIFont 'Segoe UI' 9) }
+	$p = @{ type = 'DataGridView'; width = 565; height = 300; top = 48; left = 15; id = 'SetupGrid'; text = ''; font = (Get-UIFont 'Segoe UI' 9) }
 	$SetupGrid = SetUIElement @p
 	$SetupGrid.AllowUserToAddRows = $false
 	$SetupGrid.RowHeadersVisible = $false
@@ -3231,24 +3224,50 @@ function InitializeUI
 	)
 	$SetupGrid.Columns.AddRange([System.Windows.Forms.DataGridViewColumn[]]$setupGridCols)
 
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 400; left = 15; id = 'AddSetup'; text = 'Add'; fs = 'Flat'; font = (Get-UIFont 'Segoe UI' 8); tooltip = "Add Setup`nSave the currently selected clients in the main list as a new launch setup."; noCustomPaint = $true }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 356; left = 15; id = 'AddSetup'; text = 'Add'; fs = 'Flat'; font = (Get-UIFont 'Segoe UI' 8); tooltip = "Add Setup`nSave the currently selected clients in the main list as a new launch setup."; noCustomPaint = $true }
 	$btnAddSetup = SetUIElement @p
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 400; left = 80; id = 'EditSetup'; text = 'Edit'; fs = 'Flat'; font = (Get-UIFont 'Segoe UI' 8); tooltip = "Edit Setup`nModify the clients included in the selected setup."; noCustomPaint = $true }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 356; left = 80; id = 'EditSetup'; text = 'Edit'; fs = 'Flat'; font = (Get-UIFont 'Segoe UI' 8); tooltip = "Edit Setup`nModify the clients included in the selected setup."; noCustomPaint = $true }
 	$btnEditSetup = SetUIElement @p
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 400; left = 145; id = 'RenameSetup'; text = 'Rename'; fs = 'Flat'; font = (Get-UIFont 'Segoe UI' 8); tooltip = "Rename`nChange the name of the selected setup."; noCustomPaint = $true }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 356; left = 145; id = 'RenameSetup'; text = 'Rename'; fs = 'Flat'; font = (Get-UIFont 'Segoe UI' 8); tooltip = "Rename`nChange the name of the selected setup."; noCustomPaint = $true }
 	$btnRenameSetup = SetUIElement @p
-	$p = @{ type = 'Button'; width = 60; height = 25; top = 400; left = 210; id = 'DeleteSetup'; text = 'Delete'; fs = 'Flat'; tag = 'Danger'; font = (Get-UIFont 'Segoe UI' 8); tooltip = "Delete`nRemove the selected setup configuration."; noCustomPaint = $true }
+	$p = @{ type = 'Button'; width = 60; height = 25; top = 356; left = 210; id = 'DeleteSetup'; text = 'Delete'; fs = 'Flat'; tag = 'Danger'; font = (Get-UIFont 'Segoe UI' 8); tooltip = "Delete`nRemove the selected setup configuration."; noCustomPaint = $true }
 	$btnDeleteSetup = SetUIElement @p
 
-	$p = @{ type = 'CheckBox'; width = 250; height = 20; top = 445; left = 0; id = 'AutoStartSetup'; text = 'Auto Start Selected Setup'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Auto Setup`nAutomatically launch the currently selected setup when the Dashboard starts." }
+	$p = @{ type = 'CheckBox'; width = 250; height = 20; top = 28; left = 15; id = 'AutoStartSetup'; text = 'Auto Start Selected Setup'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Auto Setup`nAutomatically launch the currently selected setup when the Dashboard starts." }
 	$chkAutoStartSetup = SetUIElement @p
 
-	$p = @{ type = 'Label'; width = 230; height = 20; top = 440; left = 300; id = 'LabelLauncherTimeout'; text = 'Launcher Timeout (Seconds):'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Launcher Timeout`nSeconds to wait for the launcher to open the game client before retrying." }
+	$p = @{ type = 'Label'; width = 230; height = 20; top = 28; left = 300; id = 'LabelLauncherTimeout'; text = 'Launcher Timeout (Seconds):'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Launcher Timeout`nSeconds to wait for the launcher to open the game client before retrying." }
 	$lblLauncherTimeout = SetUIElement @p
-	$p = @{ type = 'TextBox'; width = 230; height = 30; top = 465; left = 300; id = 'InputLauncherTimeout'; text = '60'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Launcher Timeout`nSeconds to wait for the launcher to open the game client before retrying." }
+	$p = @{ type = 'TextBox'; width = 230; height = 30; top = 48; left = 300; id = 'InputLauncherTimeout'; text = '60'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Launcher Timeout`nSeconds to wait for the launcher to open the game client before retrying." }
 	$txtLauncherTimeout = SetUIElement @p
 
-	$tabLaunchSettings.Controls.AddRange(@($lblSetupsSection, $lblSetups, $SetupGrid, $btnAddSetup, $btnEditSetup, $btnRenameSetup, $btnDeleteSetup, $chkAutoStartSetup, $lblLauncherTimeout, $txtLauncherTimeout))
+	$p = @{ type = 'Label'; width = 230; height = 20; top = 88; left = 300; id = 'LabelMaxTotal'; text = 'Max Simultaneous Starts:'; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Max Simultaneous Starts`nCaps how many new clients a launch starts at once.`nAlready-running clients do not count toward this limit.`nBlank or 0 means unlimited." }
+	$lblMaxTotalClients = SetUIElement @p
+
+	$p = @{ type = 'TextBox'; width = 220; height = 30; top = 108; left = 300; id = 'InputMaxTotal'; text = ''; font = (Get-UIFont 'Segoe UI' 9); tooltip = "Max Simultaneous Starts`nCaps how many new clients a launch starts at once.`nAlready-running clients do not count toward this limit.`nBlank or 0 means unlimited." }
+	$txtMaxTotalClients = SetUIElement @p
+
+	$grpSetups = New-Object System.Windows.Forms.GroupBox
+	$grpSetups.Text = 'Saved Setups'
+	$grpSetups.Location = New-Object System.Drawing.Point(0, 4)
+	$grpSetups.Size = New-Object System.Drawing.Size(596, 400)
+	$grpSetups.Font = Get-UIFont 'Segoe UI' 9
+
+	$grpLaunchOptions = New-Object System.Windows.Forms.GroupBox
+	$grpLaunchOptions.Text = 'Launch Options'
+	$grpLaunchOptions.Location = New-Object System.Drawing.Point(0, 410)
+	$grpLaunchOptions.Size = New-Object System.Drawing.Size(596, 160)
+	$grpLaunchOptions.Font = Get-UIFont 'Segoe UI' 9
+
+	$grpSetups.Controls.AddRange(@($lblSetups, $SetupGrid, $btnAddSetup, $btnEditSetup, $btnRenameSetup, $btnDeleteSetup))
+	$grpLaunchOptions.Controls.AddRange(@($chkAutoStartSetup, $lblLauncherTimeout, $txtLauncherTimeout, $lblMaxClients, $txtMaxClients, $lblMaxTotalClients, $txtMaxTotalClients))
+	$tabLaunchSettings.Controls.AddRange(@($grpSetups, $grpLaunchOptions))
+	if (Test-DashboardCommand 'ApplyControlInternal')
+	{
+		$themeColors = Get-Theme
+		foreach ($grp in @($grpSetups, $grpLaunchOptions)) { ApplyControlInternal $grp $themeColors }
+	}
+	$uiPropertiesToAdd.InputMaxTotal = $txtMaxTotalClients
 	#endregion
 
 	#region Login Settings
@@ -5090,17 +5109,9 @@ function RegisterUIEventHandlers
 					}
 				}
 
-				$processName = 'neuz'
-				if ($global:DashboardConfig.Config['ProcessName'] -and $global:DashboardConfig.Config['ProcessName']['ProcessName'])
-				{
-					$processName = $global:DashboardConfig.Config['ProcessName']['ProcessName']
-				}
-						
-				$profileClientCount = 0
-				$profileClientCount = @(Get-Process -Name $processName -ErrorAction SilentlyContinue).Count
-				$howManyUntilMax = [Math]::Max(0, $maxClients - $profileClientCount)
+				$selectedLaunchCount = [Math]::Max(0, $maxClients)
 
-				$launchLabel = "Launch $($howManyUntilMax)x '$($selectedProfileName)'"
+				$launchLabel = "Launch $($selectedLaunchCount)x '$($selectedProfileName)'"
 				$selectedClientName = Get-SelectedClientForProfile -ProfileName $selectedProfileName
 				if (-not [string]::IsNullOrWhiteSpace($selectedClientName))
 				{
@@ -5759,9 +5770,6 @@ function RegisterUIEventHandlers
 		}
 		CopyNeuz                     = @{ 
 			Click = {
-				# The selection is read before the confirm window opens: what the
-				# copy covers is decided here, not after a modal dialog has come and
-				# gone over the list.
 				$selectedRows = @($global:DashboardConfig.UI.ProfileGrid.SelectedRows)
 				$confirm = Show-DarkMessageBox "Do you want to copy the complete 'bin32' and 'bin64' folders of your main client to the profiles selected in the list above (all profiles if none is selected)?`nProfiles that were not created through junctions or have a different game folder might break.`n`nFiles that cannot be overwritten are skipped and reported - the copy continues.`n`nThis action is only working if you patched your Main Launcher folder first!`nProcced?" 'Confirm Folder Copy' 'YesNo' 'Warning'
 
