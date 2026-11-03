@@ -1,0 +1,80 @@
+name: Generate Sitemap
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate sitemap
+        uses: guimauvedigital/generate-sitemap@v1
+        with:
+          base_url: "https://immortal-divine.github.io/Entropia_Dashboard/"
+          input_dir: "docs"
+          output_path: "docs/sitemap.xml"
+
+      - name: Add directory URLs for index pages
+        run: |
+          python3 - <<'PY'
+          import copy
+          import xml.etree.ElementTree as ET
+
+          ET.register_namespace("", "http://www.sitemaps.org/schemas/sitemap/0.9")
+
+          sitemap_path = "docs/sitemap.xml"
+          tree = ET.parse(sitemap_path)
+          root = tree.getroot()
+
+          for url in list(root):
+              if url.tag.rsplit("}", 1)[-1] != "url":
+                  continue
+
+              loc = next(
+                  (element for element in url if element.tag.rsplit("}", 1)[-1] == "loc"),
+                  None,
+              )
+              if loc is None or not loc.text or not loc.text.endswith("index.html"):
+                  continue
+
+              directory_url = loc.text[:-len("index.html")]
+              already_present = any(
+                  element.tag.rsplit("}", 1)[-1] == "url"
+                  and any(
+                      child.tag.rsplit("}", 1)[-1] == "loc" and child.text == directory_url
+                      for child in element
+                  )
+                  for element in root
+              )
+
+              if not already_present:
+                  directory_entry = copy.deepcopy(url)
+                  directory_loc = next(
+                      element
+                      for element in directory_entry
+                      if element.tag.rsplit("}", 1)[-1] == "loc"
+                  )
+                  directory_loc.text = directory_url
+                  root.append(directory_entry)
+
+          tree.write(sitemap_path, encoding="UTF-8", xml_declaration=True)
+
+          PY
+
+      - name: Commit sitemap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/sitemap.xml
+          git diff --cached --quiet || (
+            git commit -m "Update sitemap.xml"
+            git push
+          )
