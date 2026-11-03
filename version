@@ -6,7 +6,7 @@ Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypa
    - Added:
 
 	- Increase the speed of launch and login dramatically.
-	- Launch and login can now handle multiple clients at the same time.
+	- Launch and login can now handle multiple clients at the same time. (Multi-Launch will be available with the next Entropia Patch)
 	- New Max Total Clients option caps new clients per launch; blank or 0 means unlimited.
 	- Settings -> Launch is split into Saved Setups and Launch Options, with Max Clients moved there.
 
