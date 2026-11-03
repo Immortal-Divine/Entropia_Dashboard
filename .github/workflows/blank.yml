@@ -19,7 +19,8 @@ jobs:
         uses: guimauvedigital/generate-sitemap@v1
         with:
           base_url: "https://immortal-divine.github.io/Entropia_Dashboard/"
-          output_path: "sitemap.xml"
+          input_dir: "docs"
+          output_path: "docs/sitemap.xml"
 
       - name: Commit sitemap
         run: |
