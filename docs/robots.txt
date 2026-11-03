@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://immortal-divine.github.io/Entropia_Dashboard/sitemap.xml
