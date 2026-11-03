@@ -1,0 +1,6 @@
+# Files the dashboard downloads and verifies by SHA-256. If git rewrites their
+# line endings on the way in or out, the published bytes no longer match
+# atlas/manifest.json and every download fails its checksum.
+atlas/src/data.js -text
+atlas/market_catalog.json -text
+docs/maps/src/data.js -text
