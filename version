@@ -9,7 +9,8 @@ Requires: PowerShell 5.1+, .NET Framework 4.6.2+, Administrator privileges, Bypa
 
    - Fixed:
 
-	- 
+	- "Copy Neuz.exe" sometimes not fixing the stale neuz.exe from profiles
+	- Slow downloadspeed of market/map icons
 
 
    Dont forget to request your Access Code in Discord for the Worldboss Feature!
